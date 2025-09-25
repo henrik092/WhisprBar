@@ -1,0 +1,33 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build outputs
+build/
+dist/
+*.AppImage
+*.spec
+*.egg-info/
+pip-wheel-metadata/
+
+# Logs and generated data
+*.log
+*.tmp
+
+# Local planning docs (not for publication)
+AGENTS.md
+DEPLOY_PLAN.md
+WORKLOG.md
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Local secrets/config
+*.env

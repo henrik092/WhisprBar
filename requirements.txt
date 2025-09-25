@@ -1,0 +1,8 @@
+numpy
+sounddevice
+pystray
+Pillow
+pyperclip
+openai
+webrtcvad
+pynput
