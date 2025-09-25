@@ -68,12 +68,3 @@ Use the tray settings dialog to adjust language, microphone, auto-paste mode, no
 
 ## License
 WhisprBar is released under the MIT License. See `LICENSE` for details.
-
-## Security
-- Never commit API keys or personal data. The `.gitignore` excludes virtualenvs, caches, and `.env` files by default.
-- Users should store credentials only in `~/.config/whisprbar.env`.
-
-## Next Steps
-- Finalise dependency metadata (`requirements.txt` vs. `pyproject.toml`).
-- Prototype packaging targets (AppImage, Flatpak, AUR) per `DEPLOY_PLAN.md`.
-- Set up CI/CD (GitHub Actions) for builds, diagnostics, and release artifacts.
