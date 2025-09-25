@@ -14,7 +14,7 @@ WhisprBar is a tray-based voice-to-text assistant for Linux desktops. Press a gl
 - Linux desktop with working audio input and tray support.
 - Python 3.10+ (virtualenv recommended).
 - System packages: `python3-gi`, AppIndicator libs, `xdotool` (X11), `wl-clipboard` (Wayland), `libnotify-bin`, `zenity`, ALSA/PipeWire tools. See `INSTALL.md` for distro-specific package lists.
-- An OpenAI API key stored in `~/.config/whisprbar.env`.
+- An OpenAI API key stored in `~/.config/whisprbar.env` (create one via [platform.openai.com/api-keys](https://platform.openai.com/api-keys)).
 
 ## Quickstart
 ```bash
