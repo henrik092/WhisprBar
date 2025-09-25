@@ -68,3 +68,4 @@ WhisprBar is released under the MIT License. See `LICENSE` for details.
 - Finalise dependency metadata (`requirements.txt` vs. `pyproject.toml`).
 - Prototype packaging targets (AppImage, Flatpak, AUR) per `DEPLOY_PLAN.md`.
 - Set up CI/CD (GitHub Actions) for builds, diagnostics, and release artifacts.
+# whisprBar
