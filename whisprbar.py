@@ -12,6 +12,8 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 import wave
 
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
@@ -89,6 +91,19 @@ TRAY_BACKEND = select_tray_backend()
 import pystray
 
 APP_NAME = "WhisprBar"
+APP_VERSION = "0.1.0"
+GITHUB_REPO = os.environ.get("WHISPRBAR_GITHUB_REPO", "henrik092/whisprBar")
+GITHUB_RELEASE_URL = (
+    os.environ.get(
+        "WHISPRBAR_UPDATE_URL",
+        f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest",
+    )
+)
+UPDATE_COMMAND = os.environ.get(
+    "WHISPRBAR_UPDATE_COMMAND",
+    "git pull && ./install.sh",
+)
+UPDATE_CHECK_TIMEOUT = float(os.environ.get("WHISPRBAR_UPDATE_TIMEOUT", "5"))
 CONFIG_PATH = Path.home() / ".config" / "whisprbar.json"
 DATA_DIR = Path.home() / ".local" / "share" / "whisprbar"
 HIST_FILE = DATA_DIR / "history.jsonl"
@@ -169,6 +184,7 @@ DEFAULT_CFG = {
     "vad_bridge_ms": 180,
     "vad_min_energy_frames": 2,
     "first_run_complete": False,
+    "check_updates": True,
 }
 
 cfg = DEFAULT_CFG.copy()
@@ -198,6 +214,65 @@ state = {
     "client_ready": False,
     "client_warning_shown": False,
 }
+
+
+def parse_version(value: str) -> Tuple[int, ...]:
+    cleaned = value.strip()
+    if cleaned.startswith("v"):
+        cleaned = cleaned[1:]
+    parts: List[int] = []
+    for segment in cleaned.split("."):
+        try:
+            parts.append(int(segment))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts)
+
+
+def fetch_latest_release_tag() -> Optional[str]:
+    request = urllib.request.Request(
+        GITHUB_RELEASE_URL,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": f"{APP_NAME}/{APP_VERSION}",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=UPDATE_CHECK_TIMEOUT) as response:
+        payload = response.read().decode("utf-8")
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Failed to parse GitHub release payload: {exc}") from exc
+    return data.get("tag_name") or data.get("name")
+
+
+def is_newer_version(latest: str, current: str) -> bool:
+    return parse_version(latest) > parse_version(current)
+
+
+def _update_check_worker() -> None:
+    if not cfg.get("check_updates", True):
+        return
+    try:
+        latest = fetch_latest_release_tag()
+    except Exception as exc:
+        debug(f"Update check failed: {exc}")
+        return
+    if not latest:
+        return
+    if is_newer_version(latest, APP_VERSION):
+        message = (
+            f"A newer version ({latest}) is available. Update via: {UPDATE_COMMAND}"
+        )
+        debug(message)
+        print(f"[INFO] {message}")
+        notify(message, force=True)
+
+
+def check_for_updates_async() -> None:
+    if not cfg.get("check_updates", True):
+        return
+    threading.Thread(target=_update_check_worker, name="whisprbar-update-check", daemon=True).start()
 
 
 def is_wayland_session() -> bool:
@@ -525,8 +600,8 @@ def save_config() -> None:
         print(f"[WARN] Failed to write config: {exc}", file=sys.stderr)
 
 
-def notify(message: str, title: str = APP_NAME) -> None:
-    if not cfg.get("notifications_enabled", True):
+def notify(message: str, title: str = APP_NAME, *, force: bool = False) -> None:
+    if not force and not cfg.get("notifications_enabled", True):
         return
     try:
         subprocess.Popen(["notify-send", title, message])
@@ -2307,6 +2382,7 @@ def main() -> None:
     client_ready = prepare_openai_client()
     if not client_ready:
         debug("OpenAI client not initialised; transcription disabled until key is configured.")
+    check_for_updates_async()
     HOTKEY_KEY = parse_hotkey(cfg.get("hotkey"))
     if is_wayland_session():
         debug("Wayland session detected. Auto-paste limited to clipboard-only mode.")

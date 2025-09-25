@@ -38,6 +38,15 @@ On first launch a diagnostics window appears, summarising session type, tray bac
 ~/.local/bin/whisprbar --diagnose
 ```
 
+## Updating
+- When a newer release is available, WhisprBar prints a notice on startup (and sends a desktop notification if enabled).
+- Update your local checkout with:
+  ```bash
+  git pull
+  ./install.sh
+  ```
+- Re-run the installer whenever dependencies or launcher assets change.
+
 ## Configuration
 - Runtime settings: `~/.config/whisprbar.json`
 - Environment secrets: `~/.config/whisprbar.env`
@@ -68,4 +77,3 @@ WhisprBar is released under the MIT License. See `LICENSE` for details.
 - Finalise dependency metadata (`requirements.txt` vs. `pyproject.toml`).
 - Prototype packaging targets (AppImage, Flatpak, AUR) per `DEPLOY_PLAN.md`.
 - Set up CI/CD (GitHub Actions) for builds, diagnostics, and release artifacts.
-# whisprBar

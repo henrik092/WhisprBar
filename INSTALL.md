@@ -83,3 +83,13 @@ install -Dm644 whisprbar.desktop ~/.local/share/applications/whisprbar.desktop
 - **Run environment diagnostics:** `~/.local/bin/whisprbar --diagnose` prints the full check report in the terminal.
 
 See `WORKLOG.md` and `DEPLOY_PLAN.md` (sections 1–3) for additional diagnostics and known limitations.
+
+## Updating an Existing Installation
+
+- WhisprBar checks GitHub for new releases on startup and prints a message if an update is available.
+- To upgrade a git-based installation, pull the latest changes and rerun the installer:
+  ```bash
+  git pull
+  ./install.sh
+  ```
+- Re-run `./install.sh --auto` if you prefer a non-interactive upgrade (respects the same prompts as the initial setup).
