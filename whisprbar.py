@@ -205,6 +205,7 @@ def detect_session_type() -> str:
 
 state = {
     "recording": False,
+    "transcribing": False,
     "device_idx": None,
     "stream": None,
     "session_type": detect_session_type(),
@@ -834,8 +835,15 @@ def refresh_tray_indicator() -> None:
     if state.get("tray_backend") == "appindicator":
         if indicator is None or not icon_files or GLib is None:
             return
-        status = "Recording" if state.get("recording") else "Ready"
-        icon_key = "recording" if state.get("recording") else "ready"
+        if state.get("recording"):
+            status = "Recording"
+            icon_key = "recording"
+        elif state.get("transcribing"):
+            status = "Transcribing"
+            icon_key = "transcribing"
+        else:
+            status = "Ready"
+            icon_key = "ready"
         icon_path = icon_files.get(icon_key)
         if icon_path:
             def _update_icon():
@@ -848,10 +856,17 @@ def refresh_tray_indicator() -> None:
 
     if not icon or not icon_ready:
         return
-    status = "Recording" if state.get("recording") else "Ready"
+    if state.get("recording"):
+        status = "Recording"
+        image_key = "recording"
+    elif state.get("transcribing"):
+        status = "Transcribing"
+        image_key = "transcribing"
+    else:
+        status = "Ready"
+        image_key = "ready"
     session_label = session_status_label()
     icon.title = f"{APP_NAME} - {status} [{session_label}] ({key_to_label(HOTKEY_KEY)}: Start/Stop)"
-    image_key = "recording" if state.get("recording") else "ready"
     image = icon_images.get(image_key) or icon_images.get("ready")
     if image is not None:
         icon.icon = image
@@ -1373,50 +1388,60 @@ def transcribe_audio(audio: np.ndarray) -> None:
             state["client_warning_shown"] = True
         return
 
-    duration = audio.shape[0] / SAMPLE_RATE
-    notify("Processing audio...")
-    debug(f"Transcribing {duration:.2f}s of audio")
-    processed = apply_vad(audio)
-    input_samples = audio.shape[0] if audio.ndim >= 1 else audio.size
-    input_seconds = input_samples / SAMPLE_RATE if input_samples else 0.0
-    output_seconds = processed.size / SAMPLE_RATE if processed.size else 0.0
-    saved_seconds = max(0.0, input_seconds - output_seconds)
-    ratio = (output_seconds / input_seconds) if input_seconds else 1.0
-    mode_label = "VAD" if cfg.get("use_vad") and VAD_AVAILABLE else "raw"
-    debug(
-        "%s throughput: input %.2fs → output %.2fs (saved %.2fs, ratio %.2f)"
-        % (mode_label.upper(), input_seconds, output_seconds, saved_seconds, ratio)
-    )
-    if processed.size < int(SAMPLE_RATE * 0.25):
-        debug("Transcription skipped: insufficient speech after VAD")
-        notify("No speech detected, skipping transcription.")
-        return
-    pcm = np.clip(processed, -1.0, 1.0)
-    pcm16 = (pcm * 32767).astype(np.int16)
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
+    state["transcribing"] = True
+    refresh_tray_indicator()
+    refresh_menu()
+
     try:
-        with wave.open(str(tmp_path), "wb") as wf:
-            wf.setnchannels(CHANNELS)
-            wf.setsampwidth(2)
-            wf.setframerate(SAMPLE_RATE)
-            wf.writeframes(pcm16.tobytes())
-        with tmp_path.open("rb") as handle:
-            response = client.audio.transcriptions.create(
-                model=OPENAI_MODEL,
-                file=handle,
-                language=cfg.get("language") or "de",
-                temperature=0.0,
-            )
-        transcript = response.text.strip()
-        debug(f"Received transcript length: {len(transcript)}")
-    except Exception as exc:
-        notify(f"Transcription failed: {exc}")
-        print(f"[ERROR] Transcription failed: {exc}", file=sys.stderr)
-        return
+        duration = audio.shape[0] / SAMPLE_RATE
+        notify("Processing audio...")
+        debug(f"Transcribing {duration:.2f}s of audio")
+        processed = apply_vad(audio)
+        input_samples = audio.shape[0] if audio.ndim >= 1 else audio.size
+        input_seconds = input_samples / SAMPLE_RATE if input_samples else 0.0
+        output_seconds = processed.size / SAMPLE_RATE if processed.size else 0.0
+        saved_seconds = max(0.0, input_seconds - output_seconds)
+        ratio = (output_seconds / input_seconds) if input_seconds else 1.0
+        mode_label = "VAD" if cfg.get("use_vad") and VAD_AVAILABLE else "raw"
+        debug(
+            "%s throughput: input %.2fs → output %.2fs (saved %.2fs, ratio %.2f)"
+            % (mode_label.upper(), input_seconds, output_seconds, saved_seconds, ratio)
+        )
+        if processed.size < int(SAMPLE_RATE * 0.25):
+            debug("Transcription skipped: insufficient speech after VAD")
+            notify("No speech detected, skipping transcription.")
+            return
+        pcm = np.clip(processed, -1.0, 1.0)
+        pcm16 = (pcm * 32767).astype(np.int16)
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            with wave.open(str(tmp_path), "wb") as wf:
+                wf.setnchannels(CHANNELS)
+                wf.setsampwidth(2)
+                wf.setframerate(SAMPLE_RATE)
+                wf.writeframes(pcm16.tobytes())
+            with tmp_path.open("rb") as handle:
+                response = client.audio.transcriptions.create(
+                    model=OPENAI_MODEL,
+                    file=handle,
+                    language=cfg.get("language") or "de",
+                    temperature=0.0,
+                )
+            transcript = response.text.strip()
+            debug(f"Received transcript length: {len(transcript)}")
+        except Exception as exc:
+            notify(f"Transcription failed: {exc}")
+            print(f"[ERROR] Transcription failed: {exc}", file=sys.stderr)
+            return
+        finally:
+            with contextlib.suppress(Exception):
+                tmp_path.unlink()
     finally:
-        with contextlib.suppress(Exception):
-            tmp_path.unlink()
+        state["transcribing"] = False
+        refresh_tray_indicator()
+        refresh_menu()
+
     if not transcript:
         notify("No transcript returned.")
         return
@@ -2397,8 +2422,10 @@ def main() -> None:
     install_signal_handlers()
     icon_images["ready"] = build_icon(accent_color=(255, 255, 255, 255))
     icon_images["recording"] = build_icon(accent_color=(220, 32, 32, 255))
+    icon_images["transcribing"] = build_icon(accent_color=(255, 170, 0, 255))
     store_icon("ready", icon_images["ready"])
     store_icon("recording", icon_images["recording"])
+    store_icon("transcribing", icon_images["transcribing"])
 
     loop_runner: Callable[[], None]
     if state.get("tray_backend") == "appindicator" and APPINDICATOR_AVAILABLE:
