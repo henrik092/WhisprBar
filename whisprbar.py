@@ -1089,14 +1089,21 @@ def stop_recording(*_args) -> None:
             stream.stop()
             stream.close()
     state["stream"] = None
-    AUDIO_QUEUE = None
     frames = []
     if queue_obj is not None:
+        # Allow a short grace period so any final callback invocations flush
+        # their data into the queue before we drain it.
+        last_frame_time = time.monotonic()
         while True:
             try:
-                frames.append(queue_obj.get_nowait())
+                frames.append(queue_obj.get(timeout=0.05))
+                last_frame_time = time.monotonic()
+                continue
             except queue.Empty:
+                if time.monotonic() - last_frame_time < 0.2:
+                    continue
                 break
+        AUDIO_QUEUE = None
     if not frames:
         notify("No audio captured.")
         return
