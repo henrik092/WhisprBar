@@ -171,6 +171,7 @@ SAMPLE_RATE = 16_000
 CHANNELS = 1
 BLOCK_SIZE = 1_024
 OPENAI_MODEL = os.getenv("OPENAI_STT_MODEL", "gpt-4o-transcribe")
+PASTE_DETECT_TIMEOUT = float(os.environ.get("WHISPRBAR_PASTE_DETECT_TIMEOUT", "0.35"))
 
 DEFAULT_CFG = {
     "language": "de",
@@ -179,6 +180,7 @@ DEFAULT_CFG = {
     "notifications_enabled": False,
     "auto_paste_enabled": True,
     "paste_sequence": "auto",
+    "paste_delay_ms": 250,
     "use_vad": False,
     "vad_energy_ratio": 0.02,
     "vad_bridge_ms": 180,
@@ -214,6 +216,9 @@ state = {
     "hotkey_capture_active": False,
     "client_ready": False,
     "client_warning_shown": False,
+    "client_warning_logged": False,
+    "notification_fallback_used": False,
+    "last_notification": None,
 }
 
 
@@ -362,7 +367,17 @@ def collect_diagnostics() -> List[DiagnosticResult]:
 
     session = detect_session_type()
     session_label = session_status_label()
-    if session in {"x11", "wayland"}:
+    if session == "wayland":
+        results.append(
+            DiagnosticResult(
+                "session",
+                "Session",
+                STATUS_WARN,
+                f"{session_label} – auto paste copies text only.",
+                remedy="Use Ctrl+V manually after transcription or switch to an X11 session for full automation.",
+            )
+        )
+    elif session == "x11":
         results.append(DiagnosticResult("session", "Session", STATUS_OK, session_label))
     else:
         results.append(
@@ -407,10 +422,18 @@ def collect_diagnostics() -> List[DiagnosticResult]:
         results.append(DiagnosticResult("auto_paste", "Auto paste", status, detail, remedy=remedy))
     elif session == "wayland":
         has_wl = command_exists("wl-clipboard")
-        detail = "wl-clipboard available for clipboard sync" if has_wl else "wl-clipboard missing; clipboard-only mode may fail"
+        detail = "Clipboard-only mode active; press Ctrl+V manually." if has_wl else "wl-clipboard missing; clipboard copies may fail"
         remedy = None if has_wl else "Install wl-clipboard (e.g. sudo apt install wl-clipboard)."
-        status = STATUS_OK if has_wl else STATUS_WARN
-        results.append(DiagnosticResult("auto_paste", "Auto paste", status, detail, remedy=remedy))
+        status = STATUS_WARN if has_wl else STATUS_ERROR
+        results.append(
+            DiagnosticResult(
+                "auto_paste",
+                "Auto paste",
+                status,
+                detail,
+                remedy=remedy,
+            )
+        )
     else:
         results.append(
             DiagnosticResult(
@@ -429,8 +452,26 @@ def collect_diagnostics() -> List[DiagnosticResult]:
     if command_exists("kdialog"):
         notify_support.append("kdialog")
     if notify_support:
-        detail = ", ".join(notify_support)
-        results.append(DiagnosticResult("notifications", "Notifications", STATUS_OK, f"Available: {detail}"))
+        detail_parts = [", ".join(notify_support)]
+        status = STATUS_OK
+        remedy = None
+        if "notify-send" not in notify_support:
+            status = STATUS_WARN
+            detail_parts.append("using fallback dialogs")
+            remedy = "Install libnotify-bin for native notify-send support."
+        if state.get("notification_fallback_used") and state.get("last_notification"):
+            detail_parts.append(f"Last fallback: {state['last_notification']}")
+            status = max(status, STATUS_WARN, key=lambda s: {STATUS_OK: 0, STATUS_WARN: 1, STATUS_ERROR: 2}[s])
+        detail = "; ".join(detail_parts)
+        results.append(
+            DiagnosticResult(
+                "notifications",
+                "Notifications",
+                status,
+                f"Available: {detail}",
+                remedy=remedy,
+            )
+        )
     else:
         results.append(
             DiagnosticResult(
@@ -601,13 +642,33 @@ def save_config() -> None:
         print(f"[WARN] Failed to write config: {exc}", file=sys.stderr)
 
 
+def _notify_backends(title: str, message: str) -> List[List[str]]:
+    commands: List[List[str]] = []
+    if command_exists("notify-send"):
+        commands.append(["notify-send", title, message])
+    if command_exists("zenity"):
+        commands.append(["zenity", "--notification", "--window-icon=info", "--text", f"{title}\n{message}"])
+    if command_exists("kdialog"):
+        commands.append(["kdialog", "--passivepopup", message, "5", "--title", title])
+    return commands
+
+
 def notify(message: str, title: str = APP_NAME, *, force: bool = False) -> None:
     if not force and not cfg.get("notifications_enabled", True):
         return
-    try:
-        subprocess.Popen(["notify-send", title, message])
-    except Exception:
-        pass
+    delivered = False
+    for command in _notify_backends(title, message):
+        try:
+            subprocess.Popen(command)
+            delivered = True
+            state["notification_fallback_used"] = False
+            break
+        except Exception as exc:
+            debug(f"Notification backend failed ({command[0]}): {exc}")
+    if not delivered:
+        state["notification_fallback_used"] = True
+        state["last_notification"] = f"{title}: {message}"
+        print(f"[NOTICE] {title}: {message}", file=sys.stderr)
 
 
 FKEYS = {}
@@ -944,18 +1005,34 @@ def prepare_openai_client() -> bool:
         client = None
         print("[WARN] OPENAI_API_KEY not configured; transcription disabled.", file=sys.stderr)
         notify("OPENAI_API_KEY not set. Transcription disabled until configured.")
+        state["client_warning_shown"] = True
         return False
     try:
         client = OpenAI(api_key=api_key)
         state["client_ready"] = True
         state["client_warning_shown"] = False
+        state["client_warning_logged"] = False
         return True
     except Exception as exc:
         client = None
         state["client_ready"] = False
         print(f"[WARN] Failed to initialise OpenAI client: {exc}", file=sys.stderr)
         notify(f"OpenAI client setup failed: {exc}")
+        state["client_warning_shown"] = True
         return False
+
+
+def ensure_client_ready(*, notify_user: bool = True) -> bool:
+    if state.get("client_ready"):
+        return True
+    message = "OpenAI API key missing or client unavailable. Recording disabled."
+    if notify_user:
+        notify(message, force=True)
+    if not state.get("client_warning_logged"):
+        print(f"[WARN] {message}", file=sys.stderr)
+        state["client_warning_logged"] = True
+    state["client_warning_shown"] = True
+    return False
 
 
 def recording_callback(indata, frames, time_info, status):  # pragma: no cover - stream callback
@@ -969,6 +1046,8 @@ def recording_callback(indata, frames, time_info, status):  # pragma: no cover -
 
 def start_recording(*_args) -> None:
     if state.get("recording"):
+        return
+    if not ensure_client_ready():
         return
     update_device_index()
     try:
@@ -1046,6 +1125,72 @@ def press_key(key_obj) -> None:
     controller.release(key_obj)
 
 
+_AUTO_PASTE_CACHE = {"sequence": "ctrl_v", "timestamp": 0.0}
+
+
+def _run_paste_command(args: List[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        args,
+        capture_output=True,
+        text=True,
+        timeout=PASTE_DETECT_TIMEOUT,
+        check=False,
+    )
+
+
+def _detect_auto_paste_sequence_blocking(xdotool: str) -> str:
+    try:
+        focus = _run_paste_command([xdotool, "getactivewindow"])
+    except subprocess.TimeoutExpired:
+        debug("xdotool getactivewindow timed out")
+        return "ctrl_v"
+    except Exception as exc:
+        debug(f"xdotool getactivewindow failed: {exc}")
+        return "ctrl_v"
+
+    if focus.returncode != 0:
+        debug(f"xdotool getactivewindow exited with {focus.returncode}")
+        return "ctrl_v"
+
+    try:
+        win_id = focus.stdout.strip().splitlines()[-1].strip()
+    except Exception:
+        win_id = ""
+    if not win_id or win_id.lower() in {"0x0", "0"}:
+        return "ctrl_v"
+
+    try:
+        name_proc = _run_paste_command([xdotool, "getwindowname", win_id])
+    except subprocess.TimeoutExpired:
+        debug("xdotool getwindowname timed out")
+        name_proc = None
+    except Exception as exc:
+        debug(f"xdotool getwindowname failed: {exc}")
+        name_proc = None
+
+    name = (name_proc.stdout if name_proc else "").strip().lower() if name_proc else ""
+
+    class_name = ""
+    xprop = shutil.which("xprop")
+    if xprop:
+        try:
+            class_proc = _run_paste_command([xprop, "-id", win_id, "WM_CLASS"])
+        except subprocess.TimeoutExpired:
+            debug("xprop WM_CLASS timed out")
+            class_proc = None
+        except Exception as exc:
+            debug(f"xprop class lookup failed: {exc}")
+            class_proc = None
+        if class_proc and class_proc.returncode == 0:
+            class_name = class_proc.stdout.lower()
+
+    debug(f"Focused window: class='{class_name}', name='{name}'")
+    for keyword in TERMINAL_KEYWORDS:
+        if keyword in class_name or keyword in name:
+            return "ctrl_shift_v"
+    return "ctrl_v"
+
+
 TERMINAL_KEYWORDS = (
     "terminal",
     "alacritty",
@@ -1068,6 +1213,14 @@ TERMINAL_KEYWORDS = (
 )
 
 
+def get_paste_delay_seconds() -> float:
+    try:
+        delay_ms = int(cfg.get("paste_delay_ms", 0) or 0)
+    except Exception:
+        delay_ms = 0
+    return max(0, delay_ms) / 1000.0
+
+
 def detect_auto_paste_sequence() -> str:
     if is_wayland_session():
         debug("Wayland session detected, forcing clipboard-only auto paste")
@@ -1076,46 +1229,21 @@ def detect_auto_paste_sequence() -> str:
     if not xdotool:
         debug("xdotool unavailable, defaulting to ctrl+V")
         return "ctrl_v"
-    try:
-        focus = subprocess.run(
-            [xdotool, "getactivewindow"], capture_output=True, text=True, check=True
-        )
-        win_id = focus.stdout.strip().splitlines()[-1].strip()
-        if not win_id or win_id.lower() in {"0x0", "0"}:
-            return "ctrl_v"
-        name_proc = subprocess.run(
-            [xdotool, "getwindowname", win_id],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=1,
-        )
-        name = name_proc.stdout.strip().lower()
+    result: Dict[str, str] = {}
 
-        class_name = ""
-        xprop = shutil.which("xprop")
-        if xprop:
-            try:
-                class_proc = subprocess.run(
-                    [xprop, "-id", win_id, "WM_CLASS"],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    timeout=1,
-                )
-                class_out = class_proc.stdout.lower()
-                # WM_CLASS(STRING) = "gnome-terminal", "Gnome-terminal"
-                class_name = class_out
-            except Exception as exc:
-                debug(f"xprop class lookup failed: {exc}")
+    def _worker():
+        result["sequence"] = _detect_auto_paste_sequence_blocking(xdotool)
 
-        debug(f"Focused window: class='{class_name}', name='{name}'")
-        for keyword in TERMINAL_KEYWORDS:
-            if keyword in class_name or keyword in name:
-                return "ctrl_shift_v"
-    except Exception as exc:
-        debug(f"Window detection failed: {exc}")
-    return "ctrl_v"
+    thread = threading.Thread(target=_worker, name="whisprbar-window-detect", daemon=True)
+    thread.start()
+    thread.join(timeout=PASTE_DETECT_TIMEOUT * 2)
+    if thread.is_alive():
+        debug("Window detection timed out; falling back to cached sequence")
+        return _AUTO_PASTE_CACHE.get("sequence", "ctrl_v")
+    sequence = result.get("sequence") or "ctrl_v"
+    _AUTO_PASTE_CACHE["sequence"] = sequence
+    _AUTO_PASTE_CACHE["timestamp"] = time.time()
+    return sequence
 
 
 def simulate_typing(text: str) -> None:
@@ -1139,11 +1267,15 @@ def perform_auto_paste(text: str) -> None:
         debug("Clipboard-only paste; skipping key injection")
         return
     if sequence == "type":
-        time.sleep(0.3)
+        delay = get_paste_delay_seconds()
+        if delay:
+            time.sleep(delay)
         simulate_typing(text)
         return
 
-    time.sleep(0.3)
+    delay = get_paste_delay_seconds()
+    if delay:
+        time.sleep(delay)
 
     xdotool = shutil.which("xdotool")
     if xdotool:
@@ -1661,6 +1793,16 @@ def open_settings_window(*_args) -> None:
         backend_label.set_xalign(0.0)
         content.pack_start(backend_label, False, False, 0)
 
+        if not state.get("client_ready"):
+            warning = Gtk.Label()
+            warning.set_markup(
+                "<b>Transcription disabled:</b> Configure OPENAI_API_KEY in ~/.config/whisprbar.env."
+            )
+            warning.set_xalign(0.0)
+            warning.set_line_wrap(True)
+            warning.set_max_width_chars(60)
+            content.pack_start(warning, False, False, 0)
+
         def make_row(
             label_text: str,
             widget: Gtk.Widget,
@@ -1720,6 +1862,31 @@ def open_settings_window(*_args) -> None:
             paste_combo.set_sensitive(False)
         paste_tooltip = "Select the key sequence used when auto paste runs. 'Auto' chooses based on the active window."
         content.pack_start(make_row("Paste Mode", paste_combo, tooltip=paste_tooltip), False, False, 0)
+
+        paste_delay_adjustment = Gtk.Adjustment(
+            value=float(cfg.get("paste_delay_ms", 250) or 0),
+            lower=0.0,
+            upper=2000.0,
+            step_increment=25.0,
+            page_increment=100.0,
+        )
+        paste_delay_spin = Gtk.SpinButton()
+        paste_delay_spin.set_adjustment(paste_delay_adjustment)
+        paste_delay_spin.set_numeric(True)
+        paste_delay_spin.set_value(float(cfg.get("paste_delay_ms", 250) or 0))
+        paste_delay_spin.set_digits(0)
+        paste_delay_tooltip = "Delay before auto paste (milliseconds). Increase for slow apps or reduce for faster paste."
+        content.pack_start(
+            make_row(
+                "Paste Delay",
+                paste_delay_spin,
+                tooltip=paste_delay_tooltip,
+                defaults_text="Default: 250 ms",
+            ),
+            False,
+            False,
+            0,
+        )
 
         hotkey_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         hotkey_value = Gtk.Label(label=key_to_label(HOTKEY_KEY))
@@ -1936,6 +2103,7 @@ def open_settings_window(*_args) -> None:
             cfg["device_name"] = device_map.get(device_id)
 
             cfg["paste_sequence"] = paste_combo.get_active_id() or "auto"
+            cfg["paste_delay_ms"] = int(round(paste_delay_spin.get_value()))
 
             cfg["notifications_enabled"] = notify_switch.get_active()
             cfg["auto_paste_enabled"] = auto_switch.get_active()
@@ -2159,6 +2327,7 @@ def build_menu() -> pystray.Menu:
         pystray.MenuItem(
             lambda: "Stop Recording" if state.get("recording") else "Start Recording",
             lambda *_: toggle_recording(),
+            enabled=lambda _: state.get("recording") or state.get("client_ready", False),
         ),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(lambda: f"Session: {session_status_label()}", lambda *_: None, enabled=False),
@@ -2199,6 +2368,7 @@ def build_appindicator_menu() -> "Gtk.Menu":
     menu = Gtk.Menu()
 
     start_item = Gtk.MenuItem(label="Stop Recording" if state.get("recording") else "Start Recording")
+    start_item.set_sensitive(state.get("recording") or state.get("client_ready", False))
     start_item.connect("activate", lambda *_: toggle_recording())
     menu.append(start_item)
 
