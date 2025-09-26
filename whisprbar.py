@@ -1038,10 +1038,10 @@ def ensure_client_ready(*, notify_user: bool = True) -> bool:
 def recording_callback(indata, frames, time_info, status):  # pragma: no cover - stream callback
     if status and status.input_overflow:
         print(f"[WARN] Audio overflow: {status}", file=sys.stderr)
-    if not state.get("recording"):
+    queue_obj = AUDIO_QUEUE
+    if queue_obj is None:
         return
-    if AUDIO_QUEUE is not None:
-        AUDIO_QUEUE.put(indata.copy())
+    queue_obj.put(indata.copy())
 
 
 def start_recording(*_args) -> None:
@@ -1080,20 +1080,30 @@ def stop_recording(*_args) -> None:
         return
     global AUDIO_QUEUE
     queue_obj = AUDIO_QUEUE
-    AUDIO_QUEUE = None
     stream = state.get("stream")
     state["recording"] = False
-    state["stream"] = None
     refresh_tray_indicator()
     refresh_menu()
     if stream:
         with contextlib.suppress(Exception):
             stream.stop()
             stream.close()
+    state["stream"] = None
     frames = []
     if queue_obj is not None:
-        while not queue_obj.empty():
-            frames.append(queue_obj.get())
+        # Allow a short grace period so any final callback invocations flush
+        # their data into the queue before we drain it.
+        last_frame_time = time.monotonic()
+        while True:
+            try:
+                frames.append(queue_obj.get(timeout=0.05))
+                last_frame_time = time.monotonic()
+                continue
+            except queue.Empty:
+                if time.monotonic() - last_frame_time < 0.2:
+                    continue
+                break
+        AUDIO_QUEUE = None
     if not frames:
         notify("No audio captured.")
         return
