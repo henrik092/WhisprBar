@@ -91,7 +91,7 @@ TRAY_BACKEND = select_tray_backend()
 import pystray
 
 APP_NAME = "WhisprBar"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.1.1"
 GITHUB_REPO = os.environ.get("WHISPRBAR_GITHUB_REPO", "henrik092/whisprBar")
 GITHUB_RELEASE_URL = (
     os.environ.get(

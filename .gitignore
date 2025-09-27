@@ -29,5 +29,8 @@ WORKLOG.md
 .DS_Store
 Thumbs.db
 
+# Editor settings
+.vscode/
+
 # Local secrets/config
 *.env
