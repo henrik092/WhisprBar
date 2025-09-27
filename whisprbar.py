@@ -185,6 +185,7 @@ DEFAULT_CFG = {
     "vad_energy_ratio": 0.02,
     "vad_bridge_ms": 180,
     "vad_min_energy_frames": 2,
+    "stop_tail_grace_ms": 500,
     "first_run_complete": False,
     "check_updates": True,
 }
@@ -1084,23 +1085,38 @@ def stop_recording(*_args) -> None:
     state["recording"] = False
     refresh_tray_indicator()
     refresh_menu()
+    frames: List[np.ndarray] = []
+    grace_seconds = max(0.0, float(cfg.get("stop_tail_grace_ms", 500)) / 1000.0)
+    if queue_obj is not None and grace_seconds:
+        tail_end = time.monotonic() + grace_seconds
+        while True:
+            remaining = tail_end - time.monotonic()
+            if remaining <= 0:
+                break
+            timeout = min(0.05, remaining)
+            if timeout <= 0:
+                break
+            try:
+                frames.append(queue_obj.get(timeout=timeout))
+            except queue.Empty:
+                continue
     if stream:
         with contextlib.suppress(Exception):
             stream.stop()
             stream.close()
     state["stream"] = None
-    frames = []
     if queue_obj is not None:
-        # Allow a short grace period so any final callback invocations flush
+        # Allow a short grace period so final callback invocations flush
         # their data into the queue before we drain it.
         last_frame_time = time.monotonic()
+        empty_grace = max(grace_seconds, 0.5)
         while True:
             try:
                 frames.append(queue_obj.get(timeout=0.05))
                 last_frame_time = time.monotonic()
                 continue
             except queue.Empty:
-                if time.monotonic() - last_frame_time < 0.2:
+                if time.monotonic() - last_frame_time < empty_grace:
                     continue
                 break
         AUDIO_QUEUE = None
