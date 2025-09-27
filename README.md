@@ -54,6 +54,12 @@ On first launch a diagnostics window appears, summarising session type, tray bac
 
 Use the tray settings dialog to adjust language, microphone, auto-paste mode, notifications, VAD, and hotkey bindings.
 
+## Screenshots
+- Tray menu overview:
+  ![Tray menu showing recording controls and toggles](docs/img/2025-09-27_15-29.png)
+- Settings dialog:
+  ![Settings window with language, device, paste, and VAD options](docs/img/vlcsnap-2025-09-27-15h23m41s390.png)
+
 ## Development Notes
 - Dependencies are listed in `requirements.txt`. Optional VAD support requires `webrtcvad`.
 - Run inside the virtualenv for local testing:
