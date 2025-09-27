@@ -23,7 +23,6 @@ pip-wheel-metadata/
 # Local planning docs (not for publication)
 AGENTS.md
 DEPLOY_PLAN.md
-WORKLOG.md
 
 # OS cruft
 .DS_Store
