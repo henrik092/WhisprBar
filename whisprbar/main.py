@@ -550,10 +550,6 @@ def on_recording_stop() -> None:
             refresh_tray_indicator(state)
             refresh_menu(get_callbacks(), state)
 
-            # Clear audio data reference to free memory
-            if 'audio_data' in locals():
-                audio_data = None
-
     # Start transcription thread
     thread = threading.Thread(target=transcribe_thread, daemon=True)
     thread.start()
