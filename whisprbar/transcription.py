@@ -21,10 +21,9 @@ from .config import cfg, load_env_file_values
 from .utils import debug, notify, write_history
 from .ui import show_live_overlay, update_live_overlay, hide_live_overlay
 
-# Audio constants (duplicated from audio.py to avoid circular import for SAMPLE_RATE)
-# These will be imported from audio module by users of this module
-SAMPLE_RATE = 16000
-CHANNELS = 1
+# Import audio processing functions - no circular import exists
+# (audio.py does not import from transcription.py)
+from .audio import apply_vad, apply_noise_reduction, SAMPLE_RATE, CHANNELS
 
 # Transcription model
 OPENAI_MODEL = os.getenv("OPENAI_STT_MODEL", "gpt-4o-transcribe")
@@ -809,9 +808,6 @@ def transcribe_audio(audio: np.ndarray, language: str = "de") -> Optional[str]:
     Returns:
         Transcribed text or None on error
     """
-    # Import audio processing functions here to avoid circular imports
-    from .audio import apply_noise_reduction, apply_vad
-
     # Check if transcriber is available
     transcriber = get_transcriber()
     if isinstance(transcriber, OpenAITranscriber) and not transcriber.ensure_client():

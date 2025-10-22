@@ -305,7 +305,15 @@ def stop_recording() -> Optional[np.ndarray]:
     recording_state["recording"] = False
 
     frames: List[np.ndarray] = []
-    grace_seconds = max(0.0, min(2.0, float(cfg.get("stop_tail_grace_ms", 500)) / 1000.0))
+
+    # Calculate single unified grace period for queue draining
+    # This is the time we wait after stopping the stream for buffered audio to arrive
+    grace_ms = max(100, min(2000, int(cfg.get("stop_tail_grace_ms", 500))))
+    grace_seconds = grace_ms / 1000.0
+
+    # Minimum drain timeout (ensures we always wait at least this long)
+    MIN_DRAIN_TIMEOUT = 0.5
+    drain_timeout_seconds = max(grace_seconds, MIN_DRAIN_TIMEOUT)
 
     # Stop the stream first to prevent new data
     if stream:
@@ -314,14 +322,11 @@ def stop_recording() -> Optional[np.ndarray]:
             stream.close()
     recording_state["stream"] = None
 
-    # Wait for grace period to allow buffered audio to arrive
-    if grace_seconds > 0:
-        time.sleep(grace_seconds)
-
-    # Drain all remaining frames from queue with timeout
+    # Drain all remaining frames from queue with single unified timeout
+    # No separate sleep needed - we drain with timeout which serves both purposes
     if queue_obj is not None:
-        drain_timeout = time.monotonic() + max(grace_seconds, 0.5)
-        while time.monotonic() < drain_timeout:
+        drain_deadline = time.monotonic() + drain_timeout_seconds
+        while time.monotonic() < drain_deadline:
             try:
                 frame = queue_obj.get(timeout=0.05)
                 frames.append(frame)
@@ -369,6 +374,7 @@ def _drop_short_runs(mask: np.ndarray, min_len: int) -> np.ndarray:
     """Remove short runs of True values from boolean mask.
 
     Helper function for VAD to filter out brief noise spikes.
+    Optimized with NumPy vectorization instead of Python loops.
 
     Args:
         mask: Boolean numpy array
@@ -381,30 +387,25 @@ def _drop_short_runs(mask: np.ndarray, min_len: int) -> np.ndarray:
         return mask
 
     cleaned = mask.copy()
-    indices = np.flatnonzero(cleaned)
-    if indices.size == 0:
-        return cleaned
 
-    start = indices[0]
-    prev = indices[0]
-    count = 1
+    # Find boundaries of True runs using vectorized diff
+    # Pad with False to handle runs at start/end
+    padded = np.pad(cleaned, (1, 1), mode='constant', constant_values=False)
+    diff = np.diff(padded.astype(int))
 
-    for val in indices[1:]:
-        if val == prev + 1:
-            prev = val
-            count += 1
-            continue
+    # Run starts where diff == 1, ends where diff == -1
+    run_starts = np.where(diff == 1)[0]
+    run_ends = np.where(diff == -1)[0]
 
-        # End of run
-        if count < min_len:
-            cleaned[start : prev + 1] = False
-        start = val
-        prev = val
-        count = 1
+    # Calculate run lengths
+    run_lengths = run_ends - run_starts
 
-    # Handle final run
-    if count < min_len:
-        cleaned[start : prev + 1] = False
+    # Find runs that are too short
+    short_runs = run_lengths < min_len
+
+    # Zero out short runs (vectorized)
+    for start, end in zip(run_starts[short_runs], run_ends[short_runs]):
+        cleaned[start:end] = False
 
     return cleaned
 
