@@ -315,6 +315,26 @@ def open_diagnostics_callback() -> None:
     open_diagnostics_window(cfg, first_run=False)
 
 
+def copy_to_clipboard(text: str) -> None:
+    """Copy text to clipboard (menu callback)."""
+    try:
+        import pyperclip
+        pyperclip.copy(text)
+        debug(f"Copied to clipboard: {text[:50]}...")
+        notify("Copied to clipboard")
+    except Exception as exc:
+        debug(f"Failed to copy to clipboard: {exc}")
+        notify("Failed to copy to clipboard")
+
+
+def clear_history_callback() -> None:
+    """Clear transcription history (menu callback)."""
+    from whisprbar.utils import clear_history
+    clear_history()
+    notify("History cleared")
+    refresh_menu(get_callbacks(), state)
+
+
 def quit_application() -> None:
     """Quit application (menu callback)."""
     shutdown()
@@ -337,6 +357,8 @@ def get_callbacks() -> Dict[str, Any]:
         "toggle_auto_paste": toggle_auto_paste,
         "set_paste_sequence": set_paste_sequence,
         "toggle_vad": toggle_vad,
+        "copy_to_clipboard": copy_to_clipboard,
+        "clear_history": clear_history_callback,
         "quit": quit_application,
         "session_status_label": session_status_label,
         "tray_backend_label": tray_backend_label,

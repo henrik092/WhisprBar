@@ -247,6 +247,7 @@ def write_history(transcript: str, duration: float, word_count: int) -> None:
 
     Writes a JSONL entry to ~/.local/share/whisprbar/history.jsonl with
     timestamp, language, text, duration, and word count.
+    Automatically keeps only the last 30 entries to prevent file bloat.
 
     Args:
         transcript: Transcribed text
@@ -266,6 +267,9 @@ def write_history(transcript: str, duration: float, word_count: int) -> None:
     try:
         with HIST_FILE.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+        # Cleanup old entries (keep only last 30)
+        cleanup_history(max_entries=30)
     except Exception as exc:
         print(f"[WARN] Failed to write history: {exc}", file=sys.stderr)
 
@@ -485,6 +489,111 @@ def ensure_directories() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     HIST_FILE.touch(exist_ok=True)
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+
+def read_history(limit: int = 10) -> List[Dict[str, any]]:
+    """Read recent transcription history.
+
+    Args:
+        limit: Maximum number of entries to return (default: 10)
+
+    Returns:
+        List of history entries (most recent first)
+    """
+    if not HIST_FILE.exists():
+        return []
+
+    entries = []
+    try:
+        with HIST_FILE.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    entries.append(entry)
+                except json.JSONDecodeError:
+                    continue
+    except Exception as exc:
+        debug(f"Failed to read history: {exc}")
+        return []
+
+    # Return most recent first
+    return list(reversed(entries[-limit:]))
+
+
+def clear_history() -> None:
+    """Clear all transcription history."""
+    try:
+        if HIST_FILE.exists():
+            HIST_FILE.unlink()
+        HIST_FILE.touch()
+        debug("History cleared")
+    except Exception as exc:
+        debug(f"Failed to clear history: {exc}")
+
+
+def cleanup_history(max_entries: int = 30) -> None:
+    """Limit history to maximum number of entries.
+
+    Keeps only the most recent entries, removing older ones.
+
+    Args:
+        max_entries: Maximum number of entries to keep (default: 30)
+    """
+    if not HIST_FILE.exists():
+        return
+
+    try:
+        # Read all entries
+        entries = []
+        with HIST_FILE.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    entries.append(entry)
+                except json.JSONDecodeError:
+                    continue
+
+        # If we have more than max_entries, keep only the last ones
+        if len(entries) > max_entries:
+            entries = entries[-max_entries:]
+            debug(f"History cleanup: keeping last {max_entries} entries")
+
+            # Rewrite the file with limited entries
+            with HIST_FILE.open("w", encoding="utf-8") as handle:
+                for entry in entries:
+                    handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        debug(f"Failed to cleanup history: {exc}")
+
+
+def format_history_entry(entry: Dict[str, any], max_length: int = 50) -> str:
+    """Format history entry for display in menu.
+
+    Args:
+        entry: History entry dictionary
+        max_length: Maximum text length before truncation
+
+    Returns:
+        Formatted string for menu display
+    """
+    text = entry.get("text", "").strip()
+    if not text:
+        return "(empty)"
+
+    # Truncate if too long
+    if len(text) > max_length:
+        text = text[:max_length] + "..."
+
+    # Replace newlines with spaces
+    text = text.replace("\n", " ").replace("\r", "")
+
+    return text
 
 
 def play_audio_feedback(sound_type: str = "start") -> None:

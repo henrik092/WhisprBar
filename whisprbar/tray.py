@@ -32,7 +32,15 @@ try:
 except ImportError:
     pystray = None
 
-from whisprbar.utils import build_icon, ensure_directories, APP_NAME, debug
+from whisprbar.utils import (
+    build_icon,
+    ensure_directories,
+    APP_NAME,
+    debug,
+    read_history,
+    clear_history,
+    format_history_entry
+)
 from whisprbar.config import cfg
 from whisprbar.hotkeys import key_to_label
 
@@ -171,6 +179,8 @@ def build_pystray_menu(callbacks: Dict[str, Callable], state: Dict[str, Any]) ->
         callbacks: Dictionary of callback functions:
             - toggle_auto_paste
             - open_settings
+            - copy_to_clipboard
+            - clear_history
             - quit
         state: Application state dictionary
 
@@ -180,7 +190,35 @@ def build_pystray_menu(callbacks: Dict[str, Callable], state: Dict[str, Any]) ->
     if pystray is None:
         raise RuntimeError("PyStray not available")
 
+    # Build recent transcriptions submenu
+    history_entries = read_history(limit=10)
+    recent_items = []
+
+    if history_entries:
+        for entry in history_entries:
+            text = entry.get("text", "")
+            display_text = format_history_entry(entry, max_length=50)
+            recent_items.append(
+                pystray.MenuItem(
+                    display_text,
+                    lambda _, t=text: callbacks["copy_to_clipboard"](t)
+                )
+            )
+        recent_items.append(pystray.Menu.SEPARATOR)
+        recent_items.append(
+            pystray.MenuItem(
+                "Clear History",
+                lambda *_: callbacks["clear_history"]()
+            )
+        )
+    else:
+        recent_items.append(
+            pystray.MenuItem("(No recent transcriptions)", None, enabled=False)
+        )
+
     return pystray.Menu(
+        pystray.MenuItem("Recent", pystray.Menu(*recent_items)),
+        pystray.Menu.SEPARATOR,
         pystray.MenuItem(
             "Voice Activity Detection",
             lambda *_: callbacks["toggle_vad"](),
@@ -209,6 +247,37 @@ def build_appindicator_menu(callbacks: Dict[str, Callable], state: Dict[str, Any
         raise RuntimeError("AppIndicator backend unavailable")
 
     menu = Gtk.Menu()
+
+    # Recent transcriptions submenu
+    recent_menu_item = Gtk.MenuItem(label="Recent")
+    recent_submenu = Gtk.Menu()
+
+    history_entries = read_history(limit=10)
+    if history_entries:
+        for entry in history_entries:
+            text = entry.get("text", "")
+            display_text = format_history_entry(entry, max_length=50)
+            history_item = Gtk.MenuItem(label=display_text)
+            history_item.connect(
+                "activate",
+                lambda _, t=text: callbacks["copy_to_clipboard"](t)
+            )
+            recent_submenu.append(history_item)
+
+        recent_submenu.append(Gtk.SeparatorMenuItem())
+
+        clear_item = Gtk.MenuItem(label="Clear History")
+        clear_item.connect("activate", lambda *_: callbacks["clear_history"]())
+        recent_submenu.append(clear_item)
+    else:
+        empty_item = Gtk.MenuItem(label="(No recent transcriptions)")
+        empty_item.set_sensitive(False)
+        recent_submenu.append(empty_item)
+
+    recent_menu_item.set_submenu(recent_submenu)
+    menu.append(recent_menu_item)
+
+    menu.append(Gtk.SeparatorMenuItem())
 
     # VAD toggle
     vad_item = Gtk.CheckMenuItem(label="Voice Activity Detection")
