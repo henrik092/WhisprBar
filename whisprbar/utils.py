@@ -487,6 +487,73 @@ def ensure_directories() -> None:
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
+def read_history(limit: int = 10) -> List[Dict[str, any]]:
+    """Read recent transcription history.
+
+    Args:
+        limit: Maximum number of entries to return (default: 10)
+
+    Returns:
+        List of history entries (most recent first)
+    """
+    if not HIST_FILE.exists():
+        return []
+
+    entries = []
+    try:
+        with HIST_FILE.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    entries.append(entry)
+                except json.JSONDecodeError:
+                    continue
+    except Exception as exc:
+        debug(f"Failed to read history: {exc}")
+        return []
+
+    # Return most recent first
+    return list(reversed(entries[-limit:]))
+
+
+def clear_history() -> None:
+    """Clear all transcription history."""
+    try:
+        if HIST_FILE.exists():
+            HIST_FILE.unlink()
+        HIST_FILE.touch()
+        debug("History cleared")
+    except Exception as exc:
+        debug(f"Failed to clear history: {exc}")
+
+
+def format_history_entry(entry: Dict[str, any], max_length: int = 50) -> str:
+    """Format history entry for display in menu.
+
+    Args:
+        entry: History entry dictionary
+        max_length: Maximum text length before truncation
+
+    Returns:
+        Formatted string for menu display
+    """
+    text = entry.get("text", "").strip()
+    if not text:
+        return "(empty)"
+
+    # Truncate if too long
+    if len(text) > max_length:
+        text = text[:max_length] + "..."
+
+    # Replace newlines with spaces
+    text = text.replace("\n", " ").replace("\r", "")
+
+    return text
+
+
 def play_audio_feedback(sound_type: str = "start") -> None:
     """Play audio feedback for recording events.
 
