@@ -247,6 +247,7 @@ def write_history(transcript: str, duration: float, word_count: int) -> None:
 
     Writes a JSONL entry to ~/.local/share/whisprbar/history.jsonl with
     timestamp, language, text, duration, and word count.
+    Automatically keeps only the last 30 entries to prevent file bloat.
 
     Args:
         transcript: Transcribed text
@@ -266,6 +267,9 @@ def write_history(transcript: str, duration: float, word_count: int) -> None:
     try:
         with HIST_FILE.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+        # Cleanup old entries (keep only last 30)
+        cleanup_history(max_entries=30)
     except Exception as exc:
         print(f"[WARN] Failed to write history: {exc}", file=sys.stderr)
 
@@ -528,6 +532,44 @@ def clear_history() -> None:
         debug("History cleared")
     except Exception as exc:
         debug(f"Failed to clear history: {exc}")
+
+
+def cleanup_history(max_entries: int = 30) -> None:
+    """Limit history to maximum number of entries.
+
+    Keeps only the most recent entries, removing older ones.
+
+    Args:
+        max_entries: Maximum number of entries to keep (default: 30)
+    """
+    if not HIST_FILE.exists():
+        return
+
+    try:
+        # Read all entries
+        entries = []
+        with HIST_FILE.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    entries.append(entry)
+                except json.JSONDecodeError:
+                    continue
+
+        # If we have more than max_entries, keep only the last ones
+        if len(entries) > max_entries:
+            entries = entries[-max_entries:]
+            debug(f"History cleanup: keeping last {max_entries} entries")
+
+            # Rewrite the file with limited entries
+            with HIST_FILE.open("w", encoding="utf-8") as handle:
+                for entry in entries:
+                    handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        debug(f"Failed to cleanup history: {exc}")
 
 
 def format_history_entry(entry: Dict[str, any], max_length: int = 50) -> str:
