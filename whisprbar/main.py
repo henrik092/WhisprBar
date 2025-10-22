@@ -515,12 +515,22 @@ def on_recording_stop() -> None:
         except Exception as exc:
             debug(f"Transcription error: {exc}")
             notify(f"Transcription error: {exc}")
-            from whisprbar.ui import hide_live_overlay
-            hide_live_overlay()
         finally:
+            # Always cleanup resources, even on exceptions
+            try:
+                from whisprbar.ui import hide_live_overlay
+                hide_live_overlay()
+            except Exception as cleanup_exc:
+                debug(f"Error during overlay cleanup: {cleanup_exc}")
+
+            # Reset transcription state
             state["transcribing"] = False
             refresh_tray_indicator(state)
             refresh_menu(get_callbacks(), state)
+
+            # Clear audio data reference to free memory
+            if 'audio_data' in locals():
+                audio_data = None
 
     # Start transcription thread
     thread = threading.Thread(target=transcribe_thread, daemon=True)
