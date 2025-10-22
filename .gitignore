@@ -1,0 +1,68 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build outputs
+build/
+dist/
+*.AppImage
+*.spec
+*.egg-info/
+pip-wheel-metadata/
+
+# Logs and generated data
+*.log
+*.tmp
+
+# Local planning docs (not for publication)
+AGENTS.md
+DEPLOY_PLAN.md
+WORKLOG.md
+
+# Development/Release temporary files
+.claude-flow/
+.hive-mind/
+.release-*.txt
+*_REPORT.md
+*_CHECKLIST.md
+*_SUMMARY.md
+*_GUIDE.md
+*_NOTES*.md
+CONTRIBUTING.md
+ROADMAP_*.md
+STATUS.md
+TESTING.md
+NEXT_STEPS.md
+QUICK_REFERENCE.md
+REFACTORING_VALIDATION.md
+RELEASE_PACKAGE_INDEX.md
+TEST_EXECUTION_LOG.txt
+DISTRIBUTION_CHECKLIST.md
+DOCUMENTATION_UPDATE_*.md
+MULTIPLE_HOTKEYS_IMPLEMENTATION.md
+UI_ENHANCEMENTS_SUMMARY.md
+VISUAL_CONTENT_GUIDE.md
+
+# Test coverage
+.coverage
+coverage.xml
+
+# Old versions
+Alte version*/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Editor settings
+.vscode/
+.claude/
+
+# Local secrets/config
+*.env
