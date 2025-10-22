@@ -229,7 +229,7 @@ def validate_config() -> None:
             cfg["vad_auto_stop_silence_seconds"] = DEFAULT_CFG["vad_auto_stop_silence_seconds"]
 
 
-def load_config() -> None:
+def load_config() -> dict:
     """Load configuration from disk.
 
     Reads ~/.config/whisprbar.json and merges with DEFAULT_CFG.
@@ -238,6 +238,9 @@ def load_config() -> None:
 
     IMPORTANT: This function modifies cfg in-place to preserve references
     across all modules that import cfg. Never reassign config.cfg directly.
+
+    Returns:
+        The global cfg dict (for convenience and explicit API)
     """
     ensure_directories()
     try:
@@ -251,6 +254,8 @@ def load_config() -> None:
                 print(f"[DEBUG] Config loaded: {len(cfg)} keys", file=sys.stderr)
     except (IOError, json.JSONDecodeError) as exc:
         print(f"[WARN] Failed to load config: {exc}", file=sys.stderr)
+
+    return cfg
 
 
 def save_config() -> None:

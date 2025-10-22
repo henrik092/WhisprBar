@@ -626,6 +626,7 @@ _capture_listener: Optional[keyboard.Listener] = None
 def capture_hotkey(
     on_complete: Optional[Callable[[str, str], None]] = None,
     notify_user: bool = True,
+    timeout_seconds: float = 30.0,
 ) -> None:
     """Capture the next keypress globally and store it as hotkey.
 
@@ -636,10 +637,13 @@ def capture_hotkey(
     Args:
         on_complete: Callback function called with (config_value, label) when done
         notify_user: If True, show notification when starting capture
+        timeout_seconds: Timeout after which capture is cancelled (default: 30s)
     """
     global _capture_listener
     from .config import cfg, save_config
     from .utils import notify
+    import threading
+    import time
 
     # Stop existing capture listener
     if _capture_listener:
@@ -652,11 +656,30 @@ def capture_hotkey(
 
     capture_modifiers: Set[str] = set()
     capture_done = {"value": False}
+    timeout_timer = {"timer": None}
 
     def finalize_hotkey(token: Optional[str]) -> None:
-        if capture_done["value"] or not token:
+        if capture_done["value"]:
             return
         capture_done["value"] = True
+
+        # Cancel timeout timer
+        if timeout_timer["timer"]:
+            timeout_timer["timer"].cancel()
+            timeout_timer["timer"] = None
+
+        # Stop capture listener first
+        global _capture_listener
+        with contextlib.suppress(Exception):
+            if _capture_listener:
+                _capture_listener.stop()
+        _capture_listener = None
+
+        # If no token, capture was cancelled/timed out
+        if not token:
+            if notify_user:
+                notify("Hotkey capture cancelled.")
+            return
 
         # Update hotkey binding
         update_hotkey_binding(set(capture_modifiers), token, notify_change=notify_user)
@@ -680,13 +703,6 @@ def capture_hotkey(
                 # No GLib available, call directly
                 on_complete(config_value, label)
 
-        # Stop capture listener
-        global _capture_listener
-        with contextlib.suppress(Exception):
-            if _capture_listener:
-                _capture_listener.stop()
-        _capture_listener = None
-
     def _on_press(key):
         mod = modifier_name(key)
         if mod:
@@ -704,6 +720,14 @@ def capture_hotkey(
     _capture_listener = keyboard.Listener(on_press=_on_press, on_release=_on_release)
     _capture_listener.daemon = True
     _capture_listener.start()
+
+    # Start timeout timer
+    def on_timeout():
+        finalize_hotkey(None)  # Cancel capture
+
+    timeout_timer["timer"] = threading.Timer(timeout_seconds, on_timeout)
+    timeout_timer["timer"].daemon = True
+    timeout_timer["timer"].start()
 
 
 def update_hotkey_binding(

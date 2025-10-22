@@ -11,6 +11,7 @@ Handles system tray icon and menu using multiple backends:
 import os
 import shutil
 import contextlib
+import threading
 from typing import Optional, Callable, Dict, Any
 from pathlib import Path
 
@@ -40,6 +41,7 @@ _icon: Optional[Any] = None  # pystray.Icon
 _indicator: Optional[Any] = None  # AppIndicator3.Indicator
 _gtk_loop: Optional[Any] = None  # GLib.MainLoop
 _icon_ready: bool = False
+_icon_ready_lock = threading.Lock()
 _icon_images: Dict[str, Any] = {}  # PIL Images for PyStray
 _icon_files: Dict[str, Path] = {}  # File paths for AppIndicator
 
@@ -269,9 +271,10 @@ def refresh_tray_indicator(state: Dict[str, Any]) -> None:
             GLib.idle_add(_update_icon)
         return
 
-    # PyStray backend
-    if not _icon or not _icon_ready:
-        return
+    # PyStray backend - thread-safe check
+    with _icon_ready_lock:
+        if not _icon or not _icon_ready:
+            return
 
     if state.get("recording"):
         status = "Recording"
@@ -315,8 +318,11 @@ def refresh_menu(callbacks: Dict[str, Callable], state: Dict[str, Any]) -> None:
         GLib.idle_add(_update_menu)
         return
 
-    # PyStray backend
-    if _icon and _icon_ready:
+    # PyStray backend - thread-safe check
+    with _icon_ready_lock:
+        icon_is_ready = _icon_ready and _icon is not None
+
+    if icon_is_ready:
         _icon.menu = build_pystray_menu(callbacks, state)
         try:
             _icon.update_menu()
@@ -357,7 +363,8 @@ def start_pystray_tray(callbacks: Dict[str, Callable], state: Dict[str, Any]) ->
 
     def _setup(icon):
         global _icon_ready
-        _icon_ready = True
+        with _icon_ready_lock:
+            _icon_ready = True
         refresh_tray_indicator(state)
         refresh_menu(callbacks, state)
 
@@ -445,10 +452,12 @@ def shutdown_tray(state: Dict[str, Any]) -> None:
             _gtk_loop.quit()
         _indicator = None
     else:
-        if _icon and _icon_ready:
-            _icon.stop()
+        with _icon_ready_lock:
+            if _icon and _icon_ready:
+                _icon.stop()
 
-    _icon_ready = False
+    with _icon_ready_lock:
+        _icon_ready = False
 
 
 # =============================================================================

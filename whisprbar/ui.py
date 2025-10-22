@@ -11,6 +11,7 @@ This module handles all user interface components:
 from typing import Optional, Callable, List
 import contextlib
 import sys
+import threading
 
 try:
     import gi
@@ -40,7 +41,9 @@ from whisprbar.paste import PASTE_OPTIONS, is_wayland_session
 
 # Module state - window references
 _overlay_window = None
+_overlay_window_lock = threading.Lock()
 _settings_window = None
+_settings_window_lock = threading.Lock()
 _diagnostics_window = None
 _capture_listener = None
 
@@ -493,20 +496,22 @@ def show_live_overlay(cfg: dict, initial_text: str = "Transcribing...") -> None:
 
     global _overlay_window
 
-    # Early check to prevent race condition (before GLib.idle_add)
-    if _overlay_window is not None:
-        import sys
-        print("[DEBUG] Overlay already exists, skipping", file=sys.stderr)
-        return
+    # Thread-safe check to prevent race condition
+    with _overlay_window_lock:
+        if _overlay_window is not None:
+            import sys
+            print("[DEBUG] Overlay already exists, skipping", file=sys.stderr)
+            return
 
     def _show_overlay() -> bool:
         global _overlay_window
 
-        # Double-check in GTK thread
-        if _overlay_window is not None:
-            import sys
-            print("[DEBUG] Overlay already exists in GTK thread, skipping", file=sys.stderr)
-            return False
+        # Thread-safe double-check in GTK thread
+        with _overlay_window_lock:
+            if _overlay_window is not None:
+                import sys
+                print("[DEBUG] Overlay already exists in GTK thread, skipping", file=sys.stderr)
+                return False
 
         window = Gtk.Window()
         window.set_decorated(False)
@@ -672,7 +677,9 @@ def show_live_overlay(cfg: dict, initial_text: str = "Transcribing...") -> None:
         window.connect("motion-notify-event", on_motion_notify)
         window.connect("button-release-event", on_button_release)
 
-        _overlay_window = window
+        # Thread-safe assignment
+        with _overlay_window_lock:
+            _overlay_window = window
         window.show_all()
 
         return False
@@ -694,17 +701,21 @@ def update_live_overlay(text: str, status: str = "") -> None:
     """
     global _overlay_window
 
-    if _overlay_window is None:
-        return
+    # Thread-safe check
+    with _overlay_window_lock:
+        if _overlay_window is None:
+            return
+        window_ref = _overlay_window
 
     def _update() -> bool:
-        if _overlay_window is None:
+        # Use captured reference to avoid race
+        if window_ref is None:
             return False
 
         try:
-            _overlay_window.text_buffer.set_text(text)
-            if status and hasattr(_overlay_window, 'hint_label'):
-                _overlay_window.hint_label.set_text(status)
+            window_ref.text_buffer.set_text(text)
+            if status and hasattr(window_ref, 'hint_label'):
+                window_ref.hint_label.set_text(status)
         except Exception:
             pass
 
@@ -721,22 +732,25 @@ def hide_live_overlay() -> None:
     """Hide and destroy live overlay window."""
     global _overlay_window
 
-    if _overlay_window is None:
-        return
+    # Thread-safe check and clear
+    with _overlay_window_lock:
+        if _overlay_window is None:
+            return
+        window_ref = _overlay_window
+        _overlay_window = None  # Clear immediately to prevent double-destroy
 
     def _hide() -> bool:
-        global _overlay_window
-        if _overlay_window is None:
+        # Use captured reference
+        if window_ref is None:
             return False
 
         try:
-            if _overlay_window and hasattr(_overlay_window, 'destroy'):
-                _overlay_window.destroy()
+            if hasattr(window_ref, 'destroy'):
+                window_ref.destroy()
         except Exception as exc:
             import sys
             print(f"[WARN] Failed to destroy overlay: {exc}", file=sys.stderr)
 
-        _overlay_window = None
         return False
 
     try:
@@ -776,15 +790,21 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         print(f"[WARN] Settings window unavailable: {exc}", file=sys.stderr)
         return
 
-    if _settings_window is not None:
-        GLib.idle_add(lambda: _settings_window.present() or False)
-        return
+    # Thread-safe check
+    with _settings_window_lock:
+        if _settings_window is not None:
+            window_ref = _settings_window
+            GLib.idle_add(lambda: window_ref.present() or False)
+            return
 
     def _present_settings() -> bool:
         global _settings_window, _capture_listener
-        if _settings_window is not None:
-            _settings_window.present()
-            return False
+
+        # Thread-safe double-check
+        with _settings_window_lock:
+            if _settings_window is not None:
+                _settings_window.present()
+                return False
 
         devices = list_input_devices()
         device_map = {"__default__": None}
@@ -1807,7 +1827,10 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         window.set_keep_above(True)  # Force window to stay on top initially
         # After a short delay, disable keep-above to allow normal window behavior
         GLib.timeout_add(500, lambda: window.set_keep_above(False) or False)
-        _settings_window = window
+
+        # Thread-safe assignment
+        with _settings_window_lock:
+            _settings_window = window
         return False
 
     GLib.idle_add(_present_settings)
