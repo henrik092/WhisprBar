@@ -95,8 +95,23 @@ def ensure_stdin_open() -> None:
     - Any other launcher that closes stdin
     """
     try:
-        # ALWAYS reopen stdin from /dev/zero to be absolutely sure
-        # This is the safest approach - better safe than sorry
+        # Check if stdin is actually closed or pointing to /dev/null
+        try:
+            stdin_stat = os.fstat(sys.stdin.fileno())
+            # If stdin is a character device (likely /dev/null or /dev/zero), check its path
+            if os.stat('/dev/null').st_rdev == stdin_stat.st_rdev:
+                needs_reopen = True
+            else:
+                needs_reopen = False
+        except (OSError, AttributeError):
+            # If we can't stat stdin, assume it needs to be reopened
+            needs_reopen = True
+
+        if not needs_reopen:
+            print("[STDIN-FIX] stdin already open and valid, skipping reopen", file=sys.stderr)
+            return
+
+        # Reopen stdin from /dev/zero
         null_fd = os.open('/dev/zero', os.O_RDONLY)
         os.dup2(null_fd, 0)  # Replace stdin with /dev/zero
         os.close(null_fd)

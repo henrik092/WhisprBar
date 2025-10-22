@@ -39,7 +39,9 @@ except ImportError:
 
 # Global state for recording (will be managed by main.py later)
 AUDIO_QUEUE: Optional[queue.Queue] = None
+VAD_MONITOR_QUEUE: Optional[queue.Queue] = None  # Separate queue for VAD monitoring
 audio_queue_lock = threading.Lock()
+vad_monitor_lock = threading.Lock()
 recording_state = {
     "recording": False,
     "stream": None,
@@ -118,11 +120,23 @@ def recording_callback(indata, frames, time_info, status):
     if status and status.input_overflow:
         print(f"[WARN] Audio overflow: {status}", file=sys.stderr)
 
+    # Copy data once to avoid multiple copies
+    data_copy = indata.copy()
+
     with audio_queue_lock:
         queue_obj = AUDIO_QUEUE
-        if queue_obj is None:
-            return
-        queue_obj.put(indata.copy())
+        if queue_obj is not None:
+            queue_obj.put(data_copy)
+
+    # Also feed to VAD monitor queue if it exists
+    with vad_monitor_lock:
+        vad_queue_obj = VAD_MONITOR_QUEUE
+        if vad_queue_obj is not None:
+            try:
+                vad_queue_obj.put_nowait(data_copy)
+            except queue.Full:
+                # VAD queue full, skip this chunk (monitor is lagging)
+                pass
 
 
 def vad_auto_stop_monitor() -> None:
@@ -147,27 +161,20 @@ def vad_auto_stop_monitor() -> None:
     while recording_state.get("recording"):
         time.sleep(check_interval)
 
-        # Collect audio chunks from the queue
-        with audio_queue_lock:
-            queue_obj = AUDIO_QUEUE
-            if queue_obj is None:
+        # Get monitor queue reference
+        with vad_monitor_lock:
+            monitor_queue = VAD_MONITOR_QUEUE
+            if monitor_queue is None:
                 break
 
-        # Build buffer from recent audio
+        # Collect all available chunks from monitor queue (non-blocking)
         try:
-            # Non-destructive peek - we don't remove from queue
-            temp_chunks = []
             while True:
                 try:
-                    chunk = queue_obj.get_nowait()
-                    temp_chunks.append(chunk)
+                    chunk = monitor_queue.get_nowait()
+                    audio_buffer.append(chunk)
                 except queue.Empty:
                     break
-
-            # Put chunks back for main processing
-            for chunk in temp_chunks:
-                queue_obj.put(chunk)
-                audio_buffer.append(chunk)
         except Exception:
             continue
 
@@ -224,7 +231,7 @@ def start_recording() -> None:
     Opens audio stream and begins capturing audio to queue.
     Optionally starts VAD auto-stop monitor if enabled.
     """
-    global AUDIO_QUEUE
+    global AUDIO_QUEUE, VAD_MONITOR_QUEUE
 
     if recording_state.get("recording"):
         return
@@ -235,6 +242,12 @@ def start_recording() -> None:
         queue_obj: queue.Queue = queue.Queue()
         with audio_queue_lock:
             AUDIO_QUEUE = queue_obj
+
+        # Create separate queue for VAD monitoring if auto-stop is enabled
+        if cfg.get("vad_auto_stop_enabled") and VAD_AVAILABLE:
+            vad_queue_obj: queue.Queue = queue.Queue(maxsize=100)  # Limit size to prevent memory issues
+            with vad_monitor_lock:
+                VAD_MONITOR_QUEUE = vad_queue_obj
 
         stream = sd.InputStream(
             samplerate=SAMPLE_RATE,
@@ -265,6 +278,8 @@ def start_recording() -> None:
     except Exception as exc:
         with audio_queue_lock:
             AUDIO_QUEUE = None
+        with vad_monitor_lock:
+            VAD_MONITOR_QUEUE = None
         print(f"[ERROR] start_recording failed: {exc}", file=sys.stderr)
         raise
 
@@ -278,7 +293,7 @@ def stop_recording() -> Optional[np.ndarray]:
     Returns:
         Audio data as float32 numpy array, or None if no audio captured
     """
-    global AUDIO_QUEUE
+    global AUDIO_QUEUE, VAD_MONITOR_QUEUE
 
     if not recording_state.get("recording"):
         return None
@@ -292,44 +307,42 @@ def stop_recording() -> Optional[np.ndarray]:
     frames: List[np.ndarray] = []
     grace_seconds = max(0.0, min(2.0, float(cfg.get("stop_tail_grace_ms", 500)) / 1000.0))
 
-    # Collect tail frames during grace period
-    if queue_obj is not None and grace_seconds:
-        tail_end = time.monotonic() + grace_seconds
-        while True:
-            remaining = tail_end - time.monotonic()
-            if remaining <= 0:
-                break
-            timeout = min(0.05, remaining)
-            if timeout <= 0:
-                break
-            try:
-                frames.append(queue_obj.get(timeout=timeout))
-            except queue.Empty:
-                continue
-
-    # Stop the stream
+    # Stop the stream first to prevent new data
     if stream:
         with contextlib.suppress(Exception):
             stream.stop()
             stream.close()
     recording_state["stream"] = None
 
-    # Final queue drain
+    # Wait for grace period to allow buffered audio to arrive
+    if grace_seconds > 0:
+        time.sleep(grace_seconds)
+
+    # Drain all remaining frames from queue with timeout
     if queue_obj is not None:
-        last_frame_time = time.monotonic()
-        empty_grace = max(grace_seconds, 0.5)
+        drain_timeout = time.monotonic() + max(grace_seconds, 0.5)
+        while time.monotonic() < drain_timeout:
+            try:
+                frame = queue_obj.get(timeout=0.05)
+                frames.append(frame)
+            except queue.Empty:
+                # No more frames available, but keep trying until timeout
+                continue
+
+        # Final non-blocking drain to catch any stragglers
         while True:
             try:
-                frames.append(queue_obj.get(timeout=0.05))
-                last_frame_time = time.monotonic()
-                continue
+                frame = queue_obj.get_nowait()
+                frames.append(frame)
             except queue.Empty:
-                if time.monotonic() - last_frame_time < empty_grace:
-                    continue
                 break
 
         with audio_queue_lock:
             AUDIO_QUEUE = None
+
+        # Clean up VAD monitor queue
+        with vad_monitor_lock:
+            VAD_MONITOR_QUEUE = None
 
     if not frames:
         debug("No audio captured")

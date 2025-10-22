@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import threading
 import time
-from typing import Dict, List
+from typing import Dict, List, Any
 
 import pyperclip
 from pynput import keyboard
@@ -55,7 +55,7 @@ TERMINAL_KEYWORDS = (
 PASTE_DETECT_TIMEOUT = float(os.environ.get("WHISPRBAR_PASTE_DETECT_TIMEOUT", "0.35"))
 
 # Auto-paste detection cache
-_AUTO_PASTE_CACHE: Dict[str, any] = {"sequence": "ctrl_v", "timestamp": 0.0}
+_AUTO_PASTE_CACHE: Dict[str, Any] = {"sequence": "ctrl_v", "timestamp": 0.0}
 
 # Keyboard controller for simulating key presses
 _controller = keyboard.Controller()
@@ -232,19 +232,27 @@ def detect_auto_paste_sequence() -> str:
     return sequence
 
 
-def simulate_typing(text: str) -> None:
+def simulate_typing(text: str, delay_ms: float = 10.0) -> None:
     """Simulate typing text character by character.
 
     Uses pynput to type the text. This is slower but works in most contexts.
+    Adds small delays between characters to prevent apps from missing input.
 
     Args:
         text: Text to type
+        delay_ms: Delay between characters in milliseconds (default: 10ms)
     """
     if not text:
         return
 
-    debug(f"Simulating typing: {len(text)} characters")
-    _controller.type(text)
+    debug(f"Simulating typing: {len(text)} characters with {delay_ms}ms delay")
+
+    # Type character by character with small delays
+    delay_seconds = delay_ms / 1000.0
+    for char in text:
+        _controller.type(char)
+        if delay_seconds > 0:
+            time.sleep(delay_seconds)
 
 
 def perform_auto_paste(text: str) -> None:

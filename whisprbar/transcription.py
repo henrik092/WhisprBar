@@ -422,12 +422,14 @@ class StreamingTranscriber(Transcriber):
 
 # Global transcriber instance
 _transcriber: Optional[Transcriber] = None
+_transcriber_lock = threading.Lock()
 
 
 def get_transcriber() -> Transcriber:
     """Get the current transcriber instance based on config.
 
     Creates a new transcriber if backend has changed or none exists.
+    Thread-safe.
 
     Returns:
         Transcriber instance (OpenAI, FasterWhisper, or Streaming)
@@ -436,35 +438,36 @@ def get_transcriber() -> Transcriber:
 
     backend = cfg.get("transcription_backend", "openai")
 
-    # Reset transcriber if backend changed
-    if _transcriber is not None:
-        current_backend = (
-            "openai"
-            if isinstance(_transcriber, OpenAITranscriber)
-            else "faster_whisper"
-            if isinstance(_transcriber, FasterWhisperTranscriber)
-            else "streaming"
-            if isinstance(_transcriber, StreamingTranscriber)
-            else "unknown"
-        )
-        if current_backend != backend:
-            debug(f"Backend changed from {current_backend} to {backend}")
-            _transcriber = None
+    with _transcriber_lock:
+        # Reset transcriber if backend changed
+        if _transcriber is not None:
+            current_backend = (
+                "openai"
+                if isinstance(_transcriber, OpenAITranscriber)
+                else "faster_whisper"
+                if isinstance(_transcriber, FasterWhisperTranscriber)
+                else "streaming"
+                if isinstance(_transcriber, StreamingTranscriber)
+                else "unknown"
+            )
+            if current_backend != backend:
+                debug(f"Backend changed from {current_backend} to {backend}")
+                _transcriber = None
 
-    # Create transcriber if needed
-    if _transcriber is None:
-        if backend == "streaming":
-            debug("Creating StreamingTranscriber")
-            _transcriber = StreamingTranscriber()
-        elif backend == "faster_whisper":
-            debug("Creating FasterWhisperTranscriber")
-            _transcriber = FasterWhisperTranscriber()
-        else:
-            # Default to OpenAI
-            debug("Creating OpenAITranscriber")
-            _transcriber = OpenAITranscriber()
+        # Create transcriber if needed
+        if _transcriber is None:
+            if backend == "streaming":
+                debug("Creating StreamingTranscriber")
+                _transcriber = StreamingTranscriber()
+            elif backend == "faster_whisper":
+                debug("Creating FasterWhisperTranscriber")
+                _transcriber = FasterWhisperTranscriber()
+            else:
+                # Default to OpenAI
+                debug("Creating OpenAITranscriber")
+                _transcriber = OpenAITranscriber()
 
-    return _transcriber
+        return _transcriber
 
 
 def split_audio_into_chunks(
