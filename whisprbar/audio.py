@@ -394,6 +394,8 @@ def _drop_short_runs(mask: np.ndarray, min_len: int) -> np.ndarray:
     diff = np.diff(padded.astype(int))
 
     # Run starts where diff == 1, ends where diff == -1
+    # The indices from diff correspond directly to the original array
+    # (padding offset is automatically handled by np.diff behavior)
     run_starts = np.where(diff == 1)[0]
     run_ends = np.where(diff == -1)[0]
 
@@ -403,7 +405,7 @@ def _drop_short_runs(mask: np.ndarray, min_len: int) -> np.ndarray:
     # Find runs that are too short
     short_runs = run_lengths < min_len
 
-    # Zero out short runs (vectorized)
+    # Zero out short runs (indices work directly on original array)
     for start, end in zip(run_starts[short_runs], run_ends[short_runs]):
         cleaned[start:end] = False
 
