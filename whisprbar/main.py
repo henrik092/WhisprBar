@@ -510,6 +510,14 @@ def on_recording_stop() -> None:
                 word_count = len(text.split())
                 write_history(text, output_seconds, word_count)
 
+                # Always copy to clipboard
+                try:
+                    import pyperclip
+                    pyperclip.copy(text)
+                    debug(f"Copied to clipboard: {text[:50]}...")
+                except Exception as exc:
+                    debug(f"Failed to copy to clipboard: {exc}")
+
                 # Auto-paste if enabled
                 if cfg.get("auto_paste_enabled"):
                     from whisprbar.paste import perform_auto_paste as auto_paste
