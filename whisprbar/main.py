@@ -509,14 +509,13 @@ def on_recording_stop() -> None:
                 word_count = len(text.split())
                 write_history(text, output_seconds, word_count)
 
-                # Always copy to clipboard
-                copy_to_clipboard(text)
-
-                # Auto-paste if enabled
+                # Auto-paste if enabled (handles clipboard + paste)
                 if cfg.get("auto_paste_enabled"):
                     from whisprbar.paste import perform_auto_paste as auto_paste
                     auto_paste(text)
                 else:
+                    # Auto-paste disabled: only copy to clipboard
+                    copy_to_clipboard(text)
                     notify(f"Transcription: {text[:50]}...")
 
                 # Hide overlay after configured delay (V5-style)
