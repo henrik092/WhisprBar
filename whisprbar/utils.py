@@ -601,9 +601,9 @@ def copy_to_clipboard(text: str, *, silent: bool = False) -> bool:
 
     Tries multiple clipboard methods in order:
     1. pyperclip (cross-platform, requires xclip/xsel/wl-clipboard)
-    2. xclip (X11)
-    3. xsel (X11)
-    4. wl-copy (Wayland)
+    2. wl-copy (Wayland)
+    3. xclip (X11)
+    4. xsel (X11)
 
     Args:
         text: Text to copy to clipboard
@@ -651,9 +651,9 @@ def copy_to_clipboard(text: str, *, silent: bool = False) -> bool:
     if session == "x11" and command_exists("xclip"):
         try:
             # Copy to both clipboard and primary selection
-            for selection in ["-selection", "clipboard"]:
+            for selection in ["clipboard", "primary"]:
                 proc = subprocess.Popen(
-                    ["xclip", selection],
+                    ["xclip", "-selection", selection],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
@@ -661,7 +661,7 @@ def copy_to_clipboard(text: str, *, silent: bool = False) -> bool:
                 proc.communicate(input=text.encode("utf-8"), timeout=2.0)
                 if proc.returncode != 0:
                     stderr = proc.stderr.read().decode("utf-8") if proc.stderr else ""
-                    debug(f"xclip {selection} failed: {stderr}")
+                    debug(f"xclip -selection {selection} failed: {stderr}")
                     break
             else:
                 debug(f"Copied to clipboard via xclip: {len(text)} chars")
