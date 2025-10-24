@@ -541,13 +541,21 @@ Ensures existing installations (`~/.local/bin/whisprbar`) continue to work.
 
 ### Setup & Environment
 
+**IMPORTANT:** Always use `--system-site-packages` when creating the venv!
+
 ```bash
 # Clone repository
 git clone https://github.com/henrik092/whisprBar.git WhisperBar
 cd WhisperBar
 
-# Create virtual environment
-python3 -m venv .venv
+# Install system dependencies FIRST (Ubuntu/Debian)
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
+                 gir1.2-appindicator3-0.1 xdotool libnotify-bin \
+                 portaudio19-dev
+
+# Create virtual environment WITH system-site-packages
+# This is REQUIRED for gi/AppIndicator3 access
+python3 -m venv --system-site-packages .venv
 
 # Activate venv
 source .venv/bin/activate
@@ -555,11 +563,18 @@ source .venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Install system dependencies (Ubuntu/Debian)
-sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
-                 gir1.2-appindicator3-0.1 xdotool libnotify-bin \
-                 portaudio19-dev
+# Verify AppIndicator3 is accessible
+python3 -c "import gi; gi.require_version('AppIndicator3', '0.1'); from gi.repository import AppIndicator3; print('✅ AppIndicator3 OK')"
+
+# Verify typing_extensions has Sentinel (for OpenAI client)
+python3 -c "from typing_extensions import Sentinel; print('✅ Sentinel OK')"
 ```
+
+**Why `--system-site-packages`?**
+- `gi` (GObject Introspection) and `AppIndicator3` cannot be installed via pip
+- They must come from system packages
+- Without this flag, tray icon won't work on Cinnamon/GNOME
+- Venv packages still override system packages (e.g., `typing_extensions`)
 
 ### Running
 
@@ -1016,6 +1031,91 @@ def test_load_config():
 **Tray Ordering:**
 - Desktop-dependent
 - Not controllable by app
+
+---
+
+## Common Installation Issues
+
+### Issue: "Failed to initialize OpenAI client: cannot import name 'Sentinel'"
+
+**Symptoms:**
+- Transcription fails silently
+- Debug logs show: `[DEBUG] Failed to initialize OpenAI client: cannot import name 'Sentinel' from 'typing_extensions'`
+
+**Root Cause:**
+- Old system `typing_extensions` loaded instead of venv version
+- Usually caused by `PYTHONPATH` environment variable overriding venv isolation
+
+**Solution:**
+```bash
+cd ~/WhisprBar
+rm -rf .venv
+python3 -m venv --system-site-packages .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install --upgrade typing_extensions
+```
+
+**Verification:**
+```bash
+.venv/bin/python3 -c "from typing_extensions import Sentinel; print('✅ OK')"
+```
+
+### Issue: Missing tray icon on Cinnamon/GNOME
+
+**Symptoms:**
+- App runs but no tray icon visible
+- Debug logs show: `[INFO] Tray backend in use: PyStray Xorg` (should be AppIndicator)
+
+**Root Cause:**
+- Venv created without `--system-site-packages`
+- `gi`/`AppIndicator3` not accessible from venv
+- Falls back to PyStray Xorg which doesn't work well on Cinnamon
+
+**Solution:**
+```bash
+cd ~/WhisprBar
+rm -rf .venv
+python3 -m venv --system-site-packages .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+**Verification:**
+```bash
+.venv/bin/python3 -c "import gi; gi.require_version('AppIndicator3', '0.1'); from gi.repository import AppIndicator3; print('✅ OK')"
+```
+
+Then restart WhisprBar and check logs:
+```bash
+WHISPRBAR_DEBUG=1 ~/.local/bin/whisprbar
+# Should show: [INFO] Tray backend in use: AppIndicator
+```
+
+### Issue: Both problems at once
+
+If you have BOTH the OpenAI error AND missing tray icon, the root cause is the same: incorrect venv setup.
+
+**One-line fix:**
+```bash
+cd ~/WhisprBar && rm -rf .venv && python3 -m venv --system-site-packages .venv && .venv/bin/pip install -r requirements.txt && echo "✅ Fixed"
+```
+
+**Why does this happen?**
+
+The old `whisprbar-launcher.sh` had:
+```bash
+export PYTHONPATH="/usr/lib/python3/dist-packages:..."
+```
+
+This forced system packages over venv packages, causing:
+1. Old `typing_extensions` → OpenAI client broken
+2. No venv isolation → couldn't use `--system-site-packages` workaround
+
+The fix removed the `PYTHONPATH` export and added `--system-site-packages` to `install.sh`.
+
+**Prevention:**
+- Always use `./install.sh` (handles venv setup correctly)
+- Never manually set `PYTHONPATH` in shell config
+- Always verify after installation (see commands above)
 
 ---
 

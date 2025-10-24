@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **CRITICAL: Virtual Environment Isolation** (2025-10-24)
+  - Fixed OpenAI client initialization failure: `cannot import name 'Sentinel' from 'typing_extensions'`
+  - Fixed missing tray icon on Cinnamon desktop (PyStray Xorg fallback instead of AppIndicator)
+  - Root cause: `PYTHONPATH` export in launcher script forced system packages over venv packages
+  - Solution 1: Removed `PYTHONPATH` export from `whisprbar-launcher.sh` to restore venv isolation
+  - Solution 2: Updated `install.sh` to create venv with `--system-site-packages` flag
+  - This enables:
+    - Access to system `gi`/`AppIndicator3` (not pip-installable)
+    - Venv packages override system versions (e.g., `typing_extensions 4.15.0` > system `4.10.0`)
+    - Best of both worlds: system integration + correct dependencies
+  - **Migration required**: Existing installations must recreate venv:
+    ```bash
+    cd ~/WhisprBar
+    rm -rf .venv
+    ./install.sh
+    ```
+  - Modified files: `whisprbar-launcher.sh` (removed PYTHONPATH), `install.sh` (added --system-site-packages)
 - **CRITICAL: Background Hotkey Detection** (2025-10-19)
   - Fixed hotkeys not working when WhisprBar started via desktop entries or autostart
   - Root cause: pynput's X11 keyboard listener requires stdin to be open
