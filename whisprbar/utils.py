@@ -596,6 +596,115 @@ def format_history_entry(entry: Dict[str, any], max_length: int = 50) -> str:
     return text
 
 
+def copy_to_clipboard(text: str, *, silent: bool = False) -> bool:
+    """Copy text to clipboard using multiple fallback methods.
+
+    Tries multiple clipboard methods in order:
+    1. pyperclip (cross-platform, requires xclip/xsel/wl-clipboard)
+    2. xclip (X11)
+    3. xsel (X11)
+    4. wl-copy (Wayland)
+
+    Args:
+        text: Text to copy to clipboard
+        silent: If True, don't show notifications on failure
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if not text:
+        debug("copy_to_clipboard: empty text, skipping")
+        return False
+
+    # Method 1: Try pyperclip (most portable)
+    try:
+        import pyperclip
+        pyperclip.copy(text)
+        debug(f"Copied to clipboard via pyperclip: {len(text)} chars")
+        return True
+    except Exception as exc:
+        debug(f"pyperclip copy failed: {exc}")
+
+    # Detect session type for appropriate fallback
+    session = detect_session_type()
+
+    # Method 2: Try wl-copy (Wayland)
+    if session == "wayland" and command_exists("wl-copy"):
+        try:
+            proc = subprocess.Popen(
+                ["wl-copy"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            proc.communicate(input=text.encode("utf-8"), timeout=2.0)
+            if proc.returncode == 0:
+                debug(f"Copied to clipboard via wl-copy: {len(text)} chars")
+                return True
+            else:
+                stderr = proc.stderr.read().decode("utf-8") if proc.stderr else ""
+                debug(f"wl-copy failed with code {proc.returncode}: {stderr}")
+        except Exception as exc:
+            debug(f"wl-copy failed: {exc}")
+
+    # Method 3: Try xclip (X11)
+    if session == "x11" and command_exists("xclip"):
+        try:
+            # Copy to both clipboard and primary selection
+            for selection in ["-selection", "clipboard"]:
+                proc = subprocess.Popen(
+                    ["xclip", selection],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                )
+                proc.communicate(input=text.encode("utf-8"), timeout=2.0)
+                if proc.returncode != 0:
+                    stderr = proc.stderr.read().decode("utf-8") if proc.stderr else ""
+                    debug(f"xclip {selection} failed: {stderr}")
+                    break
+            else:
+                debug(f"Copied to clipboard via xclip: {len(text)} chars")
+                return True
+        except Exception as exc:
+            debug(f"xclip failed: {exc}")
+
+    # Method 4: Try xsel (X11 alternative)
+    if session == "x11" and command_exists("xsel"):
+        try:
+            for selection in ["--clipboard", "--primary"]:
+                proc = subprocess.Popen(
+                    ["xsel", selection, "--input"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                )
+                proc.communicate(input=text.encode("utf-8"), timeout=2.0)
+                if proc.returncode != 0:
+                    stderr = proc.stderr.read().decode("utf-8") if proc.stderr else ""
+                    debug(f"xsel {selection} failed: {stderr}")
+                    break
+            else:
+                debug(f"Copied to clipboard via xsel: {len(text)} chars")
+                return True
+        except Exception as exc:
+            debug(f"xsel failed: {exc}")
+
+    # All methods failed
+    error_msg = (
+        f"Failed to copy to clipboard. Please install clipboard tools:\n"
+        f"  X11: sudo apt install xclip or xsel\n"
+        f"  Wayland: sudo apt install wl-clipboard"
+    )
+    debug(error_msg)
+    if not silent:
+        notify(
+            "Failed to copy to clipboard. Install xclip, xsel, or wl-clipboard.",
+            title="Clipboard Error",
+        )
+    return False
+
+
 def play_audio_feedback(sound_type: str = "start") -> None:
     """Play audio feedback for recording events.
 
