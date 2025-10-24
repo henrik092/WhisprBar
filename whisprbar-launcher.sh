@@ -32,7 +32,8 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
-export PYTHONPATH="/usr/lib/python3/dist-packages:/usr/lib/python3.12/dist-packages:${PYTHONPATH:-}"
+# PYTHONPATH removed - venv should be isolated
+# export PYTHONPATH="/usr/lib/python3/dist-packages:/usr/lib/python3.12/dist-packages:${PYTHONPATH:-}"
 
 APP_DIR="${WHISPRBAR_HOME:-$SCRIPT_DIR}"
 VENV_DIR="$APP_DIR/.venv"
