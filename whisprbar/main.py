@@ -23,6 +23,7 @@ from whisprbar.utils import (
     debug,
     detect_session_type,
     play_audio_feedback,
+    copy_to_clipboard,
     APP_NAME,
 )
 from whisprbar.audio import (
@@ -315,15 +316,13 @@ def open_diagnostics_callback() -> None:
     open_diagnostics_window(cfg, first_run=False)
 
 
-def copy_to_clipboard(text: str) -> None:
+def copy_to_clipboard_callback(text: str) -> None:
     """Copy text to clipboard (menu callback)."""
-    try:
-        import pyperclip
-        pyperclip.copy(text)
-        debug(f"Copied to clipboard: {text[:50]}...")
+    from whisprbar.utils import copy_to_clipboard
+    success = copy_to_clipboard(text)
+    if success:
         notify("Copied to clipboard")
-    except Exception as exc:
-        debug(f"Failed to copy to clipboard: {exc}")
+    else:
         notify("Failed to copy to clipboard")
 
 
@@ -357,7 +356,7 @@ def get_callbacks() -> Dict[str, Any]:
         "toggle_auto_paste": toggle_auto_paste,
         "set_paste_sequence": set_paste_sequence,
         "toggle_vad": toggle_vad,
-        "copy_to_clipboard": copy_to_clipboard,
+        "copy_to_clipboard": copy_to_clipboard_callback,
         "clear_history": clear_history_callback,
         "quit": quit_application,
         "session_status_label": session_status_label,
@@ -511,12 +510,7 @@ def on_recording_stop() -> None:
                 write_history(text, output_seconds, word_count)
 
                 # Always copy to clipboard
-                try:
-                    import pyperclip
-                    pyperclip.copy(text)
-                    debug(f"Copied to clipboard: {text[:50]}...")
-                except Exception as exc:
-                    debug(f"Failed to copy to clipboard: {exc}")
+                copy_to_clipboard(text)
 
                 # Auto-paste if enabled
                 if cfg.get("auto_paste_enabled"):

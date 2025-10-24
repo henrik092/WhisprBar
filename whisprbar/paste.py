@@ -13,11 +13,10 @@ import threading
 import time
 from typing import Dict, List, Any
 
-import pyperclip
 from pynput import keyboard
 
 from .config import cfg
-from .utils import debug, detect_session_type, notify
+from .utils import debug, detect_session_type, notify, copy_to_clipboard
 
 # Paste sequence options
 PASTE_OPTIONS = {
@@ -272,12 +271,9 @@ def perform_auto_paste(text: str) -> None:
         text = text + " "
 
     # Copy text to clipboard first
-    try:
-        pyperclip.copy(text)
-        debug(f"Copied {len(text)} chars to clipboard")
-    except Exception as exc:
-        debug(f"Failed to copy to clipboard: {exc}")
-        notify(f"Failed to copy text to clipboard: {exc}")
+    success = copy_to_clipboard(text, silent=True)
+    if not success:
+        # Error already logged and notification shown by copy_to_clipboard
         return
 
     # Get configured paste sequence
