@@ -271,9 +271,9 @@ def perform_auto_paste(text: str) -> None:
         text = text + " "
 
     # Copy text to clipboard first
-    success = copy_to_clipboard(text, silent=True)
+    success = copy_to_clipboard(text, silent=False)
     if not success:
-        # Error already logged and notification shown by copy_to_clipboard
+        # Error already logged by copy_to_clipboard, notification shown to user
         return
 
     # Get configured paste sequence
