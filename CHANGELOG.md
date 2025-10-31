@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Stale PID File / PID Recycling Bug** (2025-10-31)
+  - **Problem**: WhisprBar showed "already running" notification even when no WhisprBar process existed
+  - **Root Cause**: Singleton check only verified PID existence (`os.kill(pid, 0)`), not process identity
+  - **PID Recycling**: When WhisprBar crashed and its PID was reassigned to another process (e.g., bash, systemd), the singleton check incorrectly blocked startup
+  - **Solution**: Added `is_whisprbar_process()` function that verifies process name by reading `/proc/{pid}/cmdline`
+  - **Now**: Startup blocked only if PID exists AND process is actually WhisprBar
+  - **Benefit**: Automatic recovery from crashes - no manual PID file cleanup needed
+  - Modified files: `whisprbar/main.py` (added `is_whisprbar_process()`, updated `acquire_singleton_lock()`)
+  - Location: `whisprbar/main.py:137-211`
 - **CRITICAL: Virtual Environment Isolation** (2025-10-24)
   - Fixed OpenAI client initialization failure: `cannot import name 'Sentinel' from 'typing_extensions'`
   - Fixed missing tray icon on Cinnamon desktop (PyStray Xorg fallback instead of AppIndicator)

@@ -1114,6 +1114,44 @@ The fix removed the `PYTHONPATH` export and added `--system-site-packages` to `i
 
 **Prevention:**
 - Always use `./install.sh` (handles venv setup correctly)
+
+### Issue: "WhisprBar is already running" but no process exists (FIXED in V6)
+
+**Note:** This issue has been fixed as of 2025-10-31. The information below is kept for reference.
+
+**Symptoms (historical):**
+- WhisprBar won't start, shows notification "WhisprBar is already running"
+- No WhisprBar process visible in process list (`ps aux | grep whisprbar`)
+- `pgrep whisprbar` returns nothing
+
+**Root Cause:**
+- **PID Recycling Bug**: Singleton check only verified PID existence, not process identity
+- When WhisprBar crashed and its PID was reassigned to another process, startup was blocked
+
+**Fix (2025-10-31):**
+The singleton lock now verifies both:
+1. Process exists (via `os.kill(pid, 0)`)
+2. Process is actually WhisprBar (via `/proc/{pid}/cmdline`)
+
+Implementation in `whisprbar/main.py:137-211`:
+```python
+def is_whisprbar_process(pid: int) -> bool:
+    """Check if process is actually WhisprBar by examining command line."""
+    cmdline = Path(f"/proc/{pid}/cmdline").read_text()
+    return "whisprbar" in cmdline.lower()
+
+def acquire_singleton_lock() -> bool:
+    if is_whisprbar_process(existing_pid):
+        return False  # Really WhisprBar running
+    else:
+        # Stale or recycled PID - remove and start
+        PID_FILE.unlink()
+```
+
+**Result:**
+- Automatic recovery from crashes
+- No manual PID file cleanup needed
+- Startup blocked only when WhisprBar is actually running
 - Never manually set `PYTHONPATH` in shell config
 - Always verify after installation (see commands above)
 

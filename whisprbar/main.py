@@ -134,12 +134,45 @@ def ensure_stdin_open() -> None:
 # Singleton Lock Management
 # =============================================================================
 
+def is_whisprbar_process(pid: int) -> bool:
+    """
+    Check if a process is actually WhisprBar by examining its command line.
+
+    Args:
+        pid: Process ID to check
+
+    Returns:
+        True if process is WhisprBar, False otherwise
+    """
+    try:
+        cmdline_path = Path(f"/proc/{pid}/cmdline")
+        if not cmdline_path.exists():
+            return False
+
+        # Read command line (null-byte separated arguments)
+        cmdline = cmdline_path.read_text()
+        # Replace null bytes with spaces for easier matching
+        cmdline = cmdline.replace('\x00', ' ').lower()
+
+        # Check if command line contains "whisprbar"
+        return "whisprbar" in cmdline
+    except (FileNotFoundError, PermissionError, ProcessLookupError):
+        # Process disappeared or we can't read it
+        return False
+    except Exception as exc:
+        debug(f"Error checking process {pid}: {exc}")
+        return False
+
+
 def acquire_singleton_lock() -> bool:
     """
     Acquire singleton lock using PID file.
 
     Returns True if lock acquired successfully, False if another instance is running.
-    If stale PID file exists (process not running), removes it and acquires lock.
+    If stale PID file exists (process not running or different process), removes it and acquires lock.
+
+    This function now protects against PID recycling by verifying the process name,
+    not just existence.
     """
     # Ensure cache directory exists
     PID_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -149,12 +182,20 @@ def acquire_singleton_lock() -> bool:
         try:
             existing_pid = int(PID_FILE.read_text().strip())
 
-            # Check if process is still running
+            # Check if process exists and is actually WhisprBar
             try:
                 os.kill(existing_pid, 0)  # Signal 0 just checks if process exists
-                # Process exists, another instance is running
-                debug(f"WhisprBar is already running (PID {existing_pid})")
-                return False
+
+                # Process exists, but is it WhisprBar?
+                if is_whisprbar_process(existing_pid):
+                    # Yes, another WhisprBar instance is running
+                    debug(f"WhisprBar is already running (PID {existing_pid})")
+                    return False
+                else:
+                    # Process exists but is NOT WhisprBar (PID was recycled)
+                    debug(f"PID {existing_pid} exists but is not WhisprBar (PID recycling detected)")
+                    debug(f"Removing stale PID file")
+                    PID_FILE.unlink()
             except OSError:
                 # Process doesn't exist, stale PID file
                 debug(f"Removing stale PID file (PID {existing_pid} not running)")
