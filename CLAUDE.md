@@ -1184,9 +1184,21 @@ def acquire_singleton_lock() -> bool:
 1. Create feature branch: `git checkout -b feature/my-feature`
 2. Make changes to relevant modules
 3. Test thoroughly (see Testing Strategy)
-4. Update documentation (WORKLOG.md, CHANGELOG.md)
-5. Commit with clear message (conventional commits preferred)
-6. Push and create PR
+4. **IMPORTANT: Only commit after successful testing**
+   - For bug fixes: Verify the bug is actually fixed before committing
+   - For features: Verify the feature works as expected
+   - Document the fix/feature first, then commit both code and docs together
+   - Never commit half-finished work or broken code to main branch
+5. Update documentation (CHANGELOG.md, CLAUDE.md, etc.)
+6. Commit with clear message (conventional commits preferred)
+7. Push and create PR
+
+**Commit Best Practices:**
+- **Fix first, commit second**: Always verify your fix works before creating a commit
+- **Atomic commits**: Each commit should be a complete, working change
+- **Test before commit**: Run relevant tests and manual checks
+- **Document with commit**: Include documentation updates in the same commit as code changes
+- **Descriptive messages**: Write clear commit messages explaining what and why
 
 **Commit Message Format:**
 ```
