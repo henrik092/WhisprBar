@@ -239,7 +239,9 @@ def start_recording() -> None:
     update_device_index()
 
     try:
-        queue_obj: queue.Queue = queue.Queue()
+        # Limit queue size to prevent unbounded memory growth during long recordings
+        # maxsize=1000 allows ~60 seconds of audio buffering (at 16kHz, 1024 samples per block)
+        queue_obj: queue.Queue = queue.Queue(maxsize=1000)
         with audio_queue_lock:
             AUDIO_QUEUE = queue_obj
 

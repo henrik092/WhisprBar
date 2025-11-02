@@ -69,6 +69,10 @@ state: Dict[str, Any] = {
     "hotkey_capture_active": False,
 }
 
+# Transcription thread pool limiter
+# Limit to 2 concurrent transcriptions to prevent memory/CPU overload
+TRANSCRIPTION_SEMAPHORE = threading.Semaphore(2)
+
 # PID file for singleton enforcement
 PID_FILE = Path.home() / ".cache" / "whisprbar" / "whisprbar.pid"
 
@@ -486,6 +490,14 @@ def on_recording_stop() -> None:
 
     # Transcribe in background thread
     def transcribe_thread():
+        # Acquire semaphore to limit concurrent transcriptions
+        if not TRANSCRIPTION_SEMAPHORE.acquire(blocking=False):
+            debug("Transcription queue full, dropping request (max 2 concurrent)")
+            notify("Transcription busy, please wait for current transcription to finish.")
+            state["transcribing"] = False
+            refresh_tray_indicator(state)
+            return
+
         try:
             # Import here to avoid circular dependencies
             from whisprbar.ui import show_live_overlay, update_live_overlay, hide_live_overlay
@@ -592,6 +604,10 @@ def on_recording_stop() -> None:
             refresh_tray_indicator(state)
             refresh_menu(get_callbacks(), state)
 
+            # Release semaphore to allow next transcription
+            TRANSCRIPTION_SEMAPHORE.release()
+            debug("Transcription thread finished, semaphore released")
+
     # Start transcription thread
     thread = threading.Thread(target=transcribe_thread, daemon=True)
     thread.start()
@@ -682,6 +698,11 @@ def main() -> None:
     # Load configuration
     load_config()
     debug("Config loaded")
+
+    # Clean up old temp files from previous crashes
+    from whisprbar.utils import cleanup_old_temp_files
+    cleanup_old_temp_files()
+    debug("Temp file cleanup completed")
 
     # Detect session type
     debug("Detecting session type...")

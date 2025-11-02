@@ -752,11 +752,13 @@ def play_audio_feedback(sound_type: str = "start") -> None:
         try:
             # paplay with volume control
             volume_percent = int(volume * 65536)  # paplay uses 0-65536 range
-            subprocess.Popen(
+            proc = subprocess.Popen(
                 ["paplay", "--volume", str(volume_percent), sound_path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+            # Clean up process in background to prevent zombie processes
+            threading.Thread(target=proc.wait, daemon=True, name="paplay-cleanup").start()
             debug(f"Audio feedback: {sound_type} (volume: {volume:.1%})")
             return
         except Exception as exc:
@@ -765,14 +767,49 @@ def play_audio_feedback(sound_type: str = "start") -> None:
     # Fallback to aplay (ALSA) - no volume control
     if command_exists("aplay"):
         try:
-            subprocess.Popen(
+            proc = subprocess.Popen(
                 ["aplay", "-q", sound_path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+            # Clean up process in background to prevent zombie processes
+            threading.Thread(target=proc.wait, daemon=True, name="aplay-cleanup").start()
             debug(f"Audio feedback: {sound_type} (aplay, no volume control)")
             return
         except Exception as exc:
             debug(f"aplay failed: {exc}")
 
     debug("No audio playback command available (paplay/aplay)")
+
+
+def cleanup_old_temp_files() -> None:
+    """Clean up old temporary WAV files left behind by crashes.
+
+    WhisprBar creates temporary WAV files in /tmp for OpenAI transcription.
+    If the process crashes, these files are not cleaned up automatically.
+    This function removes any temp WAV files older than 1 hour on startup.
+    """
+    import time
+    from pathlib import Path
+
+    try:
+        tmp_dir = Path("/tmp")
+        current_time = time.time()
+        one_hour_ago = current_time - 3600
+
+        # Find all tmp*.wav files in /tmp
+        cleaned_count = 0
+        for temp_file in tmp_dir.glob("tmp*.wav"):
+            try:
+                # Check if file is older than 1 hour
+                if temp_file.stat().st_mtime < one_hour_ago:
+                    temp_file.unlink()
+                    cleaned_count += 1
+                    debug(f"Cleaned up old temp file: {temp_file.name}")
+            except (OSError, PermissionError) as exc:
+                debug(f"Could not clean up {temp_file.name}: {exc}")
+
+        if cleaned_count > 0:
+            debug(f"Startup cleanup: removed {cleaned_count} old temp files")
+    except Exception as exc:
+        debug(f"Temp file cleanup failed: {exc}")
