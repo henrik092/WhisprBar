@@ -123,10 +123,16 @@ def recording_callback(indata, frames, time_info, status):
     # Copy data once to avoid multiple copies
     data_copy = indata.copy()
 
+    # Use non-blocking put to prevent callback thread blocking (defensive programming)
+    # Queue is unbounded so this should never raise queue.Full, but we handle it anyway
     with audio_queue_lock:
         queue_obj = AUDIO_QUEUE
         if queue_obj is not None:
-            queue_obj.put(data_copy)
+            try:
+                queue_obj.put_nowait(data_copy)
+            except queue.Full:
+                # Should never happen with unbounded queue, but handle defensively
+                print("[ERROR] Audio queue unexpectedly full, dropping frame", file=sys.stderr)
 
     # Also feed to VAD monitor queue if it exists
     with vad_monitor_lock:
@@ -239,6 +245,11 @@ def start_recording() -> None:
     update_device_index()
 
     try:
+        # Use unbounded queue to support recordings of any length
+        # Memory usage is self-limiting: bounded by user behavior (hotkey release)
+        # Queue is drained immediately after recording stops and then destroyed
+        # Example: 5-minute recording = 5min × 60s × 16kHz × 4 bytes = 19.2 MB
+        # This is acceptable for modern systems and prevents truncation of long recordings
         queue_obj: queue.Queue = queue.Queue()
         with audio_queue_lock:
             AUDIO_QUEUE = queue_obj
