@@ -123,10 +123,16 @@ def recording_callback(indata, frames, time_info, status):
     # Copy data once to avoid multiple copies
     data_copy = indata.copy()
 
+    # Use non-blocking put to prevent callback thread blocking
     with audio_queue_lock:
         queue_obj = AUDIO_QUEUE
         if queue_obj is not None:
-            queue_obj.put(data_copy)
+            try:
+                queue_obj.put_nowait(data_copy)
+            except queue.Full:
+                # Queue overflow during recording - should only happen with very long
+                # recordings or if stop_recording() is delayed. Log warning but continue.
+                print("[WARN] Audio queue full, dropping frame", file=sys.stderr)
 
     # Also feed to VAD monitor queue if it exists
     with vad_monitor_lock:
@@ -239,7 +245,11 @@ def start_recording() -> None:
     update_device_index()
 
     try:
-        queue_obj: queue.Queue = queue.Queue()
+        # Bounded queue to prevent unbounded memory growth during long recordings
+        # maxsize=500 provides ~32 seconds of buffering (500 blocks * 1024 samples / 16000 Hz)
+        # This is far more than the max 2-second grace period, providing safety margin
+        # while preventing memory issues. Uses put_nowait() to avoid callback blocking.
+        queue_obj: queue.Queue = queue.Queue(maxsize=500)
         with audio_queue_lock:
             AUDIO_QUEUE = queue_obj
 
