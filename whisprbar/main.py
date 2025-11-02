@@ -499,6 +499,15 @@ def on_recording_stop() -> None:
             return
 
         try:
+            # Lower CPU priority for transcription to prevent UI lag
+            # nice(10) gives this thread lower priority than interactive tasks
+            try:
+                import os
+                os.nice(10)
+                debug("Transcription thread running with nice priority +10")
+            except (OSError, AttributeError) as exc:
+                debug(f"Could not set nice priority: {exc}")
+
             # Import here to avoid circular dependencies
             from whisprbar.ui import show_live_overlay, update_live_overlay, hide_live_overlay
             from whisprbar.paste import perform_auto_paste as auto_paste

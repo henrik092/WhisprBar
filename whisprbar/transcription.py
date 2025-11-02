@@ -72,6 +72,14 @@ class Transcriber:
         """
         raise NotImplementedError("Subclasses must implement get_name()")
 
+    def unload(self) -> None:
+        """Unload model/client to free memory.
+
+        Called when backend is switched or app shuts down.
+        Subclasses should implement this to free resources.
+        """
+        pass  # Default implementation does nothing
+
 
 class OpenAITranscriber(Transcriber):
     """OpenAI Whisper API transcription backend.
@@ -175,6 +183,13 @@ class OpenAITranscriber(Transcriber):
         """
         return "OpenAI Whisper API"
 
+    def unload(self) -> None:
+        """Unload OpenAI client to free resources."""
+        with self.client_lock:
+            if self.client is not None:
+                self.client = None
+                debug("OpenAI client unloaded")
+
 
 class FasterWhisperTranscriber(Transcriber):
     """Local faster-whisper transcription backend (CPU/GPU).
@@ -277,6 +292,19 @@ class FasterWhisperTranscriber(Transcriber):
         if self.model_size:
             return f"faster-whisper ({self.model_size}, {self.device})"
         return "faster-whisper (offline)"
+
+    def unload(self) -> None:
+        """Unload faster-whisper model to free memory (~4 GB for large model)."""
+        with self.model_lock:
+            if self.model is not None:
+                # Delete model and force garbage collection
+                del self.model
+                self.model = None
+                self.model_size = None
+                self.device = None
+                import gc
+                gc.collect()
+                debug("faster-whisper model unloaded and memory freed")
 
 
 class StreamingTranscriber(Transcriber):
@@ -418,6 +446,18 @@ class StreamingTranscriber(Transcriber):
             return f"sherpa-onnx streaming ({self.model_name})"
         return "sherpa-onnx streaming"
 
+    def unload(self) -> None:
+        """Unload sherpa-onnx recognizer to free memory."""
+        with self.model_lock:
+            if self.recognizer is not None:
+                # Delete recognizer and force garbage collection
+                del self.recognizer
+                self.recognizer = None
+                self.model_name = None
+                import gc
+                gc.collect()
+                debug("sherpa-onnx recognizer unloaded and memory freed")
+
 
 # Global transcriber instance
 _transcriber: Optional[Transcriber] = None
@@ -451,6 +491,8 @@ def get_transcriber() -> Transcriber:
             )
             if current_backend != backend:
                 debug(f"Backend changed from {current_backend} to {backend}")
+                # Unload old model/client to free memory before switching
+                _transcriber.unload()
                 _transcriber = None
 
         # Create transcriber if needed

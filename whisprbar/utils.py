@@ -242,18 +242,25 @@ def notify(message: str, title: str = None, *, force: bool = False) -> None:
         print(f"[NOTICE] {title}: {message}", file=sys.stderr)
 
 
+# Counter for history cleanup optimization (only cleanup every N writes)
+_history_write_count = 0
+_HISTORY_CLEANUP_INTERVAL = 10  # Cleanup every 10 writes instead of every write
+
+
 def write_history(transcript: str, duration: float, word_count: int) -> None:
     """Append transcription to history log.
 
     Writes a JSONL entry to ~/.local/share/whisprbar/history.jsonl with
     timestamp, language, text, duration, and word count.
     Automatically keeps only the last 30 entries to prevent file bloat.
+    Cleanup is performed every 10 writes instead of every write for efficiency.
 
     Args:
         transcript: Transcribed text
         duration: Audio duration in seconds
         word_count: Number of words in transcript
     """
+    global _history_write_count
     from .config import cfg
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -268,8 +275,11 @@ def write_history(transcript: str, duration: float, word_count: int) -> None:
         with HIST_FILE.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
-        # Cleanup old entries (keep only last 30)
-        cleanup_history(max_entries=30)
+        # Cleanup old entries periodically (every 10 writes) instead of every write
+        _history_write_count += 1
+        if _history_write_count >= _HISTORY_CLEANUP_INTERVAL:
+            cleanup_history(max_entries=30)
+            _history_write_count = 0
     except Exception as exc:
         print(f"[WARN] Failed to write history: {exc}", file=sys.stderr)
 
