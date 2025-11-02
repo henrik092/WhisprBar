@@ -683,6 +683,11 @@ def main() -> None:
     load_config()
     debug("Config loaded")
 
+    # Clean up old temp files from previous crashes
+    from whisprbar.utils import cleanup_old_temp_files
+    cleanup_old_temp_files()
+    debug("Old temp files cleaned up")
+
     # Detect session type
     debug("Detecting session type...")
     state["session_type"] = detect_session_type()

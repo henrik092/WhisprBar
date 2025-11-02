@@ -776,3 +776,55 @@ def play_audio_feedback(sound_type: str = "start") -> None:
             debug(f"aplay failed: {exc}")
 
     debug("No audio playback command available (paplay/aplay)")
+
+
+def get_whisprbar_temp_dir() -> Path:
+    """Get WhisprBar-specific temporary directory.
+
+    Creates and returns a directory unique to WhisprBar for temporary files.
+    This prevents conflicts with other applications' temp files.
+
+    Returns:
+        Path to WhisprBar temp directory (e.g., /tmp/whisprbar-1000/)
+    """
+    # Use user ID to avoid conflicts in multi-user systems
+    uid = os.getuid()
+    temp_dir = Path("/tmp") / f"whisprbar-{uid}"
+    temp_dir.mkdir(mode=0o700, exist_ok=True)
+    return temp_dir
+
+
+def cleanup_old_temp_files() -> None:
+    """Clean up old WhisprBar temporary files left behind by crashes.
+
+    WhisprBar creates temporary WAV files for transcription. If the process
+    crashes, these files are not cleaned up automatically. This function
+    removes temp files older than 1 hour from WhisprBar's temp directory.
+
+    Only targets files in WhisprBar's dedicated temp directory, never touches
+    other applications' files.
+    """
+    import time
+
+    try:
+        temp_dir = get_whisprbar_temp_dir()
+        current_time = time.time()
+        one_hour_ago = current_time - 3600
+
+        # Find all .wav files in WhisprBar's temp directory
+        cleaned_count = 0
+        for temp_file in temp_dir.glob("*.wav"):
+            try:
+                # Check if file is older than 1 hour
+                if temp_file.stat().st_mtime < one_hour_ago:
+                    temp_file.unlink()
+                    cleaned_count += 1
+                    debug(f"Cleaned up old temp file: {temp_file.name}")
+            except Exception as exc:
+                debug(f"Failed to clean up {temp_file}: {exc}")
+
+        if cleaned_count > 0:
+            debug(f"Cleaned up {cleaned_count} old temp file(s)")
+
+    except Exception as exc:
+        debug(f"Temp file cleanup failed: {exc}")
