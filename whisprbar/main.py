@@ -67,6 +67,7 @@ state: Dict[str, Any] = {
     "wayland_notice_shown": False,
     "hotkey_key": None,
     "hotkey_capture_active": False,
+    "shutdown_requested": False,  # Signal-safe shutdown flag
 }
 
 # Transcription thread pool limiter
@@ -381,7 +382,10 @@ def clear_history_callback() -> None:
 
 def quit_application() -> None:
     """Quit application (menu callback)."""
-    shutdown()
+    debug("[SHUTDOWN] Quit requested from tray menu")
+    state["shutdown_requested"] = True
+    # Trigger immediate check (don't wait for 500ms timeout)
+    check_shutdown_signal()
 
 
 def get_callbacks() -> Dict[str, Any]:
@@ -626,32 +630,95 @@ def on_recording_stop() -> None:
 # Shutdown
 # =============================================================================
 
-def shutdown(*_args) -> None:
-    """Graceful application shutdown."""
-    debug("Shutting down...")
+def graceful_shutdown() -> None:
+    """
+    Perform graceful shutdown from main context (NOT signal handler).
+
+    This function is called from GTK main loop when shutdown flag is set.
+    It's safe to call any functions here (locks, I/O, etc.).
+
+    IMPORTANT: This must NOT be called directly from signal handlers!
+    Signal handlers should only set state["shutdown_requested"] = True.
+    """
+    debug("[SHUTDOWN] Initiating graceful shutdown...")
 
     # Stop recording if active
     if state.get("recording"):
-        stop_recording()
+        debug("[SHUTDOWN] Stopping active recording...")
+        try:
+            stop_recording()
+            debug("[SHUTDOWN] Recording stopped")
+        except Exception as e:
+            debug(f"[SHUTDOWN] Error stopping recording: {e}")
 
     # Stop hotkey manager
-    hotkey_manager = get_hotkey_manager()
-    hotkey_manager.stop()
-    debug("Hotkey manager stopped")
+    debug("[SHUTDOWN] Stopping hotkey listener...")
+    try:
+        hotkey_manager = get_hotkey_manager()
+        hotkey_manager.stop()
+        debug("[SHUTDOWN] Hotkey listener stopped")
+    except Exception as e:
+        debug(f"[SHUTDOWN] Error stopping hotkey: {e}")
 
     # Shutdown tray
-    shutdown_tray(state)
+    debug("[SHUTDOWN] Shutting down tray...")
+    try:
+        shutdown_tray(state)
+        debug("[SHUTDOWN] Tray shut down")
+    except Exception as e:
+        debug(f"[SHUTDOWN] Error shutting down tray: {e}")
 
     # Release singleton lock
     release_singleton_lock()
 
+    debug("[SHUTDOWN] Shutdown complete, exiting...")
     sys.exit(0)
+
+
+def check_shutdown_signal() -> bool:
+    """
+    Check if shutdown requested and perform cleanup if so.
+
+    Called from GTK main loop via GLib.timeout_add().
+
+    Returns:
+        True to keep checking, False to stop (triggers GTK quit)
+    """
+    if state.get("shutdown_requested"):
+        debug("[SHUTDOWN] Shutdown flag detected, initiating graceful shutdown")
+        graceful_shutdown()
+
+        # Quit GTK main loop if using AppIndicator
+        if state.get("tray_backend") == "appindicator":
+            try:
+                from gi.repository import Gtk
+                Gtk.main_quit()
+            except Exception as e:
+                debug(f"[SHUTDOWN] Error quitting GTK: {e}")
+
+        return False  # Stop this timeout callback
+
+    return True  # Keep checking
+
+
+def signal_handler(sig, frame):
+    """
+    Signal handler for SIGTERM and SIGINT.
+
+    CRITICAL: This function MUST be signal-safe!
+    - Only sets atomic flag (state["shutdown_requested"])
+    - No locks, no I/O, no function calls
+    - Actual cleanup happens in check_shutdown_signal() from main loop
+    """
+    # ONLY set flag - this is the ONLY signal-safe operation
+    state["shutdown_requested"] = True
 
 
 def install_signal_handlers() -> None:
     """Install signal handlers for graceful shutdown."""
-    signal.signal(signal.SIGINT, shutdown)
-    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    debug("Signal handlers installed (flag-based, signal-safe)")
 
 
 # =============================================================================
@@ -824,6 +891,12 @@ def main() -> None:
     # Initialize icons
     initialize_icons()
 
+    # Install shutdown checker in GTK main loop (checks every 500ms)
+    # This allows signal-safe shutdown via flag polling
+    from gi.repository import GLib
+    GLib.timeout_add(500, check_shutdown_signal)
+    debug("Shutdown checker installed (polling every 500ms)")
+
     # Start tray
     callbacks = get_callbacks()
 
@@ -844,7 +917,9 @@ def main() -> None:
     try:
         loop_runner()
     except KeyboardInterrupt:
-        shutdown()
+        debug("[SHUTDOWN] KeyboardInterrupt received, setting shutdown flag")
+        state["shutdown_requested"] = True
+        graceful_shutdown()
 
 
 # =============================================================================
