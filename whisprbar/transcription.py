@@ -833,18 +833,24 @@ def postprocess_transcript(text: str, language: str = "de") -> str:
 def transcribe_audio(audio: np.ndarray, language: str = "de") -> Optional[str]:
     """Transcribe audio and return the text.
 
-    This is the main transcription function. It:
-    1. Checks if transcriber is available
-    2. Applies noise reduction
-    3. Applies VAD
-    4. Chooses between chunked or single-chunk transcription
-    5. Applies postprocessing
-    6. Returns the transcript text
+    IMPORTANT: Expects audio to be already preprocessed (VAD + noise reduction)
+    by the caller (main.py). This function focuses on transcription only.
 
-    The caller is responsible for clipboard, auto-paste, notifications, etc.
+    This function:
+    1. Checks if transcriber is available
+    2. Validates audio has sufficient content
+    3. Chooses between chunked or single-chunk transcription
+    4. Applies postprocessing
+    5. Returns the transcript text
+
+    The caller is responsible for:
+    - Audio preprocessing (VAD, noise reduction)
+    - Clipboard operations
+    - Auto-paste
+    - Notifications
 
     Args:
-        audio: Audio data as float32 numpy array
+        audio: Preprocessed audio data as float32 numpy array
         language: Language code (e.g., "de", "en")
 
     Returns:
@@ -860,28 +866,15 @@ def transcribe_audio(audio: np.ndarray, language: str = "de") -> Optional[str]:
     show_live_overlay(cfg, "Processing audio...")
 
     try:
-        duration = audio.shape[0] / SAMPLE_RATE
+        # Audio is already preprocessed (VAD + noise reduction done in main.py)
+        processed = audio
+        duration = processed.shape[0] / SAMPLE_RATE
         notify("Processing audio...")
-        debug(f"Transcribing {duration:.2f}s of audio")
-
-        # Apply noise reduction first (before VAD)
-        audio_nr = apply_noise_reduction(audio)
-
-        # Then apply VAD
-        processed = apply_vad(audio_nr)
-        input_samples = audio.shape[0] if audio.ndim >= 1 else audio.size
-        input_seconds = input_samples / SAMPLE_RATE if input_samples else 0.0
-        output_seconds = processed.size / SAMPLE_RATE if processed.size else 0.0
-        saved_seconds = max(0.0, input_seconds - output_seconds)
-        ratio = (output_seconds / input_seconds) if input_seconds else 1.0
-        debug(
-            f"VAD throughput: input {input_seconds:.2f}s → output {output_seconds:.2f}s "
-            f"(saved {saved_seconds:.2f}s, ratio {ratio:.2f})"
-        )
+        debug(f"Transcribing {duration:.2f}s of preprocessed audio")
 
         # Check if enough speech remains
         if processed.size < int(SAMPLE_RATE * 0.25):
-            debug("Transcription skipped: insufficient speech after VAD")
+            debug("Transcription skipped: audio too short (< 0.25s)")
             hide_live_overlay()
             return None
 
