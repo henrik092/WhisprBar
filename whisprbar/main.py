@@ -56,18 +56,142 @@ from whisprbar.tray import (
     initialize_icons,
 )
 
-# Global application state
-state: Dict[str, Any] = {
-    "recording": False,
-    "transcribing": False,
-    "client_ready": False,
-    "client_warning_shown": False,
-    "session_type": "unknown",
-    "tray_backend": "auto",
-    "wayland_notice_shown": False,
-    "hotkey_key": None,
-    "hotkey_capture_active": False,
-}
+class AppState:
+    """Thread-safe application state with proper synchronization.
+
+    Protects against race conditions when multiple threads access app state:
+    - Main thread (GTK/Tray)
+    - Hotkey listener thread (pynput)
+    - Audio recording thread (sounddevice)
+    - Transcription thread (async)
+    - VAD auto-stop monitor thread
+    """
+
+    def __init__(self):
+        self._lock = threading.RLock()  # Reentrant for nested access
+        self._recording = False
+        self._transcribing = False
+        self._last_transcript = ""
+        self._shutdown_requested = False  # Signal-safe shutdown flag
+        # Other non-threaded state (only accessed from main thread)
+        self._state = {
+            "client_ready": False,
+            "client_warning_shown": False,
+            "session_type": "unknown",
+            "tray_backend": "auto",
+            "wayland_notice_shown": False,
+            "hotkey_key": None,
+            "hotkey_capture_active": False,
+        }
+
+    @property
+    def recording(self) -> bool:
+        with self._lock:
+            return self._recording
+
+    @recording.setter
+    def recording(self, value: bool):
+        with self._lock:
+            self._recording = value
+
+    @property
+    def transcribing(self) -> bool:
+        with self._lock:
+            return self._transcribing
+
+    @transcribing.setter
+    def transcribing(self, value: bool):
+        with self._lock:
+            self._transcribing = value
+
+    @property
+    def last_transcript(self) -> str:
+        with self._lock:
+            return self._last_transcript
+
+    @last_transcript.setter
+    def last_transcript(self, value: str):
+        with self._lock:
+            self._last_transcript = value
+
+    @property
+    def shutdown_requested(self) -> bool:
+        # Read from signal-safe Event instead of lock-protected variable
+        return _shutdown_event.is_set()
+
+    @shutdown_requested.setter
+    def shutdown_requested(self, value: bool):
+        # Set signal-safe Event
+        if value:
+            _shutdown_event.set()
+        else:
+            _shutdown_event.clear()
+
+    def get_status(self) -> dict:
+        """Atomically get full state snapshot."""
+        with self._lock:
+            return {
+                "recording": self._recording,
+                "transcribing": self._transcribing,
+                "last_transcript": self._last_transcript
+            }
+
+    def reset(self):
+        """Atomically reset state."""
+        with self._lock:
+            self._recording = False
+            self._transcribing = False
+
+    # Proxy methods for non-threaded state (for backwards compatibility)
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get state value (thread-safe for recording/transcribing/last_transcript/shutdown_requested)."""
+        if key == "recording":
+            return self.recording
+        elif key == "transcribing":
+            return self.transcribing
+        elif key == "last_transcript":
+            return self.last_transcript
+        elif key == "shutdown_requested":
+            return self.shutdown_requested
+        else:
+            return self._state.get(key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        """Dict-style access."""
+        if key == "recording":
+            return self.recording
+        elif key == "transcribing":
+            return self.transcribing
+        elif key == "last_transcript":
+            return self.last_transcript
+        elif key == "shutdown_requested":
+            return self.shutdown_requested
+        else:
+            return self._state[key]
+
+    def __setitem__(self, key: str, value: Any):
+        """Dict-style assignment."""
+        if key == "recording":
+            self.recording = value
+        elif key == "transcribing":
+            self.transcribing = value
+        elif key == "last_transcript":
+            self.last_transcript = value
+        elif key == "shutdown_requested":
+            self.shutdown_requested = value
+        else:
+            self._state[key] = value
+
+
+# Global application state (thread-safe)
+state = AppState()
+
+# Signal-safe shutdown flag (threading.Event is atomic and signal-safe)
+_shutdown_event = threading.Event()
+
+# Transcription thread pool limiter
+# Limit to 2 concurrent transcriptions to prevent memory/CPU overload
+TRANSCRIPTION_SEMAPHORE = threading.Semaphore(2)
 
 # PID file for singleton enforcement
 PID_FILE = Path.home() / ".cache" / "whisprbar" / "whisprbar.pid"
@@ -377,7 +501,10 @@ def clear_history_callback() -> None:
 
 def quit_application() -> None:
     """Quit application (menu callback)."""
-    shutdown()
+    debug("[SHUTDOWN] Quit requested from tray menu")
+    state["shutdown_requested"] = True
+    # Trigger immediate check (don't wait for 500ms timeout)
+    check_shutdown_signal()
 
 
 def get_callbacks() -> Dict[str, Any]:
@@ -454,7 +581,7 @@ def prepare_openai_client() -> bool:
 
 def on_recording_start() -> None:
     """Handler called when recording starts."""
-    state["recording"] = True
+    state.recording = True
     refresh_tray_indicator(state)
     refresh_menu(get_callbacks(), state)
     debug("Recording started")
@@ -465,8 +592,8 @@ def on_recording_start() -> None:
 
 def on_recording_stop() -> None:
     """Handler called when recording stops."""
-    state["recording"] = False
-    state["transcribing"] = True
+    state.recording = False
+    state.transcribing = True
     refresh_tray_indicator(state)
     refresh_menu(get_callbacks(), state)
     debug("Recording stopped, starting transcription")
@@ -480,13 +607,30 @@ def on_recording_stop() -> None:
 
     if audio_data is None:
         debug("No audio data available")
-        state["transcribing"] = False
+        state.transcribing = False
         refresh_tray_indicator(state)
         return
 
     # Transcribe in background thread
     def transcribe_thread():
+        # Acquire semaphore to limit concurrent transcriptions
+        if not TRANSCRIPTION_SEMAPHORE.acquire(blocking=False):
+            debug("Transcription queue full, dropping request (max 2 concurrent)")
+            notify("Transcription busy, please wait for current transcription to finish.")
+            state.transcribing = False
+            refresh_tray_indicator(state)
+            return
+
         try:
+            # Lower CPU priority for transcription to prevent UI lag
+            # nice(10) gives this thread lower priority than interactive tasks
+            try:
+                import os
+                os.nice(10)
+                debug("Transcription thread running with nice priority +10")
+            except (OSError, AttributeError) as exc:
+                debug(f"Could not set nice priority: {exc}")
+
             # Import here to avoid circular dependencies
             from whisprbar.ui import show_live_overlay, update_live_overlay, hide_live_overlay
             from whisprbar.paste import perform_auto_paste as auto_paste
@@ -516,7 +660,7 @@ def on_recording_stop() -> None:
                 else:
                     debug(f"Audio too short after VAD ({output_seconds:.2f}s < {MIN_AUDIO_SECONDS}s)")
                     notify("Recording too short, no speech detected.")
-                state["transcribing"] = False
+                state.transcribing = False
                 refresh_tray_indicator(state)
                 hide_live_overlay()
                 return
@@ -531,7 +675,7 @@ def on_recording_stop() -> None:
             if audio_energy < min_audio_energy:
                 debug(f"Audio energy too low ({audio_energy:.4f} < {min_audio_energy}), likely just noise")
                 notify("No speech detected, only background noise.")
-                state["transcribing"] = False
+                state.transcribing = False
                 refresh_tray_indicator(state)
                 hide_live_overlay()
                 return
@@ -539,8 +683,8 @@ def on_recording_stop() -> None:
             # Update overlay
             update_live_overlay("Transcribing...", "Processing...")
 
-            # Transcribe
-            text = transcribe_audio(processed, cfg)
+            # Transcribe (pass language string, not entire cfg)
+            text = transcribe_audio(processed, cfg.get("language", "de"))
 
             if text:
                 debug(f"Transcription: {text}")
@@ -588,9 +732,13 @@ def on_recording_stop() -> None:
                 debug(f"Error during overlay cleanup: {cleanup_exc}")
 
             # Reset transcription state
-            state["transcribing"] = False
+            state.transcribing = False
             refresh_tray_indicator(state)
             refresh_menu(get_callbacks(), state)
+
+            # Release semaphore to allow next transcription
+            TRANSCRIPTION_SEMAPHORE.release()
+            debug("Transcription thread finished, semaphore released")
 
     # Start transcription thread
     thread = threading.Thread(target=transcribe_thread, daemon=True)
@@ -601,32 +749,95 @@ def on_recording_stop() -> None:
 # Shutdown
 # =============================================================================
 
-def shutdown(*_args) -> None:
-    """Graceful application shutdown."""
-    debug("Shutting down...")
+def graceful_shutdown() -> None:
+    """
+    Perform graceful shutdown from main context (NOT signal handler).
+
+    This function is called from GTK main loop when shutdown flag is set.
+    It's safe to call any functions here (locks, I/O, etc.).
+
+    IMPORTANT: This must NOT be called directly from signal handlers!
+    Signal handlers should only set state["shutdown_requested"] = True.
+    """
+    debug("[SHUTDOWN] Initiating graceful shutdown...")
 
     # Stop recording if active
     if state.get("recording"):
-        stop_recording()
+        debug("[SHUTDOWN] Stopping active recording...")
+        try:
+            stop_recording()
+            debug("[SHUTDOWN] Recording stopped")
+        except Exception as e:
+            debug(f"[SHUTDOWN] Error stopping recording: {e}")
 
     # Stop hotkey manager
-    hotkey_manager = get_hotkey_manager()
-    hotkey_manager.stop()
-    debug("Hotkey manager stopped")
+    debug("[SHUTDOWN] Stopping hotkey listener...")
+    try:
+        hotkey_manager = get_hotkey_manager()
+        hotkey_manager.stop()
+        debug("[SHUTDOWN] Hotkey listener stopped")
+    except Exception as e:
+        debug(f"[SHUTDOWN] Error stopping hotkey: {e}")
 
     # Shutdown tray
-    shutdown_tray(state)
+    debug("[SHUTDOWN] Shutting down tray...")
+    try:
+        shutdown_tray(state)
+        debug("[SHUTDOWN] Tray shut down")
+    except Exception as e:
+        debug(f"[SHUTDOWN] Error shutting down tray: {e}")
 
     # Release singleton lock
     release_singleton_lock()
 
+    debug("[SHUTDOWN] Shutdown complete, exiting...")
     sys.exit(0)
+
+
+def check_shutdown_signal() -> bool:
+    """
+    Check if shutdown requested and perform cleanup if so.
+
+    Called from GTK main loop via GLib.timeout_add().
+
+    Returns:
+        True to keep checking, False to stop (triggers GTK quit)
+    """
+    if _shutdown_event.is_set():
+        debug("[SHUTDOWN] Shutdown flag detected, initiating graceful shutdown")
+        graceful_shutdown()
+
+        # Quit GTK main loop if using AppIndicator
+        if state.get("tray_backend") == "appindicator":
+            try:
+                from gi.repository import Gtk
+                Gtk.main_quit()
+            except Exception as e:
+                debug(f"[SHUTDOWN] Error quitting GTK: {e}")
+
+        return False  # Stop this timeout callback
+
+    return True  # Keep checking
+
+
+def signal_handler(sig, frame):
+    """
+    Signal handler for SIGTERM and SIGINT.
+
+    CRITICAL: This function MUST be signal-safe!
+    - Only calls threading.Event.set() which is atomic and signal-safe
+    - No locks, no I/O, no complex function calls
+    - Actual cleanup happens in check_shutdown_signal() from main loop
+    """
+    # ONLY set Event flag - threading.Event.set() is atomic and signal-safe
+    _shutdown_event.set()
 
 
 def install_signal_handlers() -> None:
     """Install signal handlers for graceful shutdown."""
-    signal.signal(signal.SIGINT, shutdown)
-    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    debug("Signal handlers installed (flag-based, signal-safe)")
 
 
 # =============================================================================
@@ -799,6 +1010,12 @@ def main() -> None:
     # Initialize icons
     initialize_icons()
 
+    # Install shutdown checker in GTK main loop (checks every 500ms)
+    # This allows signal-safe shutdown via flag polling
+    from gi.repository import GLib
+    GLib.timeout_add(500, check_shutdown_signal)
+    debug("Shutdown checker installed (polling every 500ms)")
+
     # Start tray
     callbacks = get_callbacks()
 
@@ -819,7 +1036,9 @@ def main() -> None:
     try:
         loop_runner()
     except KeyboardInterrupt:
-        shutdown()
+        debug("[SHUTDOWN] KeyboardInterrupt received, setting shutdown flag")
+        state["shutdown_requested"] = True
+        graceful_shutdown()
 
 
 # =============================================================================

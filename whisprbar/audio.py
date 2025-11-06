@@ -164,71 +164,74 @@ def vad_auto_stop_monitor() -> None:
 
     debug(f"VAD auto-stop monitor started (threshold: {silence_threshold}s)")
 
-    while recording_state.get("recording"):
-        time.sleep(check_interval)
+    try:
+        while recording_state.get("recording"):
+            time.sleep(check_interval)
 
-        # Get monitor queue reference
-        with vad_monitor_lock:
-            monitor_queue = VAD_MONITOR_QUEUE
-            if monitor_queue is None:
-                break
-
-        # Collect all available chunks from monitor queue (non-blocking)
-        try:
-            while True:
-                try:
-                    chunk = monitor_queue.get_nowait()
-                    audio_buffer.append(chunk)
-                except queue.Empty:
+            # Get monitor queue reference
+            with vad_monitor_lock:
+                monitor_queue = VAD_MONITOR_QUEUE
+                if monitor_queue is None:
                     break
-        except Exception:
-            continue
 
-        # Keep buffer within size limit
-        if audio_buffer:
-            total_samples = sum(chunk.shape[0] for chunk in audio_buffer)
-            while total_samples > buffer_samples and len(audio_buffer) > 1:
-                removed = audio_buffer.pop(0)
-                total_samples -= removed.shape[0]
+            # Collect all available chunks from monitor queue (non-blocking)
+            try:
+                while True:
+                    try:
+                        chunk = monitor_queue.get_nowait()
+                        audio_buffer.append(chunk)
+                    except queue.Empty:
+                        break
+            except Exception:
+                continue
 
-        # Need enough audio to check
-        if not audio_buffer:
-            continue
+            # Keep buffer within size limit
+            if audio_buffer:
+                total_samples = sum(chunk.shape[0] for chunk in audio_buffer)
+                while total_samples > buffer_samples and len(audio_buffer) > 1:
+                    removed = audio_buffer.pop(0)
+                    total_samples -= removed.shape[0]
 
-        # Concatenate buffer and check for speech
-        buffer_audio = np.concatenate(audio_buffer, axis=0)
-        if buffer_audio.shape[0] < int(SAMPLE_RATE * 0.5):  # At least 500ms
-            continue
+            # Need enough audio to check
+            if not audio_buffer:
+                continue
 
-        # Simple energy-based VAD check (lightweight)
-        mono = buffer_audio.reshape(-1).astype(np.float32)
-        rms = float(np.sqrt(np.mean(np.square(mono))))
-        energy_floor = float(cfg.get("vad_energy_floor", 0.0005))
-        energy_ratio = float(cfg.get("vad_energy_ratio", 0.05))
+            # Concatenate buffer and check for speech
+            buffer_audio = np.concatenate(audio_buffer, axis=0)
+            if buffer_audio.shape[0] < int(SAMPLE_RATE * 0.5):  # At least 500ms
+                continue
 
-        # Detect speech vs silence
-        has_speech = rms > max(energy_floor, energy_ratio * 0.1)
+            # Simple energy-based VAD check (lightweight)
+            mono = buffer_audio.reshape(-1).astype(np.float32)
+            rms = float(np.sqrt(np.mean(np.square(mono))))
+            energy_floor = float(cfg.get("vad_energy_floor", 0.0005))
+            energy_ratio = float(cfg.get("vad_energy_ratio", 0.05))
 
-        if has_speech:
-            # Reset silence counter
-            if silence_start is not None:
-                debug("VAD auto-stop: speech detected, resetting silence counter")
-            silence_start = None
-        else:
-            # Start or continue silence tracking
-            if silence_start is None:
-                silence_start = time.monotonic()
-                debug(f"VAD auto-stop: silence detected, starting counter (RMS: {rms:.6f})")
+            # Detect speech vs silence
+            has_speech = rms > max(energy_floor, energy_ratio * 0.1)
+
+            if has_speech:
+                # Reset silence counter
+                if silence_start is not None:
+                    debug("VAD auto-stop: speech detected, resetting silence counter")
+                silence_start = None
             else:
-                silence_duration = time.monotonic() - silence_start
-                if silence_duration >= silence_threshold:
-                    debug(f"VAD auto-stop: {silence_duration:.1f}s silence detected, stopping recording")
-                    # Note: notify() would be called here but that's in main
-                    # Trigger stop in main thread
-                    threading.Thread(target=stop_recording, daemon=True).start()
-                    break
-
-    debug("VAD auto-stop monitor stopped")
+                # Start or continue silence tracking
+                if silence_start is None:
+                    silence_start = time.monotonic()
+                    debug(f"VAD auto-stop: silence detected, starting counter (RMS: {rms:.6f})")
+                else:
+                    silence_duration = time.monotonic() - silence_start
+                    if silence_duration >= silence_threshold:
+                        debug(f"VAD auto-stop: {silence_duration:.1f}s silence detected, stopping recording")
+                        # Note: notify() would be called here but that's in main
+                        # Trigger stop in main thread
+                        threading.Thread(target=stop_recording, daemon=True).start()
+                        break
+    finally:
+        # Always clear buffer on exit to prevent memory leak
+        audio_buffer.clear()
+        debug("VAD auto-stop monitor stopped and buffer cleared")
 
 
 def start_recording() -> None:
@@ -477,14 +480,18 @@ def apply_vad(audio: np.ndarray) -> np.ndarray:
     Returns:
         Filtered audio with silence removed, or original if VAD disabled/unavailable
     """
-    mono = np.asarray(audio, dtype=np.float32).reshape(-1)
+    # Optimize: Use view instead of copy where possible
+    if audio.dtype == np.float32:
+        mono = audio.reshape(-1)
+    else:
+        mono = np.asarray(audio, dtype=np.float32).reshape(-1)
 
     if not cfg.get("use_vad") or not VAD_AVAILABLE:
         return mono
 
     # Convert to 16-bit PCM for webrtcvad
-    pcm = np.clip(mono, -1.0, 1.0)
-    pcm16 = (pcm * 32767).astype(np.int16)
+    # Optimize: Combine clip and multiply in one operation to save memory
+    pcm16 = np.clip(mono * 32767, -32768, 32767).astype(np.int16)
 
     # Frame setup (webrtcvad requires 10/20/30ms frames)
     frame_ms = 30
@@ -523,8 +530,8 @@ def apply_vad(audio: np.ndarray) -> np.ndarray:
             return mono
 
     # Energy-based safety net for quiet speech
-    frame_float = frames.astype(np.float32) / 32767.0
-    rms = np.sqrt(np.mean(np.square(frame_float), axis=1))
+    # Optimize: Compute RMS directly from int16 to avoid float conversion
+    rms = np.sqrt(np.mean(np.square(frames.astype(np.float32)), axis=1)) / 32767.0
     max_rms = float(rms.max()) if rms.size else 0.0
 
     energy_floor = float(cfg.get("vad_energy_floor", 0.0005))
@@ -635,8 +642,11 @@ def apply_vad(audio: np.ndarray) -> np.ndarray:
     if not segment_buffers:
         return mono
 
+    # Optimize: Concatenate and convert in one step to save memory
     processed_int = np.concatenate(segment_buffers)
-    processed_pcm = processed_int.astype(np.float32) / 32767.0
+    # Use *= for in-place operation to reduce memory allocation
+    processed_pcm = processed_int.astype(np.float32)
+    processed_pcm /= 32767.0  # In-place division
 
     # Safety check: don't remove too much audio
     retained_ratio = processed_pcm.size / mono.size if mono.size else 1.0

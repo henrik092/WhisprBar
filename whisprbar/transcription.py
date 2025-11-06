@@ -72,6 +72,14 @@ class Transcriber:
         """
         raise NotImplementedError("Subclasses must implement get_name()")
 
+    def unload(self) -> None:
+        """Unload model/client to free memory.
+
+        Called when backend is switched or app shuts down.
+        Subclasses should implement this to free resources.
+        """
+        pass  # Default implementation does nothing
+
 
 class OpenAITranscriber(Transcriber):
     """OpenAI Whisper API transcription backend.
@@ -177,6 +185,13 @@ class OpenAITranscriber(Transcriber):
         """
         return "OpenAI Whisper API"
 
+    def unload(self) -> None:
+        """Unload OpenAI client to free resources."""
+        with self.client_lock:
+            if self.client is not None:
+                self.client = None
+                debug("OpenAI client unloaded")
+
 
 class FasterWhisperTranscriber(Transcriber):
     """Local faster-whisper transcription backend (CPU/GPU).
@@ -279,6 +294,19 @@ class FasterWhisperTranscriber(Transcriber):
         if self.model_size:
             return f"faster-whisper ({self.model_size}, {self.device})"
         return "faster-whisper (offline)"
+
+    def unload(self) -> None:
+        """Unload faster-whisper model to free memory (~4 GB for large model)."""
+        with self.model_lock:
+            if self.model is not None:
+                # Delete model and force garbage collection
+                del self.model
+                self.model = None
+                self.model_size = None
+                self.device = None
+                import gc
+                gc.collect()
+                debug("faster-whisper model unloaded and memory freed")
 
 
 class StreamingTranscriber(Transcriber):
@@ -420,6 +448,18 @@ class StreamingTranscriber(Transcriber):
             return f"sherpa-onnx streaming ({self.model_name})"
         return "sherpa-onnx streaming"
 
+    def unload(self) -> None:
+        """Unload sherpa-onnx recognizer to free memory."""
+        with self.model_lock:
+            if self.recognizer is not None:
+                # Delete recognizer and force garbage collection
+                del self.recognizer
+                self.recognizer = None
+                self.model_name = None
+                import gc
+                gc.collect()
+                debug("sherpa-onnx recognizer unloaded and memory freed")
+
 
 # Global transcriber instance
 _transcriber: Optional[Transcriber] = None
@@ -453,6 +493,8 @@ def get_transcriber() -> Transcriber:
             )
             if current_backend != backend:
                 debug(f"Backend changed from {current_backend} to {backend}")
+                # Unload old model/client to free memory before switching
+                _transcriber.unload()
                 _transcriber = None
 
         # Create transcriber if needed
@@ -733,13 +775,19 @@ def postprocess_fix_capitalization(text: str, language: str = "de") -> str:
     text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
 
     # Capitalize after sentence-ending punctuation (. ! ?)
+    # Use Unicode-aware pattern to match lowercase letters including ä, ö, ü, é, etc.
     def capitalize_after_punct(match):
         punct = match.group(1)
         space = match.group(2)
         char = match.group(3)
         return punct + space + char.upper()
 
-    text = re.sub(r"([.!?])(\s+)([a-z])", capitalize_after_punct, text)
+    text = re.sub(
+        r"([.!?])(\s+)([a-zäöüßáéíóúàèìòùâêîôûçñ])",
+        capitalize_after_punct,
+        text,
+        flags=re.IGNORECASE | re.UNICODE
+    )
 
     # Language-specific fixes
     if language == "en":
@@ -793,18 +841,24 @@ def postprocess_transcript(text: str, language: str = "de") -> str:
 def transcribe_audio(audio: np.ndarray, language: str = "de") -> Optional[str]:
     """Transcribe audio and return the text.
 
-    This is the main transcription function. It:
-    1. Checks if transcriber is available
-    2. Applies noise reduction
-    3. Applies VAD
-    4. Chooses between chunked or single-chunk transcription
-    5. Applies postprocessing
-    6. Returns the transcript text
+    IMPORTANT: Expects audio to be already preprocessed (VAD + noise reduction)
+    by the caller (main.py). This function focuses on transcription only.
 
-    The caller is responsible for clipboard, auto-paste, notifications, etc.
+    This function:
+    1. Checks if transcriber is available
+    2. Validates audio has sufficient content
+    3. Chooses between chunked or single-chunk transcription
+    4. Applies postprocessing
+    5. Returns the transcript text
+
+    The caller is responsible for:
+    - Audio preprocessing (VAD, noise reduction)
+    - Clipboard operations
+    - Auto-paste
+    - Notifications
 
     Args:
-        audio: Audio data as float32 numpy array
+        audio: Preprocessed audio data as float32 numpy array
         language: Language code (e.g., "de", "en")
 
     Returns:
@@ -820,28 +874,15 @@ def transcribe_audio(audio: np.ndarray, language: str = "de") -> Optional[str]:
     show_live_overlay(cfg, "Processing audio...")
 
     try:
-        duration = audio.shape[0] / SAMPLE_RATE
+        # Audio is already preprocessed (VAD + noise reduction done in main.py)
+        processed = audio
+        duration = processed.shape[0] / SAMPLE_RATE
         notify("Processing audio...")
-        debug(f"Transcribing {duration:.2f}s of audio")
-
-        # Apply noise reduction first (before VAD)
-        audio_nr = apply_noise_reduction(audio)
-
-        # Then apply VAD
-        processed = apply_vad(audio_nr)
-        input_samples = audio.shape[0] if audio.ndim >= 1 else audio.size
-        input_seconds = input_samples / SAMPLE_RATE if input_samples else 0.0
-        output_seconds = processed.size / SAMPLE_RATE if processed.size else 0.0
-        saved_seconds = max(0.0, input_seconds - output_seconds)
-        ratio = (output_seconds / input_seconds) if input_seconds else 1.0
-        debug(
-            f"VAD throughput: input {input_seconds:.2f}s → output {output_seconds:.2f}s "
-            f"(saved {saved_seconds:.2f}s, ratio {ratio:.2f})"
-        )
+        debug(f"Transcribing {duration:.2f}s of preprocessed audio")
 
         # Check if enough speech remains
         if processed.size < int(SAMPLE_RATE * 0.25):
-            debug("Transcription skipped: insufficient speech after VAD")
+            debug("Transcription skipped: audio too short (< 0.25s)")
             hide_live_overlay()
             return None
 
@@ -850,12 +891,12 @@ def transcribe_audio(audio: np.ndarray, language: str = "de") -> Optional[str]:
         chunking_threshold = max(
             30.0, float(cfg.get("chunking_threshold_seconds", 60.0))
         )
-        use_chunking = chunking_enabled and output_seconds >= chunking_threshold
+        use_chunking = chunking_enabled and duration >= chunking_threshold
 
         # Transcribe
         if use_chunking:
             debug(
-                f"Using chunked transcription (duration {output_seconds:.1f}s >= "
+                f"Using chunked transcription (duration {duration:.1f}s >= "
                 f"threshold {chunking_threshold:.1f}s)"
             )
             transcript = transcribe_audio_chunked(processed)
@@ -864,7 +905,7 @@ def transcribe_audio(audio: np.ndarray, language: str = "de") -> Optional[str]:
                 return None
         else:
             # Single-chunk transcription
-            debug(f"Using single-chunk transcription (duration {output_seconds:.1f}s)")
+            debug(f"Using single-chunk transcription (duration {duration:.1f}s)")
 
             transcript = transcriber.transcribe(processed, language)
 
