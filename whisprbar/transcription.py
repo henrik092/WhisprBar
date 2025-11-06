@@ -141,8 +141,10 @@ class OpenAITranscriber(Transcriber):
             pcm = np.clip(audio, -1.0, 1.0)
             pcm16 = (pcm * 32767).astype(np.int16)
 
-            # Write to temp WAV file
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            # Write to temp WAV file in WhisprBar's temp directory
+            from .utils import get_whisprbar_temp_dir
+            temp_dir = get_whisprbar_temp_dir()
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=temp_dir) as tmp:
                 tmp_path = Path(tmp.name)
 
             try:

@@ -683,8 +683,8 @@ def on_recording_stop() -> None:
             # Update overlay
             update_live_overlay("Transcribing...", "Processing...")
 
-            # Transcribe
-            text = transcribe_audio(processed, cfg)
+            # Transcribe (pass language string, not entire cfg)
+            text = transcribe_audio(processed, cfg.get("language", "de"))
 
             if text:
                 debug(f"Transcription: {text}")
@@ -897,7 +897,7 @@ def main() -> None:
     # Clean up old temp files from previous crashes
     from whisprbar.utils import cleanup_old_temp_files
     cleanup_old_temp_files()
-    debug("Temp file cleanup completed")
+    debug("Old temp files cleaned up")
 
     # Detect session type
     debug("Detecting session type...")
