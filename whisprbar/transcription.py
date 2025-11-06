@@ -773,13 +773,19 @@ def postprocess_fix_capitalization(text: str, language: str = "de") -> str:
     text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
 
     # Capitalize after sentence-ending punctuation (. ! ?)
+    # Use Unicode-aware pattern to match lowercase letters including ä, ö, ü, é, etc.
     def capitalize_after_punct(match):
         punct = match.group(1)
         space = match.group(2)
         char = match.group(3)
         return punct + space + char.upper()
 
-    text = re.sub(r"([.!?])(\s+)([a-z])", capitalize_after_punct, text)
+    text = re.sub(
+        r"([.!?])(\s+)([a-zäöüßáéíóúàèìòùâêîôûçñ])",
+        capitalize_after_punct,
+        text,
+        flags=re.IGNORECASE | re.UNICODE
+    )
 
     # Language-specific fixes
     if language == "en":
