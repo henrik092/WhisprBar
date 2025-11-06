@@ -56,18 +56,115 @@ from whisprbar.tray import (
     initialize_icons,
 )
 
+class AppState:
+    """Thread-safe application state with proper synchronization.
+
+    Protects against race conditions when multiple threads access app state:
+    - Main thread (GTK/Tray)
+    - Hotkey listener thread (pynput)
+    - Audio recording thread (sounddevice)
+    - Transcription thread (async)
+    - VAD auto-stop monitor thread
+    """
+
+    def __init__(self):
+        self._lock = threading.RLock()  # Reentrant for nested access
+        self._recording = False
+        self._transcribing = False
+        self._last_transcript = ""
+        # Other non-threaded state (only accessed from main thread)
+        self._state = {
+            "client_ready": False,
+            "client_warning_shown": False,
+            "session_type": "unknown",
+            "tray_backend": "auto",
+            "wayland_notice_shown": False,
+            "hotkey_key": None,
+            "hotkey_capture_active": False,
+        }
+
+    @property
+    def recording(self) -> bool:
+        with self._lock:
+            return self._recording
+
+    @recording.setter
+    def recording(self, value: bool):
+        with self._lock:
+            self._recording = value
+
+    @property
+    def transcribing(self) -> bool:
+        with self._lock:
+            return self._transcribing
+
+    @transcribing.setter
+    def transcribing(self, value: bool):
+        with self._lock:
+            self._transcribing = value
+
+    @property
+    def last_transcript(self) -> str:
+        with self._lock:
+            return self._last_transcript
+
+    @last_transcript.setter
+    def last_transcript(self, value: str):
+        with self._lock:
+            self._last_transcript = value
+
+    def get_status(self) -> dict:
+        """Atomically get full state snapshot."""
+        with self._lock:
+            return {
+                "recording": self._recording,
+                "transcribing": self._transcribing,
+                "last_transcript": self._last_transcript
+            }
+
+    def reset(self):
+        """Atomically reset state."""
+        with self._lock:
+            self._recording = False
+            self._transcribing = False
+
+    # Proxy methods for non-threaded state (for backwards compatibility)
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get state value (thread-safe for recording/transcribing/last_transcript)."""
+        if key == "recording":
+            return self.recording
+        elif key == "transcribing":
+            return self.transcribing
+        elif key == "last_transcript":
+            return self.last_transcript
+        else:
+            return self._state.get(key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        """Dict-style access."""
+        if key == "recording":
+            return self.recording
+        elif key == "transcribing":
+            return self.transcribing
+        elif key == "last_transcript":
+            return self.last_transcript
+        else:
+            return self._state[key]
+
+    def __setitem__(self, key: str, value: Any):
+        """Dict-style assignment."""
+        if key == "recording":
+            self.recording = value
+        elif key == "transcribing":
+            self.transcribing = value
+        elif key == "last_transcript":
+            self.last_transcript = value
+        else:
+            self._state[key] = value
+
+
 # Global application state
-state: Dict[str, Any] = {
-    "recording": False,
-    "transcribing": False,
-    "client_ready": False,
-    "client_warning_shown": False,
-    "session_type": "unknown",
-    "tray_backend": "auto",
-    "wayland_notice_shown": False,
-    "hotkey_key": None,
-    "hotkey_capture_active": False,
-}
+state = AppState()
 
 # Transcription thread pool limiter
 # Limit to 2 concurrent transcriptions to prevent memory/CPU overload
@@ -458,7 +555,7 @@ def prepare_openai_client() -> bool:
 
 def on_recording_start() -> None:
     """Handler called when recording starts."""
-    state["recording"] = True
+    state.recording = True
     refresh_tray_indicator(state)
     refresh_menu(get_callbacks(), state)
     debug("Recording started")
@@ -469,8 +566,8 @@ def on_recording_start() -> None:
 
 def on_recording_stop() -> None:
     """Handler called when recording stops."""
-    state["recording"] = False
-    state["transcribing"] = True
+    state.recording = False
+    state.transcribing = True
     refresh_tray_indicator(state)
     refresh_menu(get_callbacks(), state)
     debug("Recording stopped, starting transcription")
@@ -484,7 +581,7 @@ def on_recording_stop() -> None:
 
     if audio_data is None:
         debug("No audio data available")
-        state["transcribing"] = False
+        state.transcribing = False
         refresh_tray_indicator(state)
         return
 
@@ -494,7 +591,7 @@ def on_recording_stop() -> None:
         if not TRANSCRIPTION_SEMAPHORE.acquire(blocking=False):
             debug("Transcription queue full, dropping request (max 2 concurrent)")
             notify("Transcription busy, please wait for current transcription to finish.")
-            state["transcribing"] = False
+            state.transcribing = False
             refresh_tray_indicator(state)
             return
 
@@ -537,7 +634,7 @@ def on_recording_stop() -> None:
                 else:
                     debug(f"Audio too short after VAD ({output_seconds:.2f}s < {MIN_AUDIO_SECONDS}s)")
                     notify("Recording too short, no speech detected.")
-                state["transcribing"] = False
+                state.transcribing = False
                 refresh_tray_indicator(state)
                 hide_live_overlay()
                 return
@@ -552,7 +649,7 @@ def on_recording_stop() -> None:
             if audio_energy < min_audio_energy:
                 debug(f"Audio energy too low ({audio_energy:.4f} < {min_audio_energy}), likely just noise")
                 notify("No speech detected, only background noise.")
-                state["transcribing"] = False
+                state.transcribing = False
                 refresh_tray_indicator(state)
                 hide_live_overlay()
                 return
@@ -609,7 +706,7 @@ def on_recording_stop() -> None:
                 debug(f"Error during overlay cleanup: {cleanup_exc}")
 
             # Reset transcription state
-            state["transcribing"] = False
+            state.transcribing = False
             refresh_tray_indicator(state)
             refresh_menu(get_callbacks(), state)
 
