@@ -116,13 +116,16 @@ class AppState:
 
     @property
     def shutdown_requested(self) -> bool:
-        with self._lock:
-            return self._shutdown_requested
+        # Read from signal-safe Event instead of lock-protected variable
+        return _shutdown_event.is_set()
 
     @shutdown_requested.setter
     def shutdown_requested(self, value: bool):
-        with self._lock:
-            self._shutdown_requested = value
+        # Set signal-safe Event
+        if value:
+            _shutdown_event.set()
+        else:
+            _shutdown_event.clear()
 
     def get_status(self) -> dict:
         """Atomically get full state snapshot."""
@@ -182,6 +185,9 @@ class AppState:
 
 # Global application state (thread-safe)
 state = AppState()
+
+# Signal-safe shutdown flag (threading.Event is atomic and signal-safe)
+_shutdown_event = threading.Event()
 
 # Transcription thread pool limiter
 # Limit to 2 concurrent transcriptions to prevent memory/CPU overload
@@ -797,7 +803,7 @@ def check_shutdown_signal() -> bool:
     Returns:
         True to keep checking, False to stop (triggers GTK quit)
     """
-    if state.get("shutdown_requested"):
+    if _shutdown_event.is_set():
         debug("[SHUTDOWN] Shutdown flag detected, initiating graceful shutdown")
         graceful_shutdown()
 
@@ -819,12 +825,12 @@ def signal_handler(sig, frame):
     Signal handler for SIGTERM and SIGINT.
 
     CRITICAL: This function MUST be signal-safe!
-    - Only sets atomic flag (state["shutdown_requested"])
-    - No locks, no I/O, no function calls
+    - Only calls threading.Event.set() which is atomic and signal-safe
+    - No locks, no I/O, no complex function calls
     - Actual cleanup happens in check_shutdown_signal() from main loop
     """
-    # ONLY set flag - this is the ONLY signal-safe operation
-    state["shutdown_requested"] = True
+    # ONLY set Event flag - threading.Event.set() is atomic and signal-safe
+    _shutdown_event.set()
 
 
 def install_signal_handlers() -> None:

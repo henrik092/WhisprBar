@@ -889,12 +889,12 @@ def transcribe_audio(audio: np.ndarray, language: str = "de") -> Optional[str]:
         chunking_threshold = max(
             30.0, float(cfg.get("chunking_threshold_seconds", 60.0))
         )
-        use_chunking = chunking_enabled and output_seconds >= chunking_threshold
+        use_chunking = chunking_enabled and duration >= chunking_threshold
 
         # Transcribe
         if use_chunking:
             debug(
-                f"Using chunked transcription (duration {output_seconds:.1f}s >= "
+                f"Using chunked transcription (duration {duration:.1f}s >= "
                 f"threshold {chunking_threshold:.1f}s)"
             )
             transcript = transcribe_audio_chunked(processed)
@@ -903,7 +903,7 @@ def transcribe_audio(audio: np.ndarray, language: str = "de") -> Optional[str]:
                 return None
         else:
             # Single-chunk transcription
-            debug(f"Using single-chunk transcription (duration {output_seconds:.1f}s)")
+            debug(f"Using single-chunk transcription (duration {duration:.1f}s)")
 
             transcript = transcriber.transcribe(processed, language)
 
