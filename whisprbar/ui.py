@@ -1868,14 +1868,11 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             cfg["faster_whisper_model"] = fw_model_combo.get_active_id() or "medium"
             cfg["streaming_model"] = streaming_model_combo.get_active_id() or "tiny"
 
-            # Save API keys to .env file
+            # Save API keys to .env file (empty values will remove the key)
             openai_key = openai_key_entry.get_text().strip()
             elevenlabs_key = elevenlabs_key_entry.get_text().strip()
-
-            if openai_key:
-                save_env_file_value("OPENAI_API_KEY", openai_key)
-            if elevenlabs_key:
-                save_env_file_value("ELEVENLABS_API_KEY", elevenlabs_key)
+            save_env_file_value("OPENAI_API_KEY", openai_key)
+            save_env_file_value("ELEVENLABS_API_KEY", elevenlabs_key)
 
             # Save audio processing settings
             cfg["noise_reduction_enabled"] = nr_switch.get_active() if noise_reduction_available else False
