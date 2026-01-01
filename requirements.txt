@@ -4,6 +4,7 @@ pystray
 Pillow
 pyperclip
 openai
+elevenlabs
 webrtcvad
 pynput
 noisereduce

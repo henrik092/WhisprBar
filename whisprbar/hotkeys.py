@@ -466,13 +466,24 @@ class HotkeyManager:
         """Stop the hotkey listener.
 
         Thread-safe: Can be called from any thread.
+
+        Note: This method releases the lock BEFORE calling listener.stop()
+        to prevent cross-thread deadlock. The RLock allows same-thread
+        reentry, but doesn't prevent deadlock between different threads
+        (main thread holding lock while waiting for listener thread,
+        which might need the lock in its callbacks).
         """
+        # Get listener reference and clear state while holding lock
         with self._lock:
-            if self._listener:
-                self._listener.stop()
-                self._listener = None
+            listener_to_stop = self._listener
+            self._listener = None
             self._active_modifiers.clear()
             self._active_tokens.clear()
+
+        # Stop listener OUTSIDE lock to prevent cross-thread deadlock
+        # This allows listener thread to complete pending callbacks
+        if listener_to_stop:
+            listener_to_stop.stop()
 
     def get_hotkey(self, action: str) -> Optional[HotkeyBinding]:
         """Get the hotkey binding for an action.

@@ -21,6 +21,7 @@
 - **Global Hotkey Recording**: Press F9 (configurable) to record, release to transcribe
 - **Multiple Transcription Backends**:
   - **OpenAI Whisper API** - Cloud-based, fast, accurate
+  - **ElevenLabs Scribe v2 Realtime** - Ultra-low latency (<150ms), 90 languages
   - **faster-whisper** - Local CPU/GPU, offline, private
   - **sherpa-onnx** - Streaming transcription (experimental)
 - **Auto-Paste**: Automatically pastes transcription into active window (X11) or clipboard (Wayland)

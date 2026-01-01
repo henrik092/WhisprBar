@@ -9,6 +9,7 @@ import queue
 import sys
 import threading
 import time
+from collections import deque
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -159,10 +160,13 @@ def vad_auto_stop_monitor() -> None:
     buffer_seconds = silence_threshold + 1.0  # Buffer slightly more than threshold
     buffer_samples = int(SAMPLE_RATE * buffer_seconds)
 
-    audio_buffer: List[np.ndarray] = []
+    # Use deque with maxlen for O(1) operations instead of list with O(n) pop(0)
+    # BUG-008 fix: deque auto-discards oldest items when maxlen is exceeded
+    max_chunks = (buffer_samples // BLOCK_SIZE) + 2  # +2 for safety margin
+    audio_buffer = deque(maxlen=max_chunks)
     silence_start = None
 
-    debug(f"VAD auto-stop monitor started (threshold: {silence_threshold}s)")
+    debug(f"VAD auto-stop monitor started (threshold: {silence_threshold}s, max_chunks: {max_chunks})")
 
     try:
         while recording_state.get("recording"):
@@ -179,18 +183,13 @@ def vad_auto_stop_monitor() -> None:
                 while True:
                     try:
                         chunk = monitor_queue.get_nowait()
-                        audio_buffer.append(chunk)
+                        audio_buffer.append(chunk)  # O(1) with deque, auto-bounded
                     except queue.Empty:
                         break
             except Exception:
                 continue
 
-            # Keep buffer within size limit
-            if audio_buffer:
-                total_samples = sum(chunk.shape[0] for chunk in audio_buffer)
-                while total_samples > buffer_samples and len(audio_buffer) > 1:
-                    removed = audio_buffer.pop(0)
-                    total_samples -= removed.shape[0]
+            # No manual trimming needed - deque with maxlen handles it automatically
 
             # Need enough audio to check
             if not audio_buffer:

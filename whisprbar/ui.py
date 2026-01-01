@@ -917,11 +917,12 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         # Transcription backend selection
         backend_combo = Gtk.ComboBoxText()
         backend_combo.append("openai", "OpenAI Whisper API (online, best quality)")
+        backend_combo.append("elevenlabs", "ElevenLabs Scribe v2 Realtime (online, ultra-low latency)")
         backend_combo.append("faster_whisper", "faster-whisper (offline, local)")
         backend_combo.append("streaming", "sherpa-onnx streaming (low latency, offline)")
         active_backend = cfg.get("transcription_backend", "openai")
         backend_combo.set_active_id(active_backend)
-        backend_tooltip = "Select transcription backend: OpenAI for best quality (requires API key), faster-whisper for offline use, streaming for low latency"
+        backend_tooltip = "Select transcription backend: OpenAI for best quality, ElevenLabs for ultra-low latency (<150ms), faster-whisper for offline use, streaming for low latency"
         content.pack_start(make_row("Transcription Backend", backend_combo, tooltip=backend_tooltip), False, False, 0)
 
         # faster-whisper model size selection (only shown when faster_whisper backend selected)
