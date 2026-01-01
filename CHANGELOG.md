@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **CRITICAL: Language Parameter Lost in Chunked Transcription** (2026-01-01)
+  - **Problem**: Multi-language transcription broken for recordings >60 seconds
+  - **Root Cause**: `transcribe_audio_chunked()` had no `language` parameter
+  - **Impact**: Chunks were transcribed with default language from config instead of user-selected language
+  - **Solution**: Added `language` parameter to `transcribe_audio_chunked()` and `transcribe_chunk()`, updated call chain
+  - Modified files: `whisprbar/transcription.py` (lines 731-753, 820-831, 852, 1071)
+
+- **CRITICAL: ElevenLabs WebSocket Resource Leak** (2026-01-01)
+  - **Problem**: WebSocket connection never closed on exception
+  - **Root Cause**: No `finally` block to guarantee `connection.close()` execution
+  - **Impact**: Resource leak, exhausted connection limits after repeated failures
+  - **Solution**: Added `finally` block with proper connection cleanup
+  - Modified files: `whisprbar/transcription.py` (lines 605-611)
+
+- **HIGH: ElevenLabs Connection Timeout Missing** (2026-01-01)
+  - **Problem**: Connection could hang indefinitely on network issues
+  - **Root Cause**: No timeout parameter on `client.speech_to_text.realtime.connect()`
+  - **Impact**: Transcription thread stuck, semaphore exhausted, app frozen
+  - **Solution**: Added `asyncio.wait_for(..., timeout=30.0)` wrapper
+  - Modified files: `whisprbar/transcription.py` (lines 549-559)
+
+- **HIGH: ElevenLabs Race Condition in Callback Collection** (2026-01-01)
+  - **Problem**: Transcript data potentially lost due to race between callback and return
+  - **Root Cause**: Arbitrary `asyncio.sleep(0.5)` instead of proper synchronization
+  - **Impact**: Incomplete transcripts, timing-dependent bugs
+  - **Solution**: Replaced sleep with `asyncio.Event()` and `wait_for()` with timeout
+  - Modified files: `whisprbar/transcription.py` (lines 564, 572, 590-594)
+
 - **Stale PID File / PID Recycling Bug** (2025-10-31)
   - **Problem**: WhisprBar showed "already running" notification even when no WhisprBar process existed
   - **Root Cause**: Singleton check only verified PID existence (`os.kill(pid, 0)`), not process identity
