@@ -268,3 +268,56 @@ def save_config() -> None:
             json.dump(cfg, handle, ensure_ascii=False, indent=2)
     except (IOError, TypeError) as exc:
         print(f"[WARN] Failed to write config: {exc}", file=sys.stderr)
+
+
+def save_env_file_value(key: str, value: str) -> None:
+    """Save or update a single key=value pair in the .env file.
+
+    Args:
+        key: Environment variable name (e.g., "OPENAI_API_KEY")
+        value: Value to save (empty string removes the key)
+    """
+    env_path = get_env_file_path()
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Read existing values
+    existing_values = load_env_file_values()
+
+    # Update or remove the value
+    if value and value.strip():
+        existing_values[key] = value.strip()
+    elif key in existing_values:
+        del existing_values[key]
+
+    # Write back to file
+    try:
+        with env_path.open("w", encoding="utf-8") as handle:
+            handle.write("# WhisprBar environment variables\n")
+            handle.write("# API keys and secrets\n\n")
+            for env_key, env_value in existing_values.items():
+                # Quote values with spaces
+                if " " in env_value:
+                    handle.write(f'{env_key}="{env_value}"\n')
+                else:
+                    handle.write(f'{env_key}={env_value}\n')
+
+        # Set restrictive permissions (600 = rw-------)
+        env_path.chmod(0o600)
+
+        if os.getenv("WHISPRBAR_DEBUG"):
+            print(f"[DEBUG] Saved {key} to {env_path}", file=sys.stderr)
+    except Exception as exc:
+        print(f"[WARN] Failed to save {key} to env file: {exc}", file=sys.stderr)
+
+
+def get_env_value(key: str) -> str:
+    """Get a value from the .env file.
+
+    Args:
+        key: Environment variable name
+
+    Returns:
+        Value from .env file, or empty string if not found
+    """
+    env_values = load_env_file_values()
+    return env_values.get(key, "")

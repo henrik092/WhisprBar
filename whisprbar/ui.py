@@ -23,7 +23,7 @@ except (ImportError, ValueError):
     cairo = None
 
 # Import from other whisprbar modules
-from whisprbar.config import save_config, cfg
+from whisprbar.config import save_config, cfg, get_env_value, save_env_file_value
 from whisprbar.utils import (
     collect_diagnostics,
     DiagnosticResult,
@@ -964,6 +964,123 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
 
         backend_combo.connect("changed", on_backend_changed)
 
+        # API Keys Section (shown based on backend)
+        content.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
+
+        api_section = Gtk.Label()
+        api_section.set_markup("<b>API Keys</b>")
+        api_section.set_xalign(0.0)
+        content.pack_start(api_section, False, False, 6)
+
+        api_note = Gtk.Label(label="Saved to ~/.config/whisprbar.env (secure)")
+        api_note.set_xalign(0.0)
+        api_note.get_style_context().add_class("dim-label")
+        content.pack_start(api_note, False, False, 0)
+
+        # OpenAI API Key
+        openai_key_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        openai_key_entry = Gtk.Entry()
+        openai_key_entry.set_placeholder_text("sk-...")
+        openai_key_entry.set_visibility(False)  # Hide password
+        openai_key_entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+        current_openai_key = get_env_value("OPENAI_API_KEY")
+        if current_openai_key:
+            openai_key_entry.set_text(current_openai_key)
+        openai_key_entry.set_hexpand(True)
+        openai_key_box.pack_start(openai_key_entry, True, True, 0)
+
+        # Paste from clipboard button for OpenAI
+        openai_paste_btn = Gtk.Button(label="Paste")
+        openai_paste_btn.set_tooltip_text("Paste API key from clipboard")
+        def on_openai_paste(_button):
+            try:
+                import pyperclip
+                clipboard_text = pyperclip.paste()
+                if clipboard_text:
+                    openai_key_entry.set_text(clipboard_text.strip())
+            except Exception as exc:
+                print(f"[WARN] Failed to paste from clipboard: {exc}", file=sys.stderr)
+        openai_paste_btn.connect("clicked", on_openai_paste)
+        openai_key_box.pack_start(openai_paste_btn, False, False, 0)
+
+        # Show/Hide toggle for OpenAI key
+        openai_show_btn = Gtk.Button(label="Show")
+        openai_show_btn.set_tooltip_text("Toggle visibility")
+        def on_openai_toggle(_button):
+            visible = openai_key_entry.get_visibility()
+            openai_key_entry.set_visibility(not visible)
+            openai_show_btn.set_label("Hide" if not visible else "Show")
+        openai_show_btn.connect("clicked", on_openai_toggle)
+        openai_key_box.pack_start(openai_show_btn, False, False, 0)
+
+        openai_key_tooltip = "OpenAI API key (required for OpenAI Whisper backend). Get it from: https://platform.openai.com/api-keys"
+        openai_key_row = make_row("OpenAI API Key", openai_key_box, tooltip=openai_key_tooltip)
+        content.pack_start(openai_key_row, False, False, 0)
+
+        # ElevenLabs API Key
+        elevenlabs_key_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        elevenlabs_key_entry = Gtk.Entry()
+        elevenlabs_key_entry.set_placeholder_text("...")
+        elevenlabs_key_entry.set_visibility(False)  # Hide password
+        elevenlabs_key_entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+        current_elevenlabs_key = get_env_value("ELEVENLABS_API_KEY")
+        if current_elevenlabs_key:
+            elevenlabs_key_entry.set_text(current_elevenlabs_key)
+        elevenlabs_key_entry.set_hexpand(True)
+        elevenlabs_key_box.pack_start(elevenlabs_key_entry, True, True, 0)
+
+        # Paste from clipboard button for ElevenLabs
+        elevenlabs_paste_btn = Gtk.Button(label="Paste")
+        elevenlabs_paste_btn.set_tooltip_text("Paste API key from clipboard")
+        def on_elevenlabs_paste(_button):
+            try:
+                import pyperclip
+                clipboard_text = pyperclip.paste()
+                if clipboard_text:
+                    elevenlabs_key_entry.set_text(clipboard_text.strip())
+            except Exception as exc:
+                print(f"[WARN] Failed to paste from clipboard: {exc}", file=sys.stderr)
+        elevenlabs_paste_btn.connect("clicked", on_elevenlabs_paste)
+        elevenlabs_key_box.pack_start(elevenlabs_paste_btn, False, False, 0)
+
+        # Show/Hide toggle for ElevenLabs key
+        elevenlabs_show_btn = Gtk.Button(label="Show")
+        elevenlabs_show_btn.set_tooltip_text("Toggle visibility")
+        def on_elevenlabs_toggle(_button):
+            visible = elevenlabs_key_entry.get_visibility()
+            elevenlabs_key_entry.set_visibility(not visible)
+            elevenlabs_show_btn.set_label("Hide" if not visible else "Show")
+        elevenlabs_show_btn.connect("clicked", on_elevenlabs_toggle)
+        elevenlabs_key_box.pack_start(elevenlabs_show_btn, False, False, 0)
+
+        elevenlabs_key_tooltip = "ElevenLabs API key (required for ElevenLabs Scribe backend). Get it from: https://elevenlabs.io/api"
+        elevenlabs_key_row = make_row("ElevenLabs API Key", elevenlabs_key_box, tooltip=elevenlabs_key_tooltip)
+        content.pack_start(elevenlabs_key_row, False, False, 0)
+
+        # Update API key visibility based on backend selection
+        def update_api_key_visibility():
+            backend = backend_combo.get_active_id()
+            openai_key_row.set_visible(backend == "openai")
+            elevenlabs_key_row.set_visible(backend == "elevenlabs")
+
+            # Always show section if either backend is selected
+            show_section = backend in ["openai", "elevenlabs"]
+            api_section.set_visible(show_section)
+            api_note.set_visible(show_section)
+
+        # Connect to backend changes
+        def on_backend_changed_with_api(combo):
+            on_backend_changed(combo)
+            update_api_key_visibility()
+
+        backend_combo.disconnect_by_func(on_backend_changed)
+        backend_combo.connect("changed", on_backend_changed_with_api)
+
+        # Initial visibility
+        update_api_key_visibility()
+
+        content.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
+
         device_combo = Gtk.ComboBoxText()
         device_combo.append("__default__", "System Default")
         active_device_id = "__default__"
@@ -1750,6 +1867,15 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             cfg["transcription_backend"] = backend_combo.get_active_id() or "openai"
             cfg["faster_whisper_model"] = fw_model_combo.get_active_id() or "medium"
             cfg["streaming_model"] = streaming_model_combo.get_active_id() or "tiny"
+
+            # Save API keys to .env file
+            openai_key = openai_key_entry.get_text().strip()
+            elevenlabs_key = elevenlabs_key_entry.get_text().strip()
+
+            if openai_key:
+                save_env_file_value("OPENAI_API_KEY", openai_key)
+            if elevenlabs_key:
+                save_env_file_value("ELEVENLABS_API_KEY", elevenlabs_key)
 
             # Save audio processing settings
             cfg["noise_reduction_enabled"] = nr_switch.get_active() if noise_reduction_available else False
