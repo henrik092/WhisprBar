@@ -21,7 +21,7 @@ This guide provides comprehensive information for developers (human or AI) worki
 
 ## Project Overview
 
-**WhisprBar** is a Linux system tray application for voice-to-text transcription using multiple backends (OpenAI Whisper API, ElevenLabs Scribe v2 Realtime, faster-whisper local, sherpa-onnx streaming). It uses global hotkeys to record audio, transcribes via selected backend, and auto-pastes results into the active window.
+**WhisprBar** is a Linux system tray application for voice-to-text transcription using multiple backends (Deepgram Nova-2, OpenAI Whisper API, ElevenLabs Scribe v2 Realtime, faster-whisper local, sherpa-onnx streaming). It uses global hotkeys to record audio, transcribes via selected backend, and auto-pastes results into the active window.
 
 **Version:** V6 (Modular)
 **Language:** Python 3
@@ -78,6 +78,7 @@ V6 is a complete architectural rewrite of the V5 monolith (4017 lines):
 ┌─────────────────────────────────────────────────────────────┐
 │                   transcription.py                           │
 │  • Transcriber (ABC)                                         │
+│  • DeepgramTranscriber (nova-2, sub-300ms)                   │
 │  • OpenAITranscriber                                         │
 │  • ElevenLabsTranscriber                                     │
 │  • FasterWhisperTranscriber                                  │
@@ -171,7 +172,7 @@ WhisperBar/                           # Repository root
     "postprocess_enabled": True,           # Clean up text
     "noise_reduction_enabled": True,       # Reduce background noise
     "min_audio_energy": 0.0008,            # Hallucination prevention threshold (0.0001-0.01)
-    "transcription_backend": "openai",     # Backend (openai/elevenlabs/faster-whisper/sherpa)
+    "transcription_backend": "deepgram",   # Backend (deepgram/openai/elevenlabs/faster-whisper/sherpa)
     "faster_whisper_model": "large",       # Model size for faster-whisper
     "live_overlay_enabled": False,         # Show live transcription
     ...
@@ -275,6 +276,7 @@ class Transcriber(ABC):
 ```
 
 **Backends:**
+- `DeepgramTranscriber` - Deepgram Nova-2 API (sub-300ms, recommended for speed)
 - `OpenAITranscriber` - OpenAI Whisper API
 - `ElevenLabsTranscriber` - ElevenLabs Scribe v2 Realtime (ultra-low latency)
 - `FasterWhisperTranscriber` - Local faster-whisper (CPU/GPU)
@@ -760,6 +762,7 @@ class MyBackendTranscriber(Transcriber):
 
 **`~/.config/whisprbar.env`** - Secrets (KEY=VALUE format)
 - `OPENAI_API_KEY` - OpenAI API key
+- `DEEPGRAM_API_KEY` - Deepgram API key (recommended for speed)
 - `ELEVENLABS_API_KEY` - ElevenLabs API key
 - `WHISPRBAR_HOME` - Custom home directory (optional)
 - Mode 600 recommended
@@ -776,7 +779,7 @@ See `whisprbar/config.py:DEFAULT_CFG` for full schema and defaults.
 - `language` - Transcription language (ISO code)
 - `device_name` - Audio device (None = system default)
 - `hotkey` - Recording hotkey (e.g., "F9", "Ctrl+Shift+R")
-- `transcription_backend` - Backend selection ("openai", "elevenlabs", "faster-whisper", "sherpa")
+- `transcription_backend` - Backend selection ("deepgram", "openai", "elevenlabs", "faster-whisper", "sherpa")
 - `use_vad` - Enable voice activity detection
 - `stop_tail_grace_ms` - Continue recording after hotkey release (100-2000ms, default: 500ms)
 - `chunking_enabled` - Enable parallel chunking for long audio

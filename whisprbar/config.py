@@ -64,6 +64,7 @@ DEFAULT_CFG = {
     "faster_whisper_compute_type": "int8",  # Compute type: int8, float16, float32
     "streaming_model": "tiny",  # sherpa-onnx model: tiny, base, small, medium
     "stop_tail_grace_ms": 500,
+    "min_drain_timeout_ms": 100,  # Minimum drain timeout (100-500ms, default: 100ms for fast response)
     "first_run_complete": False,
     "check_updates": True,
     "theme_mode": "auto",  # Theme mode: auto, light, dark
@@ -227,6 +228,14 @@ def validate_config() -> None:
             cfg["vad_auto_stop_silence_seconds"] = max(0.5, min(30.0, seconds))
         except (ValueError, TypeError):
             cfg["vad_auto_stop_silence_seconds"] = DEFAULT_CFG["vad_auto_stop_silence_seconds"]
+
+    # Clamp min_drain_timeout_ms
+    if "min_drain_timeout_ms" in cfg:
+        try:
+            timeout = int(cfg["min_drain_timeout_ms"])
+            cfg["min_drain_timeout_ms"] = max(100, min(500, timeout))
+        except (ValueError, TypeError):
+            cfg["min_drain_timeout_ms"] = DEFAULT_CFG["min_drain_timeout_ms"]
 
 
 def load_config() -> dict:

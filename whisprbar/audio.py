@@ -324,9 +324,10 @@ def stop_recording() -> Optional[np.ndarray]:
     grace_ms = max(100, min(2000, int(cfg.get("stop_tail_grace_ms", 500))))
     grace_seconds = grace_ms / 1000.0
 
-    # Minimum drain timeout (ensures we always wait at least this long)
-    MIN_DRAIN_TIMEOUT = 0.5
-    drain_timeout_seconds = max(grace_seconds, MIN_DRAIN_TIMEOUT)
+    # Minimum drain timeout (configurable, default 100ms for fast response)
+    min_drain_ms = max(100, min(500, int(cfg.get("min_drain_timeout_ms", 100))))
+    min_drain_timeout = min_drain_ms / 1000.0
+    drain_timeout_seconds = max(grace_seconds, min_drain_timeout)
 
     # Stop the stream first to prevent new data
     if stream:

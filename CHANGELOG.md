@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Deepgram Nova-2 Backend**: New ultra-fast transcription backend
+  - Sub-300ms latency (6-10x faster than OpenAI)
+  - Excellent accuracy for single-language transcription
+  - REST API integration with smart formatting and punctuation
+  - API key management via `~/.config/whisprbar.env` (`DEEPGRAM_API_KEY`)
+  - Note: Nova-2 recommended for German/single-language, Nova-3 is multilingual
+  - Modified files: `whisprbar/transcription.py` (added `DeepgramTranscriber` class)
+
+- **Tabbed Settings Interface**: Completely redesigned settings dialog
+  - Reorganized from 45+ flat options to 4 organized tabs:
+    - **Basis**: Theme, Language, Hotkeys, Auto-Paste, Notifications
+    - **Audio**: Input Device, Noise Reduction, Audio Feedback
+    - **Transkription**: Backend selection with speed indicators, API keys, Model settings
+    - **Erweitert**: VAD, Chunking, Overlay, Postprocessing
+  - Speed indicators for backends: ⚡ (Deepgram), 🚀 (ElevenLabs), ☁️ (OpenAI), 💻 (faster-whisper)
+  - Dynamic visibility: Only shows relevant API key field for selected backend
+  - Better organization reduces cognitive load
+  - Modified files: `whisprbar/ui.py` (complete rewrite of settings dialog)
+
+### Changed
+- **MIN_AUDIO_SECONDS reduced**: From 1.5s to 0.5s
+  - Allows shorter recordings to be transcribed
+  - Faster response for short voice commands
+  - Modified files: `whisprbar/main.py`
+
+- **MIN_DRAIN_TIMEOUT configurable**: Now via `min_drain_timeout_ms` config key
+  - Default reduced from 500ms to 100ms for faster response
+  - Configurable range: 100-500ms
+  - Modified files: `whisprbar/audio.py`, `whisprbar/config.py`
+
+- **Default stop_tail_grace_ms**: Optimized from 500ms to 250ms
+  - Faster end-of-recording response while still capturing final words
+
 ### Fixed
 - **CRITICAL: Language Parameter Lost in Chunked Transcription** (2026-01-01)
   - **Problem**: Multi-language transcription broken for recordings >60 seconds

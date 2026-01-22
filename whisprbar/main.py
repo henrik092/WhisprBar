@@ -651,7 +651,8 @@ def on_recording_stop() -> None:
             debug(f"Audio: {input_seconds:.2f}s → {output_seconds:.2f}s after VAD")
 
             # Minimum audio length check (prevent hallucinations on very short/empty audio)
-            MIN_AUDIO_SECONDS = 1.5
+            # Reduced from 1.5s to 0.5s for faster response with short commands
+            MIN_AUDIO_SECONDS = 0.5
             if processed.size == 0 or output_seconds < MIN_AUDIO_SECONDS:
                 # No speech detected or audio too short - notify but don't paste anything
                 if processed.size == 0:

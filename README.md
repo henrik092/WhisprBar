@@ -20,7 +20,8 @@
 ### Core Functionality
 - **Global Hotkey Recording**: Press F9 (configurable) to record, release to transcribe
 - **Multiple Transcription Backends**:
-  - **OpenAI Whisper API** - Cloud-based, fast, accurate
+  - **Deepgram Nova-2** - Ultra-fast (<300ms), excellent accuracy, best value
+  - **OpenAI Whisper API** - Cloud-based, accurate, 2-4s latency
   - **ElevenLabs Scribe v2 Realtime** - Ultra-low latency (<150ms), 90 languages
   - **faster-whisper** - Local CPU/GPU, offline, private
   - **sherpa-onnx** - Streaming transcription (experimental)
@@ -295,6 +296,8 @@ Environment variables and secrets (KEY=VALUE format):
 
 ```bash
 OPENAI_API_KEY=sk-proj-...
+DEEPGRAM_API_KEY=...
+ELEVENLABS_API_KEY=sk_...
 WHISPRBAR_HOME=/path/to/custom/home  # Optional
 ```
 
@@ -564,6 +567,8 @@ WhisprBar requires:
 
 ### Transcription Speed
 
+- **Deepgram Nova-2**: ~200-500ms (ultra-fast, recommended)
+- **ElevenLabs Scribe**: ~150-500ms (real-time streaming)
 - **OpenAI API**: ~2-5 seconds (network-dependent)
 - **faster-whisper**: ~5-15 seconds (model-dependent)
 - **sherpa-onnx**: ~1-3 seconds (streaming)

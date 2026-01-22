@@ -774,7 +774,13 @@ def hide_live_overlay() -> None:
 
 def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = None) -> None:
     """
-    Open settings window with all configuration options.
+    Open settings window with tabbed configuration interface.
+
+    Tabs:
+    - Basis: Theme, Language, Hotkeys, Auto-Paste, Notifications
+    - Audio: Input Device, Noise Reduction, Audio Feedback
+    - Transcription: Backend selection, API keys, Model selection
+    - Erweitert: VAD, Chunking, Overlay, Postprocessing
 
     Args:
         cfg: Configuration dictionary
@@ -812,6 +818,7 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         window = Gtk.Window(title=f"{APP_NAME} Settings")
         window.set_position(Gtk.WindowPosition.CENTER)
         window.set_resizable(True)
+        window.set_default_size(550, 600)
 
         # Apply theme
         theme = get_effective_theme(cfg)
@@ -821,45 +828,7 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         main_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         window.add(main_vbox)
 
-        # Show warning only if API key is missing
-        if not state.get("client_ready"):
-            header_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-            header_box.set_border_width(12)
-            main_vbox.pack_start(header_box, False, False, 0)
-
-            warning = Gtk.Label()
-            warning.set_markup(
-                "<b>Transcription disabled:</b> Configure OPENAI_API_KEY in ~/.config/whisprbar.env."
-            )
-            warning.set_xalign(0.0)
-            warning.set_line_wrap(True)
-            warning.set_max_width_chars(90)
-            header_box.pack_start(warning, False, False, 0)
-
-        # Two-column layout (no scrolling - auto-size to content)
-        columns_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
-        columns_box.set_border_width(12)
-        main_vbox.pack_start(columns_box, True, True, 0)
-
-        # LEFT COLUMN
-        left_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        left_column.set_hexpand(True)
-        columns_box.pack_start(left_column, True, True, 0)
-
-        # RIGHT COLUMN
-        right_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        right_column.set_hexpand(True)
-        columns_box.pack_start(right_column, True, True, 0)
-
-        # --- LEFT COLUMN: Basic Settings ---
-        basic_section = Gtk.Label()
-        basic_section.set_markup("<b>Basic Settings</b>")
-        basic_section.set_xalign(0.0)
-        left_column.pack_start(basic_section, False, False, 0)
-
-        # Use left_column as content for basic settings
-        content = left_column
-
+        # Helper functions for creating rows
         def make_row(
             label_text: str,
             widget: Gtk.Widget,
@@ -888,22 +857,42 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             row.pack_start(widget, expand, expand, 0)
             return row
 
+        def build_switch(label_text: str, active: bool, tooltip: Optional[str] = None) -> tuple:
+            switch = Gtk.Switch()
+            switch.set_active(active)
+            if tooltip:
+                switch.set_tooltip_text(tooltip)
+            row = make_row(label_text, switch, tooltip=tooltip)
+            return row, switch
+
+        # Create Notebook (tabbed interface)
+        notebook = Gtk.Notebook()
+        notebook.set_tab_pos(Gtk.PositionType.TOP)
+        main_vbox.pack_start(notebook, True, True, 0)
+
+        # =====================================================================
+        # TAB 1: Basis (Basic Settings)
+        # =====================================================================
+        basis_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        basis_page.set_border_width(12)
+        notebook.append_page(basis_page, Gtk.Label(label="Basis"))
+
         # Theme selection
         theme_combo = Gtk.ComboBoxText()
-        theme_combo.append("auto", "Auto (Follow system)")
-        theme_combo.append("light", "Light")
-        theme_combo.append("dark", "Dark")
+        theme_combo.append("auto", "Auto (Systemeinstellung)")
+        theme_combo.append("light", "Hell")
+        theme_combo.append("dark", "Dunkel")
         active_theme = cfg.get("theme_preference", "auto")
         theme_combo.set_active_id(active_theme)
-        theme_tooltip = "Choose UI theme: Auto follows system settings, or manually select Light/Dark mode"
-        content.pack_start(make_row("Theme", theme_combo, tooltip=theme_tooltip), False, False, 0)
+        theme_tooltip = "Wähle UI-Theme: Auto folgt Systemeinstellungen"
+        basis_page.pack_start(make_row("Theme", theme_combo, tooltip=theme_tooltip), False, False, 0)
 
-        # Add a note about theme changes requiring restart
-        theme_note = Gtk.Label(label="(Theme changes take effect after restart)")
+        theme_note = Gtk.Label(label="(Theme-Änderungen erfordern Neustart)")
         theme_note.set_xalign(0.0)
         theme_note.get_style_context().add_class("dim-label")
-        content.pack_start(theme_note, False, False, 0)
+        basis_page.pack_start(theme_note, False, False, 0)
 
+        # Language selection
         language_combo = Gtk.ComboBoxText()
         language_combo.append("de", "Deutsch (de)")
         language_combo.append("en", "English (en)")
@@ -911,244 +900,26 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         if active_lang not in {"de", "en"}:
             active_lang = "de"
         language_combo.set_active_id(active_lang)
-        language_tooltip = "Select language for voice transcription (affects recognition accuracy for specific languages)"
-        content.pack_start(make_row("Language", language_combo, tooltip=language_tooltip), False, False, 0)
+        language_tooltip = "Sprache für Transkription"
+        basis_page.pack_start(make_row("Sprache", language_combo, tooltip=language_tooltip), False, False, 0)
 
-        # Transcription backend selection
-        backend_combo = Gtk.ComboBoxText()
-        backend_combo.append("openai", "OpenAI Whisper API (online, best quality)")
-        backend_combo.append("elevenlabs", "ElevenLabs Scribe v2 Realtime (online, ultra-low latency)")
-        backend_combo.append("faster_whisper", "faster-whisper (offline, local)")
-        backend_combo.append("streaming", "sherpa-onnx streaming (low latency, offline)")
-        active_backend = cfg.get("transcription_backend", "openai")
-        backend_combo.set_active_id(active_backend)
-        backend_tooltip = "Select transcription backend: OpenAI for best quality, ElevenLabs for ultra-low latency (<150ms), faster-whisper for offline use, streaming for low latency"
-        content.pack_start(make_row("Transcription Backend", backend_combo, tooltip=backend_tooltip), False, False, 0)
+        basis_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
 
-        # faster-whisper model size selection (only shown when faster_whisper backend selected)
-        fw_model_combo = Gtk.ComboBoxText()
-        fw_model_combo.append("tiny", "Tiny (~1GB RAM, fast)")
-        fw_model_combo.append("base", "Base (~1GB RAM)")
-        fw_model_combo.append("small", "Small (~2GB RAM)")
-        fw_model_combo.append("medium", "Medium (~5GB RAM, recommended)")
-        fw_model_combo.append("large", "Large (~10GB RAM, best quality)")
-        active_model = cfg.get("faster_whisper_model", "medium")
-        fw_model_combo.set_active_id(active_model)
-        fw_model_tooltip = "Model size affects quality and speed. Larger = better quality but slower"
-        fw_model_row = make_row("  Model Size", fw_model_combo, tooltip=fw_model_tooltip)
-        content.pack_start(fw_model_row, False, False, 0)
-
-        # sherpa-onnx streaming model selection (only shown when streaming backend selected)
-        streaming_model_combo = Gtk.ComboBoxText()
-        streaming_model_combo.append("tiny", "Tiny (fastest, lower quality)")
-        streaming_model_combo.append("base", "Base (balanced)")
-        streaming_model_combo.append("small", "Small (good quality)")
-        streaming_model_combo.append("medium", "Medium (best quality, slower)")
-        active_streaming_model = cfg.get("streaming_model", "tiny")
-        streaming_model_combo.set_active_id(active_streaming_model)
-        streaming_model_tooltip = "Model size for streaming transcription. Tiny recommended for low latency"
-        streaming_model_row = make_row("  Streaming Model", streaming_model_combo, tooltip=streaming_model_tooltip)
-        content.pack_start(streaming_model_row, False, False, 0)
-
-        # Show/hide model selectors based on backend
-        if active_backend != "faster_whisper":
-            fw_model_row.set_visible(False)
-        if active_backend != "streaming":
-            streaming_model_row.set_visible(False)
-
-        # Update visibility when backend changes
-        def on_backend_changed(combo):
-            backend = combo.get_active_id()
-            fw_model_row.set_visible(backend == "faster_whisper")
-            streaming_model_row.set_visible(backend == "streaming")
-
-        backend_combo.connect("changed", on_backend_changed)
-
-        # API Keys Section (shown based on backend)
-        content.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
-
-        api_section = Gtk.Label()
-        api_section.set_markup("<b>API Keys</b>")
-        api_section.set_xalign(0.0)
-        content.pack_start(api_section, False, False, 6)
-
-        api_note = Gtk.Label(label="Saved to ~/.config/whisprbar.env (secure)")
-        api_note.set_xalign(0.0)
-        api_note.get_style_context().add_class("dim-label")
-        content.pack_start(api_note, False, False, 0)
-
-        # OpenAI API Key
-        openai_key_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        openai_key_entry = Gtk.Entry()
-        openai_key_entry.set_placeholder_text("sk-...")
-        openai_key_entry.set_visibility(False)  # Hide password
-        openai_key_entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
-        current_openai_key = get_env_value("OPENAI_API_KEY")
-        if current_openai_key:
-            openai_key_entry.set_text(current_openai_key)
-        openai_key_entry.set_hexpand(True)
-        openai_key_box.pack_start(openai_key_entry, True, True, 0)
-
-        # Paste from clipboard button for OpenAI
-        openai_paste_btn = Gtk.Button(label="Paste")
-        openai_paste_btn.set_tooltip_text("Paste API key from clipboard")
-        def on_openai_paste(_button):
-            try:
-                import pyperclip
-                clipboard_text = pyperclip.paste()
-                if clipboard_text:
-                    openai_key_entry.set_text(clipboard_text.strip())
-            except Exception as exc:
-                print(f"[WARN] Failed to paste from clipboard: {exc}", file=sys.stderr)
-        openai_paste_btn.connect("clicked", on_openai_paste)
-        openai_key_box.pack_start(openai_paste_btn, False, False, 0)
-
-        # Show/Hide toggle for OpenAI key
-        openai_show_btn = Gtk.Button(label="Show")
-        openai_show_btn.set_tooltip_text("Toggle visibility")
-        def on_openai_toggle(_button):
-            visible = openai_key_entry.get_visibility()
-            openai_key_entry.set_visibility(not visible)
-            openai_show_btn.set_label("Hide" if not visible else "Show")
-        openai_show_btn.connect("clicked", on_openai_toggle)
-        openai_key_box.pack_start(openai_show_btn, False, False, 0)
-
-        openai_key_tooltip = "OpenAI API key (required for OpenAI Whisper backend). Get it from: https://platform.openai.com/api-keys"
-        openai_key_row = make_row("OpenAI API Key", openai_key_box, tooltip=openai_key_tooltip)
-        content.pack_start(openai_key_row, False, False, 0)
-
-        # ElevenLabs API Key
-        elevenlabs_key_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        elevenlabs_key_entry = Gtk.Entry()
-        elevenlabs_key_entry.set_placeholder_text("...")
-        elevenlabs_key_entry.set_visibility(False)  # Hide password
-        elevenlabs_key_entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
-        current_elevenlabs_key = get_env_value("ELEVENLABS_API_KEY")
-        if current_elevenlabs_key:
-            elevenlabs_key_entry.set_text(current_elevenlabs_key)
-        elevenlabs_key_entry.set_hexpand(True)
-        elevenlabs_key_box.pack_start(elevenlabs_key_entry, True, True, 0)
-
-        # Paste from clipboard button for ElevenLabs
-        elevenlabs_paste_btn = Gtk.Button(label="Paste")
-        elevenlabs_paste_btn.set_tooltip_text("Paste API key from clipboard")
-        def on_elevenlabs_paste(_button):
-            try:
-                import pyperclip
-                clipboard_text = pyperclip.paste()
-                if clipboard_text:
-                    elevenlabs_key_entry.set_text(clipboard_text.strip())
-            except Exception as exc:
-                print(f"[WARN] Failed to paste from clipboard: {exc}", file=sys.stderr)
-        elevenlabs_paste_btn.connect("clicked", on_elevenlabs_paste)
-        elevenlabs_key_box.pack_start(elevenlabs_paste_btn, False, False, 0)
-
-        # Show/Hide toggle for ElevenLabs key
-        elevenlabs_show_btn = Gtk.Button(label="Show")
-        elevenlabs_show_btn.set_tooltip_text("Toggle visibility")
-        def on_elevenlabs_toggle(_button):
-            visible = elevenlabs_key_entry.get_visibility()
-            elevenlabs_key_entry.set_visibility(not visible)
-            elevenlabs_show_btn.set_label("Hide" if not visible else "Show")
-        elevenlabs_show_btn.connect("clicked", on_elevenlabs_toggle)
-        elevenlabs_key_box.pack_start(elevenlabs_show_btn, False, False, 0)
-
-        elevenlabs_key_tooltip = "ElevenLabs API key (required for ElevenLabs Scribe backend). Get it from: https://elevenlabs.io/api"
-        elevenlabs_key_row = make_row("ElevenLabs API Key", elevenlabs_key_box, tooltip=elevenlabs_key_tooltip)
-        content.pack_start(elevenlabs_key_row, False, False, 0)
-
-        # Update API key visibility based on backend selection
-        def update_api_key_visibility():
-            backend = backend_combo.get_active_id()
-            openai_key_row.set_visible(backend == "openai")
-            elevenlabs_key_row.set_visible(backend == "elevenlabs")
-
-            # Always show section if either backend is selected
-            show_section = backend in ["openai", "elevenlabs"]
-            api_section.set_visible(show_section)
-            api_note.set_visible(show_section)
-
-        # Connect to backend changes
-        def on_backend_changed_with_api(combo):
-            on_backend_changed(combo)
-            update_api_key_visibility()
-
-        backend_combo.disconnect_by_func(on_backend_changed)
-        backend_combo.connect("changed", on_backend_changed_with_api)
-
-        # Initial visibility
-        update_api_key_visibility()
-
-        content.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
-
-        device_combo = Gtk.ComboBoxText()
-        device_combo.append("__default__", "System Default")
-        active_device_id = "__default__"
-        saved_name = cfg.get("device_name")
-        for device in devices:
-            device_id = str(device.get("index"))
-            device_name = device.get("name") or f"Device {device_id}"
-            device_map[device_id] = device_name
-            device_combo.append(device_id, device_name)
-            if saved_name and device_name.lower() == saved_name.lower():
-                active_device_id = device_id
-        device_combo.set_active_id(active_device_id)
-        device_tooltip = "Select audio input device for recording. System Default uses your system's preferred microphone."
-        content.pack_start(make_row("Input Device", device_combo, tooltip=device_tooltip), False, False, 0)
-
-        paste_combo = Gtk.ComboBoxText()
-        for key, label in PASTE_OPTIONS.items():
-            paste_combo.append(key, label)
-        paste_combo.set_active_id(cfg.get("paste_sequence", "auto"))
-        if is_wayland_session():
-            paste_combo.set_sensitive(False)
-        paste_tooltip = "Select the key sequence used when auto paste runs. 'Auto' chooses based on the active window."
-        content.pack_start(make_row("Paste Mode", paste_combo, tooltip=paste_tooltip), False, False, 0)
-
-        paste_delay_adjustment = Gtk.Adjustment(
-            value=float(cfg.get("paste_delay_ms", 250) or 0),
-            lower=0.0,
-            upper=2000.0,
-            step_increment=25.0,
-            page_increment=100.0,
-        )
-        paste_delay_spin = Gtk.SpinButton()
-        paste_delay_spin.set_adjustment(paste_delay_adjustment)
-        paste_delay_spin.set_numeric(True)
-        paste_delay_spin.set_value(float(cfg.get("paste_delay_ms", 250) or 0))
-        paste_delay_spin.set_digits(0)
-        paste_delay_tooltip = "Delay before auto paste (milliseconds). Increase for slow apps or reduce for faster paste."
-        content.pack_start(
-            make_row(
-                "Paste Delay",
-                paste_delay_spin,
-                tooltip=paste_delay_tooltip,
-                defaults_text="Default: 250 ms",
-            ),
-            False,
-            False,
-            0,
-        )
-
-        # Multiple hotkeys section
+        # Hotkeys section
         hotkeys_section = Gtk.Label()
         hotkeys_section.set_markup("<b>Hotkeys</b>")
         hotkeys_section.set_xalign(0.0)
-        content.pack_start(hotkeys_section, False, False, 6)
+        basis_page.pack_start(hotkeys_section, False, False, 6)
 
         # Get hotkeys from config
         from whisprbar.hotkeys import parse_hotkey, hotkey_to_label
         hotkeys_config = cfg.get("hotkeys", {})
 
-        # Define available hotkey actions with descriptions
         hotkey_actions = {
-            "toggle_recording": "Toggle Recording",
-            "open_settings": "Open Settings",
-            "show_history": "Show History (planned)",
-            "cancel_recording": "Cancel Recording (ESC)",
+            "toggle_recording": "Aufnahme umschalten",
+            "open_settings": "Einstellungen öffnen",
         }
 
-        # Store hotkey widgets for capture
         hotkey_widgets = {}
         capture_state = {"active": False, "current_action": None}
 
@@ -1156,21 +927,14 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             capture_state["active"] = False
             capture_state["current_action"] = None
             state["hotkey_capture_active"] = False
-
-            # Update config
             if "hotkeys" not in cfg:
                 cfg["hotkeys"] = {}
             cfg["hotkeys"][action_id] = hotkey_str
-
-            # Update widget
             widgets = hotkey_widgets.get(action_id)
             if widgets:
                 widgets["label"].set_text(label)
-                widgets["change_btn"].set_label("Change")
+                widgets["change_btn"].set_label("Ändern")
                 widgets["change_btn"].set_sensitive(True)
-                widgets["clear_btn"].set_sensitive(action_id not in ["toggle_recording", "cancel_recording"])
-
-            # Re-enable all change buttons
             for action, wdgs in hotkey_widgets.items():
                 wdgs["change_btn"].set_sensitive(True)
 
@@ -1185,11 +949,10 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             if not widgets:
                 return
 
-            widgets["label"].set_text("Press key...")
-            widgets["change_btn"].set_label("Listening...")
+            widgets["label"].set_text("Taste drücken...")
+            widgets["change_btn"].set_label("Warten...")
             widgets["change_btn"].set_sensitive(False)
 
-            # Disable all other change buttons during capture
             for other_action, other_widgets in hotkey_widgets.items():
                 if other_action != action_id:
                     other_widgets["change_btn"].set_sensitive(False)
@@ -1197,10 +960,8 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             try:
                 def on_complete(config_str: str, label: str) -> None:
                     finish_hotkey_capture(action_id, config_str, label)
-
                 capture_hotkey(on_complete=on_complete, notify_user=False)
             except Exception as exc:
-                # Restore state on error
                 capture_state["active"] = False
                 capture_state["current_action"] = None
                 state["hotkey_capture_active"] = False
@@ -1210,305 +971,110 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
                         binding = parse_hotkey(current_hotkey)
                         display = hotkey_to_label(binding)
                     except:
-                        display = current_hotkey or "Not set"
+                        display = current_hotkey or "Nicht gesetzt"
                 else:
-                    display = "Not set"
+                    display = "Nicht gesetzt"
                 if widgets:
                     widgets["label"].set_text(display)
-                    widgets["change_btn"].set_label("Change")
+                    widgets["change_btn"].set_label("Ändern")
                     widgets["change_btn"].set_sensitive(True)
-                    widgets["clear_btn"].set_sensitive(action_id not in ["toggle_recording", "cancel_recording"])
-                # Re-enable all buttons
                 for action, wdgs in hotkey_widgets.items():
                     wdgs["change_btn"].set_sensitive(True)
                 print(f"[WARN] Hotkey capture failed: {exc}", file=sys.stderr)
 
-        def clear_hotkey(action_id: str) -> None:
-            if action_id in ["toggle_recording", "cancel_recording"]:
-                return  # Cannot clear essential hotkeys
-
-            widgets = hotkey_widgets.get(action_id)
-            if widgets:
-                widgets["label"].set_text("Not set")
-                if "hotkeys" not in cfg:
-                    cfg["hotkeys"] = {}
-                cfg["hotkeys"][action_id] = None
-
-        # Create hotkey rows
         for action_id, action_label in hotkey_actions.items():
             hotkey_str = hotkeys_config.get(action_id)
-
-            # Parse and display current hotkey
             if hotkey_str:
                 try:
                     hotkey_binding = parse_hotkey(hotkey_str)
                     display_label = hotkey_to_label(hotkey_binding)
                 except:
-                    display_label = hotkey_str or "Not set"
+                    display_label = hotkey_str or "Nicht gesetzt"
             else:
-                display_label = "Not set"
+                display_label = "Nicht gesetzt"
 
-            # Special handling for cancel_recording (ESC is hardcoded)
-            if action_id == "cancel_recording":
-                display_label = "ESC (built-in)"
-
-            # Create row with label + Change + Clear buttons
             hotkey_row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
             hotkey_value_label = Gtk.Label(label=display_label)
             hotkey_value_label.set_xalign(0.0)
-            hotkey_value_label.set_width_chars(20)
+            hotkey_value_label.set_width_chars(15)
             hotkey_row_box.pack_start(hotkey_value_label, False, False, 0)
 
-            change_btn = Gtk.Button(label="Change")
-            clear_btn = Gtk.Button(label="Clear")
+            change_btn = Gtk.Button(label="Ändern")
             hotkey_row_box.pack_start(change_btn, False, False, 0)
-            hotkey_row_box.pack_start(clear_btn, False, False, 0)
 
-            # Disable buttons for cancel_recording (ESC is hardcoded)
-            if action_id == "cancel_recording":
-                change_btn.set_sensitive(False)
-                change_btn.set_tooltip_text("ESC key is hardcoded for cancellation")
-                clear_btn.set_sensitive(False)
-                clear_btn.set_tooltip_text("ESC key cannot be changed or cleared")
-            elif action_id == "toggle_recording":
-                clear_btn.set_sensitive(False)
-                clear_btn.set_tooltip_text("This hotkey cannot be cleared")
-
-            # Store references
             hotkey_widgets[action_id] = {
                 "label": hotkey_value_label,
                 "change_btn": change_btn,
-                "clear_btn": clear_btn,
             }
 
-            tooltip = f"Global shortcut for: {action_label}"
-            content.pack_start(make_row(action_label, hotkey_row_box, tooltip=tooltip), False, False, 0)
+            basis_page.pack_start(make_row(action_label, hotkey_row_box), False, False, 0)
 
-        # Connect button signals
         for action_id, widgets in hotkey_widgets.items():
             widgets["change_btn"].connect("clicked", lambda btn, aid=action_id: begin_hotkey_capture(aid))
-            widgets["clear_btn"].connect("clicked", lambda btn, aid=action_id: clear_hotkey(aid))
 
-        def build_switch(label_text: str, active: bool, tooltip: Optional[str] = None) -> tuple:
-            switch = Gtk.Switch()
-            switch.set_active(active)
-            if tooltip:
-                switch.set_tooltip_text(tooltip)
-            row = make_row(label_text, switch, tooltip=tooltip)
-            return row, switch
+        basis_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
 
-        notify_tooltip = "Show desktop notifications for transcription status and errors"
-        notify_row, notify_switch = build_switch(
-            "Notifications",
-            cfg.get("notifications_enabled", True),
-            notify_tooltip,
-        )
-        content.pack_start(notify_row, False, False, 0)
-
-        auto_tooltip = "Automatically paste transcripts into the active window after transcription. "
+        # Auto-paste and notifications
+        auto_tooltip = "Text automatisch nach Transkription einfügen"
         if is_wayland_session():
-            auto_tooltip += "Note: Wayland restricts auto-paste to clipboard-only mode."
-        else:
-            auto_tooltip += "On X11, uses window-specific paste methods for best compatibility."
-        auto_row, auto_switch = build_switch(
-            "Auto Paste",
-            cfg.get("auto_paste_enabled", False),
-            auto_tooltip,
-        )
-        content.pack_start(auto_row, False, False, 0)
+            auto_tooltip += " (Wayland: nur Zwischenablage)"
+        auto_row, auto_switch = build_switch("Auto-Paste", cfg.get("auto_paste_enabled", False), auto_tooltip)
+        basis_page.pack_start(auto_row, False, False, 0)
 
-        # --- RIGHT COLUMN: Voice Activity Detection Section ---
-        content = right_column  # Switch to right column
-        vad_section = Gtk.Label()
-        vad_section.set_markup("<b>Voice Activity Detection</b>")
-        vad_section.set_xalign(0.0)
-        content.pack_start(vad_section, False, False, 0)
+        notify_tooltip = "Desktop-Benachrichtigungen anzeigen"
+        notify_row, notify_switch = build_switch("Benachrichtigungen", cfg.get("notifications_enabled", True), notify_tooltip)
+        basis_page.pack_start(notify_row, False, False, 0)
 
-        vad_label = "Enable VAD"
-        if VAD_AVAILABLE:
-            vad_tooltip = "Trim silence around speech to reduce processing time and API usage."
-        else:
-            vad_tooltip = "Install the 'webrtcvad' package to enable silence trimming."
-        vad_row, vad_switch = build_switch(
-            vad_label,
-            cfg.get("use_vad", False) and VAD_AVAILABLE,
-            vad_tooltip,
-        )
-        vad_switch.set_sensitive(VAD_AVAILABLE)
-        content.pack_start(vad_row, False, False, 0)
+        # Paste settings (sub-options)
+        paste_combo = Gtk.ComboBoxText()
+        for key, label in PASTE_OPTIONS.items():
+            paste_combo.append(key, label)
+        paste_combo.set_active_id(cfg.get("paste_sequence", "auto"))
+        if is_wayland_session():
+            paste_combo.set_sensitive(False)
+        paste_row = make_row("  Paste-Modus", paste_combo, tooltip="Methode für Auto-Paste")
+        basis_page.pack_start(paste_row, False, False, 0)
 
-        vad_rows: List[Gtk.Widget] = []
+        paste_delay_adjustment = Gtk.Adjustment(value=float(cfg.get("paste_delay_ms", 250) or 0), lower=0.0, upper=2000.0, step_increment=25.0, page_increment=100.0)
+        paste_delay_spin = Gtk.SpinButton()
+        paste_delay_spin.set_adjustment(paste_delay_adjustment)
+        paste_delay_spin.set_numeric(True)
+        paste_delay_spin.set_value(float(cfg.get("paste_delay_ms", 250) or 0))
+        paste_delay_spin.set_digits(0)
+        paste_delay_row = make_row("  Paste-Verzögerung (ms)", paste_delay_spin, defaults_text="(Standard: 250)")
+        basis_page.pack_start(paste_delay_row, False, False, 0)
 
-        vad_sensitivity = float(cfg.get("vad_energy_ratio", 0.02) or 0.02)
-        vad_scale = Gtk.Scale.new_with_range(
-            Gtk.Orientation.HORIZONTAL,
-            0.01,
-            0.2,
-            0.005,
-        )
-        vad_scale.set_digits(3)
-        vad_scale.set_value(max(0.01, min(0.2, vad_sensitivity)))
-        vad_scale.set_draw_value(True)
-        vad_scale.set_value_pos(Gtk.PositionType.RIGHT)
-        vad_scale.set_hexpand(True)
-        vad_scale.set_tooltip_text(
-            "Slide left to keep more quiet speech; slide right to trim silence more aggressively. Recommended baseline: 0.02."
-        )
-        sensitivity_row = make_row(
-            "VAD Sensitivity",
-            vad_scale,
-            tooltip="Slide left to keep more quiet speech; slide right to trim silence more aggressively.",
-            expand=True,
-            defaults_text="(Default 0.02)",
-        )
-        vad_rows.append(sensitivity_row)
-        content.pack_start(sensitivity_row, False, False, 0)
+        def sync_paste_options(*_args) -> None:
+            active = auto_switch.get_active()
+            paste_row.set_visible(active)
+            paste_delay_row.set_visible(active)
 
-        bridge_default = int(cfg.get("vad_bridge_ms", 180) or 180)
-        bridge_scale = Gtk.Scale.new_with_range(
-            Gtk.Orientation.HORIZONTAL,
-            0.0,
-            400.0,
-            10.0,
-        )
-        bridge_scale.set_digits(0)
-        bridge_scale.set_value(max(0.0, min(400.0, float(bridge_default))))
-        bridge_scale.set_draw_value(True)
-        bridge_scale.set_value_pos(Gtk.PositionType.RIGHT)
-        bridge_scale.set_hexpand(True)
-        bridge_scale.clear_marks()  # Remove all marks for smooth sliding
-        bridge_scale.connect("format-value", lambda scale, value: f"{int(value)} ms")
-        bridge_scale.set_tooltip_text(
-            "Slide left to split after shorter pauses; slide right to keep longer gaps in the same segment. Recommended baseline: 180 ms."
-        )
-        bridge_row = make_row(
-            "Pause Bridging (ms)",
-            bridge_scale,
-            tooltip="Slide left to split after shorter pauses; slide right to keep longer gaps in the same segment.",
-            expand=True,
-            defaults_text="(Default 180)",
-        )
-        vad_rows.append(bridge_row)
-        content.pack_start(bridge_row, False, False, 0)
+        auto_switch.connect("notify::active", sync_paste_options)
+        sync_paste_options()
 
-        min_frames_default = int(cfg.get("vad_min_energy_frames", 2) or 2)
-        frames_scale = Gtk.Scale.new_with_range(
-            Gtk.Orientation.HORIZONTAL,
-            1.0,
-            8.0,
-            1.0,
-        )
-        frames_scale.set_digits(0)
-        frames_scale.set_value(max(1.0, min(8.0, float(min_frames_default))))
-        frames_scale.set_draw_value(True)
-        frames_scale.set_value_pos(Gtk.PositionType.RIGHT)
-        frames_scale.set_hexpand(True)
-        frames_scale.set_tooltip_text(
-            "Slide left to allow very short bursts; slide right to require longer low-level speech. Recommended baseline: 2 frames."
-        )
-        frames_row = make_row(
-            "Noise Guard (frames)",
-            frames_scale,
-            tooltip="Slide left to allow very short bursts; slide right to require longer low-level speech.",
-            expand=True,
-            defaults_text="(Default 2)",
-        )
-        vad_rows.append(frames_row)
-        content.pack_start(frames_row, False, False, 0)
+        # =====================================================================
+        # TAB 2: Audio
+        # =====================================================================
+        audio_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        audio_page.set_border_width(12)
+        notebook.append_page(audio_page, Gtk.Label(label="Audio"))
 
-        # Auto-Stop Switch
-        auto_stop_tooltip = "Automatically stop recording after sustained silence (hands-free mode)."
-        auto_stop_row, auto_stop_switch = build_switch(
-            "Auto-Stop on Silence",
-            cfg.get("vad_auto_stop_enabled", False) and VAD_AVAILABLE,
-            auto_stop_tooltip,
-        )
-        auto_stop_switch.set_sensitive(VAD_AVAILABLE)
-        vad_rows.append(auto_stop_row)
-        content.pack_start(auto_stop_row, False, False, 0)
+        # Input device
+        device_combo = Gtk.ComboBoxText()
+        device_combo.append("__default__", "System-Standard")
+        active_device_id = "__default__"
+        saved_name = cfg.get("device_name")
+        for device in devices:
+            device_id = str(device.get("index"))
+            device_name = device.get("name") or f"Gerät {device_id}"
+            device_map[device_id] = device_name
+            device_combo.append(device_id, device_name)
+            if saved_name and device_name.lower() == saved_name.lower():
+                active_device_id = device_id
+        device_combo.set_active_id(active_device_id)
+        audio_page.pack_start(make_row("Eingabegerät", device_combo, tooltip="Mikrofon für Aufnahme"), False, False, 0)
 
-        # Auto-Stop Silence Duration (only visible when Auto-Stop is enabled)
-        auto_stop_silence_seconds = float(cfg.get("vad_auto_stop_silence_seconds", 2.0) or 2.0)
-        auto_stop_scale = Gtk.Scale.new_with_range(
-            Gtk.Orientation.HORIZONTAL,
-            0.5,
-            10.0,
-            0.5,
-        )
-        auto_stop_scale.set_digits(1)
-        auto_stop_scale.set_value(max(0.5, min(10.0, auto_stop_silence_seconds)))
-        auto_stop_scale.set_draw_value(True)
-        auto_stop_scale.set_value_pos(Gtk.PositionType.RIGHT)
-        auto_stop_scale.set_hexpand(True)
-        auto_stop_scale.clear_marks()  # Remove all marks for smooth sliding
-        auto_stop_scale.connect("format-value", lambda scale, value: f"{value:.1f} s")
-        auto_stop_scale.set_tooltip_text(
-            "Duration of silence before auto-stop triggers. Lower = more responsive, higher = more forgiving of pauses."
-        )
-        auto_stop_duration_row = make_row(
-            "  Auto-Stop Silence (seconds)",
-            auto_stop_scale,
-            tooltip="Duration of silence before auto-stop triggers.",
-            expand=True,
-            defaults_text="(Default 2.0s)",
-        )
-        vad_rows.append(auto_stop_duration_row)
-        content.pack_start(auto_stop_duration_row, False, False, 0)
-
-        # End Recording Buffer (Stop Tail Grace)
-        stop_tail_grace = int(cfg.get("stop_tail_grace_ms", 500) or 500)
-        stop_tail_scale = Gtk.Scale.new_with_range(
-            Gtk.Orientation.HORIZONTAL,
-            100.0,
-            2000.0,
-            100.0,
-        )
-        stop_tail_scale.set_digits(0)
-        stop_tail_scale.set_value(max(100, min(2000, float(stop_tail_grace))))
-        stop_tail_scale.set_draw_value(True)
-        stop_tail_scale.set_value_pos(Gtk.PositionType.RIGHT)
-        stop_tail_scale.set_hexpand(True)
-        stop_tail_scale.clear_marks()  # Remove all marks for smooth sliding
-        stop_tail_scale.connect("format-value", lambda scale, value: f"{int(value)} ms")
-        stop_tail_scale.set_tooltip_text(
-            "Continue recording for a short time after releasing the hotkey to avoid cutting off the last word. "
-            "Higher values = more safety against cutoffs, but longer wait time."
-        )
-        stop_tail_row = make_row(
-            "End Recording Buffer (ms)",
-            stop_tail_scale,
-            tooltip="Keep recording briefly after you stop to capture the end of your speech",
-            expand=True,
-            defaults_text="(Default: 500ms)",
-        )
-        vad_rows.append(stop_tail_row)
-        content.pack_start(stop_tail_row, False, False, 0)
-
-        def sync_vad_controls(*_args) -> None:
-            vad_active = vad_switch.get_active() and VAD_AVAILABLE
-            for row in vad_rows:
-                row.set_visible(vad_active)
-
-            # Auto-Stop Silence Duration should only be visible when Auto-Stop is enabled
-            auto_stop_active = auto_stop_switch.get_active() and vad_active
-            auto_stop_duration_row.set_visible(auto_stop_active)
-
-        def sync_auto_stop_controls(*_args) -> None:
-            # When Auto-Stop switch changes, sync the duration row
-            vad_active = vad_switch.get_active() and VAD_AVAILABLE
-            auto_stop_active = auto_stop_switch.get_active() and vad_active
-            auto_stop_duration_row.set_visible(auto_stop_active)
-
-        vad_switch.connect("notify::active", sync_vad_controls)
-        auto_stop_switch.connect("notify::active", sync_auto_stop_controls)
-        sync_vad_controls()
-
-        # --- Audio Processing Section (still in right column) ---
-        content.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 12)
-        section_label = Gtk.Label()
-        section_label.set_markup("<b>Audio Processing</b>")
-        section_label.set_xalign(0.0)
-        content.pack_start(section_label, False, False, 0)
+        audio_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
 
         # Noise Reduction
         noise_reduction_available = True
@@ -1517,16 +1083,10 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         except ImportError:
             noise_reduction_available = False
 
-        nr_tooltip = "Remove background noise before transcription (may affect speech quality)." if noise_reduction_available else "Install 'noisereduce' package to enable."
-        nr_row, nr_switch = build_switch(
-            "Noise Reduction",
-            cfg.get("noise_reduction_enabled", True) and noise_reduction_available,
-            nr_tooltip,
-        )
+        nr_tooltip = "Hintergrundgeräusche vor Transkription entfernen" if noise_reduction_available else "Paket 'noisereduce' nicht installiert"
+        nr_row, nr_switch = build_switch("Rauschunterdrückung", cfg.get("noise_reduction_enabled", True) and noise_reduction_available, nr_tooltip)
         nr_switch.set_sensitive(noise_reduction_available)
-        content.pack_start(nr_row, False, False, 0)
-
-        nr_rows: List[Gtk.Widget] = []
+        audio_page.pack_start(nr_row, False, False, 0)
 
         nr_strength = float(cfg.get("noise_reduction_strength", 0.7) or 0.7)
         nr_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.0, 1.0, 0.1)
@@ -1535,30 +1095,313 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         nr_scale.set_draw_value(True)
         nr_scale.set_value_pos(Gtk.PositionType.RIGHT)
         nr_scale.set_hexpand(True)
-        nr_scale.clear_marks()  # Remove all marks for smooth sliding
+        nr_scale.clear_marks()
         nr_scale.connect("format-value", lambda scale, value: f"{int(value * 100)}%")
-        nr_scale.set_tooltip_text("Higher values remove more noise but may distort speech")
-        nr_row_widget = make_row(
-            "  Strength (0-100%)",
-            nr_scale,
-            tooltip="Noise reduction: 0% = Off, 100% = Maximum filtering (may affect speech quality)",
-            expand=True,
-            defaults_text="(Default: 70%)",
-        )
-        nr_rows.append(nr_row_widget)
-        content.pack_start(nr_row_widget, False, False, 0)
+        nr_strength_row = make_row("  Stärke", nr_scale, expand=True, defaults_text="(Standard: 70%)")
+        audio_page.pack_start(nr_strength_row, False, False, 0)
 
         def sync_nr_controls(*_args) -> None:
             active = nr_switch.get_active() and noise_reduction_available
-            for row in nr_rows:
-                row.set_visible(active)
+            nr_strength_row.set_visible(active)
 
         nr_switch.connect("notify::active", sync_nr_controls)
         sync_nr_controls()
 
-        # Minimum Audio Energy (Hallucination Prevention)
-        content.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
+        audio_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
 
+        # Audio Feedback
+        audio_fb_tooltip = "Töne bei Aufnahme-Start/Stop abspielen"
+        audio_fb_row, audio_fb_switch = build_switch("Audio-Feedback", cfg.get("audio_feedback_enabled", True), audio_fb_tooltip)
+        audio_page.pack_start(audio_fb_row, False, False, 0)
+
+        audio_fb_volume = float(cfg.get("audio_feedback_volume", 0.3) or 0.3)
+        audio_fb_volume_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.0, 1.0, 0.1)
+        audio_fb_volume_scale.set_digits(1)
+        audio_fb_volume_scale.set_value(max(0.0, min(1.0, audio_fb_volume)))
+        audio_fb_volume_scale.set_draw_value(True)
+        audio_fb_volume_scale.set_value_pos(Gtk.PositionType.RIGHT)
+        audio_fb_volume_scale.set_hexpand(True)
+        audio_fb_volume_scale.clear_marks()
+        audio_fb_volume_scale.connect("format-value", lambda scale, value: f"{int(value * 100)}%")
+        audio_fb_volume_row = make_row("  Lautstärke", audio_fb_volume_scale, expand=True, defaults_text="(Standard: 30%)")
+        audio_page.pack_start(audio_fb_volume_row, False, False, 0)
+
+        def sync_audio_fb_controls(*_args) -> None:
+            active = audio_fb_switch.get_active()
+            audio_fb_volume_row.set_visible(active)
+
+        audio_fb_switch.connect("notify::active", sync_audio_fb_controls)
+        sync_audio_fb_controls()
+
+        # =====================================================================
+        # TAB 3: Transcription
+        # =====================================================================
+        trans_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        trans_page.set_border_width(12)
+        notebook.append_page(trans_page, Gtk.Label(label="Transkription"))
+
+        # Backend selection with speed indicators
+        backend_combo = Gtk.ComboBoxText()
+        backend_combo.append("deepgram", "Deepgram Nova-3 (⚡ <300ms, online)")
+        backend_combo.append("elevenlabs", "ElevenLabs Scribe v2 (⚡ ~500ms, online)")
+        backend_combo.append("openai", "OpenAI Whisper (2-4s, beste Qualität)")
+        backend_combo.append("faster_whisper", "faster-whisper (offline, lokal)")
+        backend_combo.append("streaming", "sherpa-onnx (offline, streaming)")
+        active_backend = cfg.get("transcription_backend", "openai")
+        backend_combo.set_active_id(active_backend)
+        trans_page.pack_start(make_row("Backend", backend_combo, tooltip="Transkriptions-Dienst wählen"), False, False, 0)
+
+        # Speed indicator label
+        speed_label = Gtk.Label()
+        speed_label.set_xalign(0.0)
+        speed_label.get_style_context().add_class("dim-label")
+
+        def update_speed_label(*_args):
+            backend = backend_combo.get_active_id()
+            if backend == "deepgram":
+                speed_label.set_markup("<small>⚡ Schnellstes Backend: sub-300ms Latenz</small>")
+            elif backend == "elevenlabs":
+                speed_label.set_markup("<small>⚡ Sehr schnell: ~500ms-1s Latenz</small>")
+            elif backend == "openai":
+                speed_label.set_markup("<small>🐌 Langsam aber beste Qualität: 2-4s Latenz</small>")
+            elif backend == "faster_whisper":
+                speed_label.set_markup("<small>💻 Offline: Geschwindigkeit abhängig von Hardware</small>")
+            else:
+                speed_label.set_markup("<small>💻 Offline Streaming</small>")
+
+        backend_combo.connect("changed", update_speed_label)
+        update_speed_label()
+        trans_page.pack_start(speed_label, False, False, 0)
+
+        trans_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
+
+        # API Keys Section
+        api_section = Gtk.Label()
+        api_section.set_markup("<b>API-Schlüssel</b>")
+        api_section.set_xalign(0.0)
+        trans_page.pack_start(api_section, False, False, 6)
+
+        api_note = Gtk.Label(label="Gespeichert in ~/.config/whisprbar.env")
+        api_note.set_xalign(0.0)
+        api_note.get_style_context().add_class("dim-label")
+        trans_page.pack_start(api_note, False, False, 0)
+
+        def create_api_key_row(key_name: str, placeholder: str, env_key: str, get_url: str) -> tuple:
+            key_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            key_entry = Gtk.Entry()
+            key_entry.set_placeholder_text(placeholder)
+            key_entry.set_visibility(False)
+            key_entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+            current_key = get_env_value(env_key)
+            if current_key:
+                key_entry.set_text(current_key)
+            key_entry.set_hexpand(True)
+            key_box.pack_start(key_entry, True, True, 0)
+
+            paste_btn = Gtk.Button(label="📋")
+            paste_btn.set_tooltip_text("Aus Zwischenablage einfügen")
+            def on_paste(_button, entry=key_entry):
+                try:
+                    import pyperclip
+                    clipboard_text = pyperclip.paste()
+                    if clipboard_text:
+                        entry.set_text(clipboard_text.strip())
+                except Exception as exc:
+                    print(f"[WARN] Clipboard paste failed: {exc}", file=sys.stderr)
+            paste_btn.connect("clicked", on_paste)
+            key_box.pack_start(paste_btn, False, False, 0)
+
+            show_btn = Gtk.Button(label="👁")
+            show_btn.set_tooltip_text("Anzeigen/Verbergen")
+            def on_toggle(_button, entry=key_entry, btn=show_btn):
+                visible = entry.get_visibility()
+                entry.set_visibility(not visible)
+                btn.set_label("🙈" if not visible else "👁")
+            show_btn.connect("clicked", on_toggle)
+            key_box.pack_start(show_btn, False, False, 0)
+
+            row = make_row(key_name, key_box, tooltip=f"Holen von: {get_url}")
+            return row, key_entry
+
+        # Deepgram API Key
+        deepgram_key_row, deepgram_key_entry = create_api_key_row(
+            "Deepgram API Key", "...", "DEEPGRAM_API_KEY", "https://console.deepgram.com"
+        )
+        trans_page.pack_start(deepgram_key_row, False, False, 0)
+
+        # OpenAI API Key
+        openai_key_row, openai_key_entry = create_api_key_row(
+            "OpenAI API Key", "sk-...", "OPENAI_API_KEY", "https://platform.openai.com/api-keys"
+        )
+        trans_page.pack_start(openai_key_row, False, False, 0)
+
+        # ElevenLabs API Key
+        elevenlabs_key_row, elevenlabs_key_entry = create_api_key_row(
+            "ElevenLabs API Key", "...", "ELEVENLABS_API_KEY", "https://elevenlabs.io/api"
+        )
+        trans_page.pack_start(elevenlabs_key_row, False, False, 0)
+
+        def update_api_key_visibility(*_args):
+            backend = backend_combo.get_active_id()
+            deepgram_key_row.set_visible(backend == "deepgram")
+            openai_key_row.set_visible(backend == "openai")
+            elevenlabs_key_row.set_visible(backend == "elevenlabs")
+            show_api = backend in ["deepgram", "openai", "elevenlabs"]
+            api_section.set_visible(show_api)
+            api_note.set_visible(show_api)
+
+        backend_combo.connect("changed", update_api_key_visibility)
+        update_api_key_visibility()
+
+        trans_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
+
+        # Model selection for offline backends
+        model_section = Gtk.Label()
+        model_section.set_markup("<b>Modell-Einstellungen</b>")
+        model_section.set_xalign(0.0)
+        trans_page.pack_start(model_section, False, False, 6)
+
+        fw_model_combo = Gtk.ComboBoxText()
+        fw_model_combo.append("tiny", "Tiny (~1GB RAM)")
+        fw_model_combo.append("base", "Base (~1GB RAM)")
+        fw_model_combo.append("small", "Small (~2GB RAM)")
+        fw_model_combo.append("medium", "Medium (~5GB RAM)")
+        fw_model_combo.append("large", "Large (~10GB RAM)")
+        active_model = cfg.get("faster_whisper_model", "medium")
+        fw_model_combo.set_active_id(active_model)
+        fw_model_row = make_row("faster-whisper Modell", fw_model_combo)
+        trans_page.pack_start(fw_model_row, False, False, 0)
+
+        streaming_model_combo = Gtk.ComboBoxText()
+        streaming_model_combo.append("tiny", "Tiny (schnellstes)")
+        streaming_model_combo.append("base", "Base")
+        streaming_model_combo.append("small", "Small")
+        streaming_model_combo.append("medium", "Medium")
+        active_streaming_model = cfg.get("streaming_model", "tiny")
+        streaming_model_combo.set_active_id(active_streaming_model)
+        streaming_model_row = make_row("sherpa-onnx Modell", streaming_model_combo)
+        trans_page.pack_start(streaming_model_row, False, False, 0)
+
+        def update_model_visibility(*_args):
+            backend = backend_combo.get_active_id()
+            fw_model_row.set_visible(backend == "faster_whisper")
+            streaming_model_row.set_visible(backend == "streaming")
+            show_models = backend in ["faster_whisper", "streaming"]
+            model_section.set_visible(show_models)
+
+        backend_combo.connect("changed", update_model_visibility)
+        update_model_visibility()
+
+        # =====================================================================
+        # TAB 4: Erweitert (Advanced)
+        # =====================================================================
+        adv_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        adv_page.set_border_width(12)
+
+        # Wrap in ScrolledWindow for long content
+        adv_scroll = Gtk.ScrolledWindow()
+        adv_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        adv_scroll.add(adv_page)
+        notebook.append_page(adv_scroll, Gtk.Label(label="Erweitert"))
+
+        # VAD Section
+        vad_section = Gtk.Label()
+        vad_section.set_markup("<b>Sprachaktivitätserkennung (VAD)</b>")
+        vad_section.set_xalign(0.0)
+        adv_page.pack_start(vad_section, False, False, 0)
+
+        vad_tooltip = "Stille entfernen für schnellere Verarbeitung" if VAD_AVAILABLE else "Paket 'webrtcvad' nicht installiert"
+        vad_row, vad_switch = build_switch("VAD aktivieren", cfg.get("use_vad", False) and VAD_AVAILABLE, vad_tooltip)
+        vad_switch.set_sensitive(VAD_AVAILABLE)
+        adv_page.pack_start(vad_row, False, False, 0)
+
+        vad_rows: List[Gtk.Widget] = []
+
+        vad_sensitivity = float(cfg.get("vad_energy_ratio", 0.02) or 0.02)
+        vad_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.01, 0.2, 0.005)
+        vad_scale.set_digits(3)
+        vad_scale.set_value(max(0.01, min(0.2, vad_sensitivity)))
+        vad_scale.set_draw_value(True)
+        vad_scale.set_value_pos(Gtk.PositionType.RIGHT)
+        vad_scale.set_hexpand(True)
+        sensitivity_row = make_row("  Empfindlichkeit", vad_scale, expand=True, defaults_text="(Standard: 0.02)")
+        vad_rows.append(sensitivity_row)
+        adv_page.pack_start(sensitivity_row, False, False, 0)
+
+        bridge_default = int(cfg.get("vad_bridge_ms", 180) or 180)
+        bridge_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.0, 400.0, 10.0)
+        bridge_scale.set_digits(0)
+        bridge_scale.set_value(max(0.0, min(400.0, float(bridge_default))))
+        bridge_scale.set_draw_value(True)
+        bridge_scale.set_value_pos(Gtk.PositionType.RIGHT)
+        bridge_scale.set_hexpand(True)
+        bridge_scale.clear_marks()
+        bridge_scale.connect("format-value", lambda scale, value: f"{int(value)} ms")
+        bridge_row = make_row("  Pausen-Brücke (ms)", bridge_scale, expand=True, defaults_text="(Standard: 180)")
+        vad_rows.append(bridge_row)
+        adv_page.pack_start(bridge_row, False, False, 0)
+
+        min_frames_default = int(cfg.get("vad_min_energy_frames", 2) or 2)
+        frames_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1.0, 8.0, 1.0)
+        frames_scale.set_digits(0)
+        frames_scale.set_value(max(1.0, min(8.0, float(min_frames_default))))
+        frames_scale.set_draw_value(True)
+        frames_scale.set_value_pos(Gtk.PositionType.RIGHT)
+        frames_scale.set_hexpand(True)
+        frames_row = make_row("  Rausch-Schutz (Frames)", frames_scale, expand=True, defaults_text="(Standard: 2)")
+        vad_rows.append(frames_row)
+        adv_page.pack_start(frames_row, False, False, 0)
+
+        auto_stop_row, auto_stop_switch = build_switch("  Auto-Stop bei Stille", cfg.get("vad_auto_stop_enabled", False) and VAD_AVAILABLE, "Aufnahme automatisch bei Stille stoppen")
+        auto_stop_switch.set_sensitive(VAD_AVAILABLE)
+        vad_rows.append(auto_stop_row)
+        adv_page.pack_start(auto_stop_row, False, False, 0)
+
+        auto_stop_silence_seconds = float(cfg.get("vad_auto_stop_silence_seconds", 2.0) or 2.0)
+        auto_stop_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.5, 10.0, 0.5)
+        auto_stop_scale.set_digits(1)
+        auto_stop_scale.set_value(max(0.5, min(10.0, auto_stop_silence_seconds)))
+        auto_stop_scale.set_draw_value(True)
+        auto_stop_scale.set_value_pos(Gtk.PositionType.RIGHT)
+        auto_stop_scale.set_hexpand(True)
+        auto_stop_scale.clear_marks()
+        auto_stop_scale.connect("format-value", lambda scale, value: f"{value:.1f} s")
+        auto_stop_duration_row = make_row("    Stille-Dauer (s)", auto_stop_scale, expand=True, defaults_text="(Standard: 2.0)")
+        vad_rows.append(auto_stop_duration_row)
+        adv_page.pack_start(auto_stop_duration_row, False, False, 0)
+
+        stop_tail_grace = int(cfg.get("stop_tail_grace_ms", 500) or 500)
+        stop_tail_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 100.0, 2000.0, 100.0)
+        stop_tail_scale.set_digits(0)
+        stop_tail_scale.set_value(max(100, min(2000, float(stop_tail_grace))))
+        stop_tail_scale.set_draw_value(True)
+        stop_tail_scale.set_value_pos(Gtk.PositionType.RIGHT)
+        stop_tail_scale.set_hexpand(True)
+        stop_tail_scale.clear_marks()
+        stop_tail_scale.connect("format-value", lambda scale, value: f"{int(value)} ms")
+        stop_tail_row = make_row("  Aufnahme-Puffer (ms)", stop_tail_scale, expand=True, defaults_text="(Standard: 500)")
+        vad_rows.append(stop_tail_row)
+        adv_page.pack_start(stop_tail_row, False, False, 0)
+
+        def sync_vad_controls(*_args) -> None:
+            vad_active = vad_switch.get_active() and VAD_AVAILABLE
+            for row in vad_rows:
+                row.set_visible(vad_active)
+            auto_stop_active = auto_stop_switch.get_active() and vad_active
+            auto_stop_duration_row.set_visible(auto_stop_active)
+
+        def sync_auto_stop_controls(*_args) -> None:
+            vad_active = vad_switch.get_active() and VAD_AVAILABLE
+            auto_stop_active = auto_stop_switch.get_active() and vad_active
+            auto_stop_duration_row.set_visible(auto_stop_active)
+
+        vad_switch.connect("notify::active", sync_vad_controls)
+        auto_stop_switch.connect("notify::active", sync_auto_stop_controls)
+        sync_vad_controls()
+
+        adv_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
+
+        # Hallucination Prevention
         min_energy = float(cfg.get("min_audio_energy", 0.0008) or 0.0008)
         min_energy_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.0001, 0.01, 0.0001)
         min_energy_scale.set_digits(4)
@@ -1566,47 +1409,30 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         min_energy_scale.set_draw_value(True)
         min_energy_scale.set_value_pos(Gtk.PositionType.RIGHT)
         min_energy_scale.set_hexpand(True)
-        min_energy_scale.clear_marks()  # Remove all marks for smooth sliding
-        min_energy_scale.set_tooltip_text(
-            "Minimum audio energy threshold to prevent hallucinations.\n"
-            "Lower = more sensitive (accepts quieter speech, may allow hallucinations)\n"
-            "Higher = stricter (requires louder speech, blocks more hallucinations)"
-        )
-        min_energy_row_widget = make_row(
-            "Hallucination Prevention",
-            min_energy_scale,
-            tooltip="Blocks transcription if audio energy is too low (prevents 'Können wir?' hallucinations)",
-            expand=True,
-            defaults_text="(Default: 0.0008)",
-        )
-        content.pack_start(min_energy_row_widget, False, False, 0)
+        min_energy_scale.clear_marks()
+        min_energy_row = make_row("Halluzinations-Schutz", min_energy_scale, tooltip="Blockiert Transkription bei zu leiser Audio", expand=True, defaults_text="(Standard: 0.0008)")
+        adv_page.pack_start(min_energy_row, False, False, 0)
+
+        adv_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
 
         # Post-Processing
-        pp_tooltip = "Clean up transcribed text (spacing, capitalization, punctuation)"
-        pp_row, pp_switch = build_switch(
-            "Post-Processing",
-            cfg.get("postprocess_enabled", True),
-            pp_tooltip,
-        )
-        content.pack_start(pp_row, False, False, 0)
+        pp_section = Gtk.Label()
+        pp_section.set_markup("<b>Nachbearbeitung</b>")
+        pp_section.set_xalign(0.0)
+        adv_page.pack_start(pp_section, False, False, 6)
+
+        pp_row, pp_switch = build_switch("Nachbearbeitung aktivieren", cfg.get("postprocess_enabled", True), "Text nach Transkription bereinigen")
+        adv_page.pack_start(pp_row, False, False, 0)
 
         pp_rows: List[Gtk.Widget] = []
 
-        pp_spacing_row, pp_spacing_switch = build_switch(
-            "  Fix Spacing",
-            cfg.get("postprocess_fix_spacing", True),
-            "Remove double spaces and fix punctuation spacing",
-        )
+        pp_spacing_row, pp_spacing_switch = build_switch("  Abstände korrigieren", cfg.get("postprocess_fix_spacing", True), "Doppelte Leerzeichen entfernen")
         pp_rows.append(pp_spacing_row)
-        content.pack_start(pp_spacing_row, False, False, 0)
+        adv_page.pack_start(pp_spacing_row, False, False, 0)
 
-        pp_caps_row, pp_caps_switch = build_switch(
-            "  Fix Capitalization",
-            cfg.get("postprocess_fix_capitalization", True),
-            "Capitalize sentences and fix common errors (e.g., 'i' → 'I')",
-        )
+        pp_caps_row, pp_caps_switch = build_switch("  Großschreibung korrigieren", cfg.get("postprocess_fix_capitalization", True), "Satzanfänge großschreiben")
         pp_rows.append(pp_caps_row)
-        content.pack_start(pp_caps_row, False, False, 0)
+        adv_page.pack_start(pp_caps_row, False, False, 0)
 
         def sync_pp_controls(*_args) -> None:
             active = pp_switch.get_active()
@@ -1616,27 +1442,25 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         pp_switch.connect("notify::active", sync_pp_controls)
         sync_pp_controls()
 
+        adv_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
+
         # Chunking
-        chunking_tooltip = "Split long recordings (>60s) into smaller chunks for faster parallel processing. Improves speed for lengthy recordings but may affect coherence at chunk boundaries."
-        chunking_row, chunking_switch = build_switch(
-            "Chunking (long recordings)",
-            cfg.get("chunking_enabled", True),
-            chunking_tooltip,
-        )
-        content.pack_start(chunking_row, False, False, 0)
+        chunking_row, chunking_switch = build_switch("Chunking (lange Aufnahmen)", cfg.get("chunking_enabled", True), "Lange Audio in Teile aufteilen für parallele Verarbeitung")
+        adv_page.pack_start(chunking_row, False, False, 0)
+
+        adv_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
 
         # Live Overlay
-        overlay_tooltip = "Show a floating window with real-time transcription progress. Helpful for monitoring long transcriptions and seeing interim results."
-        overlay_row, overlay_switch = build_switch(
-            "Live Overlay",
-            cfg.get("live_overlay_enabled", False),
-            overlay_tooltip,
-        )
-        content.pack_start(overlay_row, False, False, 0)
+        overlay_section = Gtk.Label()
+        overlay_section.set_markup("<b>Live-Overlay</b>")
+        overlay_section.set_xalign(0.0)
+        adv_page.pack_start(overlay_section, False, False, 6)
+
+        overlay_row, overlay_switch = build_switch("Overlay aktivieren", cfg.get("live_overlay_enabled", False), "Schwebendes Fenster mit Transkriptions-Fortschritt")
+        adv_page.pack_start(overlay_row, False, False, 0)
 
         overlay_rows: List[Gtk.Widget] = []
 
-        # Font Size
         font_size = int(cfg.get("live_overlay_font_size", 14))
         font_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 8.0, 32.0, 1.0)
         font_scale.set_digits(0)
@@ -1644,18 +1468,10 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         font_scale.set_draw_value(True)
         font_scale.set_value_pos(Gtk.PositionType.RIGHT)
         font_scale.set_hexpand(True)
-        font_scale.set_tooltip_text("Font size for overlay text")
-        font_row = make_row(
-            "  Font Size",
-            font_scale,
-            tooltip="Text size in overlay window",
-            expand=True,
-            defaults_text="(Default: 14)",
-        )
+        font_row = make_row("  Schriftgröße", font_scale, expand=True, defaults_text="(Standard: 14)")
         overlay_rows.append(font_row)
-        content.pack_start(font_row, False, False, 0)
+        adv_page.pack_start(font_row, False, False, 0)
 
-        # Opacity
         opacity = float(cfg.get("live_overlay_opacity", 0.9))
         opacity_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.3, 1.0, 0.05)
         opacity_scale.set_digits(2)
@@ -1663,20 +1479,12 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         opacity_scale.set_draw_value(True)
         opacity_scale.set_value_pos(Gtk.PositionType.RIGHT)
         opacity_scale.set_hexpand(True)
-        opacity_scale.clear_marks()  # Remove all marks for smooth sliding
+        opacity_scale.clear_marks()
         opacity_scale.connect("format-value", lambda scale, value: f"{int(value * 100)}%")
-        opacity_scale.set_tooltip_text("Transparency: 1.0 = opaque, 0.3 = very transparent")
-        opacity_row = make_row(
-            "  Transparency",
-            opacity_scale,
-            tooltip="Window transparency (1.0 = solid, 0.3 = see-through)",
-            expand=True,
-            defaults_text="(Default: 0.9)",
-        )
+        opacity_row = make_row("  Transparenz", opacity_scale, expand=True, defaults_text="(Standard: 90%)")
         overlay_rows.append(opacity_row)
-        content.pack_start(opacity_row, False, False, 0)
+        adv_page.pack_start(opacity_row, False, False, 0)
 
-        # Width
         width = int(cfg.get("live_overlay_width", 400))
         width_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 200.0, 800.0, 50.0)
         width_scale.set_digits(0)
@@ -1684,20 +1492,12 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         width_scale.set_draw_value(True)
         width_scale.set_value_pos(Gtk.PositionType.RIGHT)
         width_scale.set_hexpand(True)
-        width_scale.clear_marks()  # Remove all marks for smooth sliding
+        width_scale.clear_marks()
         width_scale.connect("format-value", lambda scale, value: f"{int(value)} px")
-        width_scale.set_tooltip_text("Overlay window width in pixels")
-        width_row = make_row(
-            "  Width (px)",
-            width_scale,
-            tooltip="Overlay window width",
-            expand=True,
-            defaults_text="(Default: 400)",
-        )
+        width_row = make_row("  Breite (px)", width_scale, expand=True, defaults_text="(Standard: 400)")
         overlay_rows.append(width_row)
-        content.pack_start(width_row, False, False, 0)
+        adv_page.pack_start(width_row, False, False, 0)
 
-        # Height
         height = int(cfg.get("live_overlay_height", 150))
         height_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 100.0, 400.0, 25.0)
         height_scale.set_digits(0)
@@ -1705,20 +1505,12 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         height_scale.set_draw_value(True)
         height_scale.set_value_pos(Gtk.PositionType.RIGHT)
         height_scale.set_hexpand(True)
-        height_scale.clear_marks()  # Remove all marks for smooth sliding
+        height_scale.clear_marks()
         height_scale.connect("format-value", lambda scale, value: f"{int(value)} px")
-        height_scale.set_tooltip_text("Overlay window height in pixels")
-        height_row = make_row(
-            "  Height (px)",
-            height_scale,
-            tooltip="Overlay window height",
-            expand=True,
-            defaults_text="(Default: 150)",
-        )
+        height_row = make_row("  Höhe (px)", height_scale, expand=True, defaults_text="(Standard: 150)")
         overlay_rows.append(height_row)
-        content.pack_start(height_row, False, False, 0)
+        adv_page.pack_start(height_row, False, False, 0)
 
-        # Display Duration
         display_duration = float(cfg.get("live_overlay_display_duration", 2.0))
         duration_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.5, 10.0, 0.5)
         duration_scale.set_digits(1)
@@ -1726,18 +1518,11 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         duration_scale.set_draw_value(True)
         duration_scale.set_value_pos(Gtk.PositionType.RIGHT)
         duration_scale.set_hexpand(True)
-        duration_scale.clear_marks()  # Remove all marks for smooth sliding
+        duration_scale.clear_marks()
         duration_scale.connect("format-value", lambda scale, value: f"{value:.1f} s")
-        duration_scale.set_tooltip_text("How long to show overlay after transcription completes")
-        duration_row = make_row(
-            "  Display Time (s)",
-            duration_scale,
-            tooltip="Duration to show overlay after completion",
-            expand=True,
-            defaults_text="(Default: 2.0s)",
-        )
+        duration_row = make_row("  Anzeigedauer (s)", duration_scale, expand=True, defaults_text="(Standard: 2.0)")
         overlay_rows.append(duration_row)
-        content.pack_start(duration_row, False, False, 0)
+        adv_page.pack_start(duration_row, False, False, 0)
 
         def sync_overlay_controls(*_args) -> None:
             active = overlay_switch.get_active()
@@ -1747,78 +1532,28 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         overlay_switch.connect("notify::active", sync_overlay_controls)
         sync_overlay_controls()
 
-        # Audio Feedback Section
-        content.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 12)
-        audio_fb_section = Gtk.Label()
-        audio_fb_section.set_markup("<b>Audio Feedback</b>")
-        audio_fb_section.set_xalign(0.0)
-        content.pack_start(audio_fb_section, False, False, 0)
-
-        audio_fb_tooltip = "Play system sounds when recording starts and stops. Provides audible confirmation of recording state."
-        audio_fb_row, audio_fb_switch = build_switch(
-            "Enable Audio Feedback",
-            cfg.get("audio_feedback_enabled", True),
-            audio_fb_tooltip,
-        )
-        content.pack_start(audio_fb_row, False, False, 0)
-
-        audio_fb_rows: List[Gtk.Widget] = []
-
-        # Volume slider
-        audio_fb_volume = float(cfg.get("audio_feedback_volume", 0.3) or 0.3)
-        audio_fb_volume_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.0, 1.0, 0.1)
-        audio_fb_volume_scale.set_digits(1)
-        audio_fb_volume_scale.set_value(max(0.0, min(1.0, audio_fb_volume)))
-        audio_fb_volume_scale.set_draw_value(True)
-        audio_fb_volume_scale.set_value_pos(Gtk.PositionType.RIGHT)
-        audio_fb_volume_scale.set_hexpand(True)
-        audio_fb_volume_scale.clear_marks()  # Remove all marks for smooth sliding
-        audio_fb_volume_scale.connect("format-value", lambda scale, value: f"{int(value * 100)}%")
-        audio_fb_volume_scale.set_tooltip_text("Audio feedback volume: 0% = Mute, 100% = Maximum volume")
-        audio_fb_volume_row = make_row(
-            "  Volume (0-100%)",
-            audio_fb_volume_scale,
-            tooltip="Volume for recording start/stop sounds",
-            expand=True,
-            defaults_text="(Default: 30%)",
-        )
-        audio_fb_rows.append(audio_fb_volume_row)
-        content.pack_start(audio_fb_volume_row, False, False, 0)
-
-        def sync_audio_fb_controls(*_args) -> None:
-            active = audio_fb_switch.get_active()
-            for row in audio_fb_rows:
-                row.set_visible(active)
-
-        audio_fb_switch.connect("notify::active", sync_audio_fb_controls)
-        sync_audio_fb_controls()
-
-        # Keyboard shortcuts hint section
-        shortcuts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        shortcuts_box.set_border_width(8)
-        main_vbox.pack_end(shortcuts_box, False, False, 0)
-
-        shortcuts_label = Gtk.Label()
-        shortcuts_label.set_markup("<small><b>Keyboard Shortcuts:</b> Escape/Ctrl+W = Cancel | Ctrl+S = Save | Tab = Navigate</small>")
-        shortcuts_label.set_xalign(0.0)
-        shortcuts_label.get_style_context().add_class("dim-label")
-        shortcuts_box.pack_start(shortcuts_label, False, False, 0)
-
-        # Separator
+        # =====================================================================
+        # Button bar at bottom
+        # =====================================================================
         main_vbox.pack_end(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
 
-        # Button box at bottom of window (outside columns)
         button_container = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         button_container.set_border_width(12)
         main_vbox.pack_end(button_container, False, False, 0)
+
+        shortcuts_label = Gtk.Label()
+        shortcuts_label.set_markup("<small>Esc = Abbrechen | Ctrl+S = Speichern</small>")
+        shortcuts_label.set_xalign(0.0)
+        shortcuts_label.get_style_context().add_class("dim-label")
+        button_container.pack_start(shortcuts_label, False, False, 0)
 
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         button_box.set_halign(Gtk.Align.END)
         button_box.set_hexpand(True)
         button_container.pack_start(button_box, True, True, 0)
 
-        cancel_button = Gtk.Button(label="Cancel")
-        save_button = Gtk.Button(label="Save")
+        cancel_button = Gtk.Button(label="Abbrechen")
+        save_button = Gtk.Button(label="Speichern")
         button_box.pack_start(cancel_button, False, False, 0)
         button_box.pack_start(save_button, False, False, 0)
 
@@ -1840,21 +1575,36 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             close_window()
 
         def on_save_clicked(_button) -> None:
-            # Save theme preference
-            theme_pref = theme_combo.get_active_id() or "auto"
-            cfg["theme_preference"] = theme_pref
-
-            language = language_combo.get_active_id() or "de"
-            cfg["language"] = language
-
-            device_id = device_combo.get_active_id() or "__default__"
-            cfg["device_name"] = device_map.get(device_id)
-
+            # Tab 1: Basis
+            cfg["theme_preference"] = theme_combo.get_active_id() or "auto"
+            cfg["language"] = language_combo.get_active_id() or "de"
+            cfg["auto_paste_enabled"] = auto_switch.get_active()
+            cfg["notifications_enabled"] = notify_switch.get_active()
             cfg["paste_sequence"] = paste_combo.get_active_id() or "auto"
             cfg["paste_delay_ms"] = int(round(paste_delay_spin.get_value()))
 
-            cfg["notifications_enabled"] = notify_switch.get_active()
-            cfg["auto_paste_enabled"] = auto_switch.get_active()
+            # Tab 2: Audio
+            device_id = device_combo.get_active_id() or "__default__"
+            cfg["device_name"] = device_map.get(device_id)
+            cfg["noise_reduction_enabled"] = nr_switch.get_active() if noise_reduction_available else False
+            cfg["noise_reduction_strength"] = round(float(nr_scale.get_value()), 1)
+            cfg["audio_feedback_enabled"] = audio_fb_switch.get_active()
+            cfg["audio_feedback_volume"] = round(float(audio_fb_volume_scale.get_value()), 1)
+
+            # Tab 3: Transkription
+            cfg["transcription_backend"] = backend_combo.get_active_id() or "openai"
+            cfg["faster_whisper_model"] = fw_model_combo.get_active_id() or "medium"
+            cfg["streaming_model"] = streaming_model_combo.get_active_id() or "tiny"
+
+            # Save API keys to .env file
+            deepgram_key = deepgram_key_entry.get_text().strip()
+            openai_key = openai_key_entry.get_text().strip()
+            elevenlabs_key = elevenlabs_key_entry.get_text().strip()
+            save_env_file_value("DEEPGRAM_API_KEY", deepgram_key)
+            save_env_file_value("OPENAI_API_KEY", openai_key)
+            save_env_file_value("ELEVENLABS_API_KEY", elevenlabs_key)
+
+            # Tab 4: Erweitert
             cfg["use_vad"] = vad_switch.get_active() if VAD_AVAILABLE else False
             cfg["vad_energy_ratio"] = round(float(vad_scale.get_value()), 3)
             cfg["vad_bridge_ms"] = int(round(bridge_scale.get_value()))
@@ -1862,21 +1612,6 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             cfg["vad_auto_stop_enabled"] = (auto_stop_switch.get_active() and vad_switch.get_active()) if VAD_AVAILABLE else False
             cfg["vad_auto_stop_silence_seconds"] = round(float(auto_stop_scale.get_value()), 1)
             cfg["stop_tail_grace_ms"] = int(round(stop_tail_scale.get_value()))
-
-            # Save backend settings
-            cfg["transcription_backend"] = backend_combo.get_active_id() or "openai"
-            cfg["faster_whisper_model"] = fw_model_combo.get_active_id() or "medium"
-            cfg["streaming_model"] = streaming_model_combo.get_active_id() or "tiny"
-
-            # Save API keys to .env file (empty values will remove the key)
-            openai_key = openai_key_entry.get_text().strip()
-            elevenlabs_key = elevenlabs_key_entry.get_text().strip()
-            save_env_file_value("OPENAI_API_KEY", openai_key)
-            save_env_file_value("ELEVENLABS_API_KEY", elevenlabs_key)
-
-            # Save audio processing settings
-            cfg["noise_reduction_enabled"] = nr_switch.get_active() if noise_reduction_available else False
-            cfg["noise_reduction_strength"] = round(float(nr_scale.get_value()), 1)
             cfg["min_audio_energy"] = round(float(min_energy_scale.get_value()), 4)
             cfg["postprocess_enabled"] = pp_switch.get_active()
             cfg["postprocess_fix_spacing"] = pp_spacing_switch.get_active() and pp_switch.get_active()
@@ -1889,10 +1624,6 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             cfg["live_overlay_height"] = int(height_scale.get_value())
             cfg["live_overlay_display_duration"] = round(float(duration_scale.get_value()), 1)
 
-            # Save audio feedback settings
-            cfg["audio_feedback_enabled"] = audio_fb_switch.get_active()
-            cfg["audio_feedback_volume"] = round(float(audio_fb_volume_scale.get_value()), 1)
-
             if cfg.get("auto_paste_enabled"):
                 state["wayland_notice_shown"] = False
 
@@ -1900,10 +1631,9 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             update_device_index()
 
             if cfg.get("auto_paste_enabled") and is_wayland_session():
-                notify("Wayland session: auto-paste remains clipboard-only.")
-            notify("Settings saved.")
+                notify("Wayland: Auto-Paste nur über Zwischenablage.")
+            notify("Einstellungen gespeichert.")
 
-            # Call user callback if provided
             if on_save:
                 on_save()
 
@@ -1913,46 +1643,29 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         save_button.connect("clicked", on_save_clicked)
         window.connect("destroy", lambda *_: close_window())
 
-        # Add keyboard shortcuts
         def on_key_press(widget, event):
-            """Handle keyboard shortcuts in settings window."""
-            # Get key name and modifiers
             keyval = event.keyval
-            state = event.state
+            mod_state = event.state
+            ctrl_pressed = bool(mod_state & Gdk.ModifierType.CONTROL_MASK)
 
-            # Check for Ctrl modifier
-            ctrl_pressed = bool(state & Gdk.ModifierType.CONTROL_MASK)
-
-            # Escape to close
             if keyval == Gdk.KEY_Escape:
                 on_cancel(None)
                 return True
-
-            # Ctrl+S to save
             if ctrl_pressed and keyval == Gdk.KEY_s:
                 on_save_clicked(None)
                 return True
-
-            # Ctrl+W to close (common shortcut)
             if ctrl_pressed and keyval == Gdk.KEY_w:
                 on_cancel(None)
                 return True
-
             return False
 
         window.connect("key-press-event", on_key_press)
 
-        # Add keyboard shortcut hints to button tooltips
-        save_button.set_tooltip_text("Save settings and close (Ctrl+S)")
-        cancel_button.set_tooltip_text("Cancel and close without saving (Escape or Ctrl+W)")
-
         window.show_all()
-        window.present()  # Bring window to front
-        window.set_keep_above(True)  # Force window to stay on top initially
-        # After a short delay, disable keep-above to allow normal window behavior
+        window.present()
+        window.set_keep_above(True)
         GLib.timeout_add(500, lambda: window.set_keep_above(False) or False)
 
-        # Thread-safe assignment
         with _settings_window_lock:
             _settings_window = window
         return False

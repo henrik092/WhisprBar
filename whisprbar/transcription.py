@@ -462,6 +462,150 @@ class StreamingTranscriber(Transcriber):
                 debug("sherpa-onnx recognizer unloaded and memory freed")
 
 
+class DeepgramTranscriber(Transcriber):
+    """Deepgram Nova-3 transcription backend.
+
+    Transcribes audio using Deepgram's Nova-3 model via REST API.
+    Requires DEEPGRAM_API_KEY.
+    Sub-300ms latency - 6-10x faster than OpenAI Whisper.
+    """
+
+    def __init__(self):
+        """Initialize Deepgram transcriber."""
+        self.api_key = None
+        self.client_lock = threading.Lock()
+
+    def ensure_client(self) -> bool:
+        """Ensure Deepgram API key is available.
+
+        Returns:
+            True if API key is ready, False if missing
+        """
+        with self.client_lock:
+            if self.api_key is not None:
+                return True
+
+            # Try environment variable first
+            api_key = os.getenv("DEEPGRAM_API_KEY")
+            if not api_key:
+                # Try config file
+                env_values = load_env_file_values()
+                api_key = env_values.get("DEEPGRAM_API_KEY")
+
+            if not api_key:
+                debug("Deepgram API key not found")
+                return False
+
+            self.api_key = api_key
+            debug("Deepgram API key loaded")
+            return True
+
+    def transcribe(self, audio: np.ndarray, language: str = "de") -> Optional[str]:
+        """Transcribe audio using Deepgram Nova-3 REST API.
+
+        Args:
+            audio: Audio data as float32 numpy array
+            language: Language code (e.g., "de", "en")
+
+        Returns:
+            Transcribed text or None on error
+        """
+        if not self.ensure_client():
+            return None
+
+        try:
+            import urllib.request
+            import urllib.error
+
+            # Prepare audio: clip to [-1, 1] and convert to PCM16
+            pcm = np.clip(audio, -1.0, 1.0)
+            pcm16 = (pcm * 32767).astype(np.int16)
+
+            # Write to WAV in memory
+            import io
+            import wave
+
+            wav_buffer = io.BytesIO()
+            with wave.open(wav_buffer, 'wb') as wf:
+                wf.setnchannels(CHANNELS)
+                wf.setsampwidth(2)  # 16-bit
+                wf.setframerate(SAMPLE_RATE)
+                wf.writeframes(pcm16.tobytes())
+
+            wav_data = wav_buffer.getvalue()
+
+            # Build Deepgram API URL with parameters
+            # Nova-2 is recommended for single-language (non-English) transcription
+            # Nova-3 is optimized for multilingual/code-switching scenarios
+            params = [
+                "model=nova-2",
+                f"language={language}",
+                "smart_format=true",
+                "punctuate=true",
+            ]
+            url = f"https://api.deepgram.com/v1/listen?{'&'.join(params)}"
+
+            # Create request
+            request = urllib.request.Request(
+                url,
+                data=wav_data,
+                headers={
+                    "Authorization": f"Token {self.api_key}",
+                    "Content-Type": "audio/wav",
+                },
+                method="POST",
+            )
+
+            # Send request with timeout
+            debug(f"Sending audio to Deepgram Nova-2 (language={language})...")
+            with urllib.request.urlopen(request, timeout=30) as response:
+                response_data = response.read().decode('utf-8')
+                result = json.loads(response_data)
+
+            # Extract transcript from response
+            # Deepgram response structure:
+            # {"results": {"channels": [{"alternatives": [{"transcript": "..."}]}]}}
+            try:
+                transcript = result["results"]["channels"][0]["alternatives"][0]["transcript"]
+                transcript = transcript.strip()
+                debug(f"Deepgram transcription: {len(transcript)} chars")
+                return transcript
+            except (KeyError, IndexError) as e:
+                debug(f"Deepgram response parsing failed: {e}")
+                debug(f"Response: {result}")
+                return None
+
+        except urllib.error.HTTPError as e:
+            debug(f"Deepgram HTTP error: {e.code} - {e.reason}")
+            try:
+                error_body = e.read().decode('utf-8')
+                debug(f"Error details: {error_body}")
+            except:
+                pass
+            return None
+        except urllib.error.URLError as e:
+            debug(f"Deepgram connection error: {e.reason}")
+            return None
+        except Exception as exc:
+            debug(f"Deepgram transcription failed: {exc}")
+            return None
+
+    def get_name(self) -> str:
+        """Get backend name.
+
+        Returns:
+            "Deepgram Nova-3"
+        """
+        return "Deepgram Nova-3"
+
+    def unload(self) -> None:
+        """Unload Deepgram client to free resources."""
+        with self.client_lock:
+            if self.api_key is not None:
+                self.api_key = None
+                debug("Deepgram API key unloaded")
+
+
 class ElevenLabsTranscriber(Transcriber):
     """ElevenLabs Scribe v2 Realtime transcription backend.
 
@@ -652,7 +796,7 @@ def get_transcriber() -> Transcriber:
     Thread-safe.
 
     Returns:
-        Transcriber instance (OpenAI, FasterWhisper, Streaming, or ElevenLabs)
+        Transcriber instance (OpenAI, FasterWhisper, Streaming, ElevenLabs, or Deepgram)
     """
     global _transcriber
 
@@ -670,6 +814,8 @@ def get_transcriber() -> Transcriber:
                 if isinstance(_transcriber, StreamingTranscriber)
                 else "elevenlabs"
                 if isinstance(_transcriber, ElevenLabsTranscriber)
+                else "deepgram"
+                if isinstance(_transcriber, DeepgramTranscriber)
                 else "unknown"
             )
             if current_backend != backend:
@@ -689,6 +835,9 @@ def get_transcriber() -> Transcriber:
             elif backend == "elevenlabs":
                 debug("Creating ElevenLabsTranscriber")
                 _transcriber = ElevenLabsTranscriber()
+            elif backend == "deepgram":
+                debug("Creating DeepgramTranscriber")
+                _transcriber = DeepgramTranscriber()
             else:
                 # Default to OpenAI
                 debug("Creating OpenAITranscriber")
