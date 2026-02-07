@@ -598,9 +598,6 @@ def on_recording_stop() -> None:
     refresh_menu(get_callbacks(), state)
     debug("Recording stopped, starting transcription")
 
-    # Play audio feedback
-    play_audio_feedback("stop")
-
     # Get audio data from recording state
     recording_state = get_recording_state()
     audio_data = recording_state.get("audio_data")
@@ -703,6 +700,9 @@ def on_recording_stop() -> None:
                     # Auto-paste disabled: only copy to clipboard
                     copy_to_clipboard(text)
                     notify(f"Transcription: {text[:50]}...")
+
+                # Play "done" sound to indicate transcription is complete
+                play_audio_feedback("done")
 
                 # Hide overlay after configured delay (V5-style)
                 def delayed_hide():
