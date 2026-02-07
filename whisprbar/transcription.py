@@ -535,11 +535,11 @@ class DeepgramTranscriber(Transcriber):
             wav_data = wav_buffer.getvalue()
 
             # Build Deepgram API URL with parameters
-            # Nova-2 is recommended for single-language (non-English) transcription
-            # Nova-3 is optimized for multilingual/code-switching scenarios
+            # Nova-3 with language=multi handles code-switching (e.g. German
+            # with English words) natively without dropping foreign words.
             params = [
-                "model=nova-2",
-                f"language={language}",
+                "model=nova-3",
+                "language=multi",
                 "smart_format=true",
                 "punctuate=true",
             ]
@@ -557,7 +557,7 @@ class DeepgramTranscriber(Transcriber):
             )
 
             # Send request with timeout
-            debug(f"Sending audio to Deepgram Nova-2 (language={language})...")
+            debug(f"Sending audio to Deepgram Nova-3 (language=multi)...")
             with urllib.request.urlopen(request, timeout=30) as response:
                 response_data = response.read().decode('utf-8')
                 result = json.loads(response_data)
@@ -596,7 +596,7 @@ class DeepgramTranscriber(Transcriber):
         Returns:
             "Deepgram Nova-3"
         """
-        return "Deepgram Nova-3"
+        return "Deepgram Nova-3 (multilingual)"
 
     def unload(self) -> None:
         """Unload Deepgram client to free resources."""
