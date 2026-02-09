@@ -471,11 +471,17 @@ class DeepgramTranscriber(Transcriber):
     Uses persistent HTTP connection to avoid TCP+TLS handshake per request.
     """
 
+    # Max idle time before proactively closing connection (seconds).
+    # Deepgram likely closes idle connections after ~60s; we close earlier
+    # to avoid hitting a stale connection that hangs on getresponse().
+    _CONN_MAX_IDLE = 25
+
     def __init__(self):
         """Initialize Deepgram transcriber."""
         self.api_key = None
         self.client_lock = threading.Lock()
         self._conn = None  # Persistent HTTPS connection
+        self._conn_used_at = 0.0  # monotonic time of last successful use
 
     def ensure_client(self) -> bool:
         """Ensure Deepgram API key is available.
@@ -506,19 +512,33 @@ class DeepgramTranscriber(Transcriber):
         """Get or create a persistent HTTPS connection to Deepgram.
 
         Reuses existing connection to avoid TCP+TLS handshake overhead
-        (~200-500ms) on subsequent calls. Especially important for short
-        recordings where connection setup dominates total latency.
+        (~200-500ms) on subsequent calls. Proactively closes idle
+        connections to prevent stale-connection hangs.
         """
         import http.client
+        import time as _time
+
+        # Close idle connections proactively to avoid stale-connection hangs
+        if self._conn is not None:
+            idle = _time.monotonic() - self._conn_used_at
+            if idle > self._CONN_MAX_IDLE:
+                debug(f"Deepgram: closing idle connection ({idle:.0f}s > {self._CONN_MAX_IDLE}s)")
+                with contextlib.suppress(Exception):
+                    self._conn.close()
+                self._conn = None
+
         if self._conn is not None:
             return self._conn
+
         self._conn = http.client.HTTPSConnection("api.deepgram.com", timeout=30)
+        self._conn_used_at = _time.monotonic()
         debug("Deepgram: new HTTPS connection established")
         return self._conn
 
     def _send_request(self, url_path: str, wav_data: bytes) -> str:
         """Send request with automatic reconnection on stale connections."""
         import http.client
+        import time as _time
         headers = {
             "Authorization": f"Token {self.api_key}",
             "Content-Type": "audio/wav",
@@ -528,15 +548,21 @@ class DeepgramTranscriber(Transcriber):
         try:
             conn.request("POST", url_path, body=wav_data, headers=headers)
             response = conn.getresponse()
-            return response.read().decode("utf-8")
+            data = response.read().decode("utf-8")
+            self._conn_used_at = _time.monotonic()
+            return data
         except (http.client.HTTPException, OSError, ConnectionError):
             # Connection stale/lost, reconnect and retry once
             debug("Deepgram: connection lost, reconnecting...")
+            with contextlib.suppress(Exception):
+                self._conn.close()
             self._conn = None
             conn = self._get_connection()
             conn.request("POST", url_path, body=wav_data, headers=headers)
             response = conn.getresponse()
-            return response.read().decode("utf-8")
+            data = response.read().decode("utf-8")
+            self._conn_used_at = _time.monotonic()
+            return data
 
     def transcribe(self, audio: np.ndarray, language: str = "de") -> Optional[str]:
         """Transcribe audio using Deepgram Nova-3 REST API.
