@@ -468,12 +468,14 @@ class DeepgramTranscriber(Transcriber):
     Transcribes audio using Deepgram's Nova-3 model via REST API.
     Requires DEEPGRAM_API_KEY.
     Sub-300ms latency - 6-10x faster than OpenAI Whisper.
+    Uses persistent HTTP connection to avoid TCP+TLS handshake per request.
     """
 
     def __init__(self):
         """Initialize Deepgram transcriber."""
         self.api_key = None
         self.client_lock = threading.Lock()
+        self._conn = None  # Persistent HTTPS connection
 
     def ensure_client(self) -> bool:
         """Ensure Deepgram API key is available.
@@ -500,6 +502,42 @@ class DeepgramTranscriber(Transcriber):
             debug("Deepgram API key loaded")
             return True
 
+    def _get_connection(self):
+        """Get or create a persistent HTTPS connection to Deepgram.
+
+        Reuses existing connection to avoid TCP+TLS handshake overhead
+        (~200-500ms) on subsequent calls. Especially important for short
+        recordings where connection setup dominates total latency.
+        """
+        import http.client
+        if self._conn is not None:
+            return self._conn
+        self._conn = http.client.HTTPSConnection("api.deepgram.com", timeout=30)
+        debug("Deepgram: new HTTPS connection established")
+        return self._conn
+
+    def _send_request(self, url_path: str, wav_data: bytes) -> str:
+        """Send request with automatic reconnection on stale connections."""
+        import http.client
+        headers = {
+            "Authorization": f"Token {self.api_key}",
+            "Content-Type": "audio/wav",
+            "Connection": "keep-alive",
+        }
+        conn = self._get_connection()
+        try:
+            conn.request("POST", url_path, body=wav_data, headers=headers)
+            response = conn.getresponse()
+            return response.read().decode("utf-8")
+        except (http.client.HTTPException, OSError, ConnectionError):
+            # Connection stale/lost, reconnect and retry once
+            debug("Deepgram: connection lost, reconnecting...")
+            self._conn = None
+            conn = self._get_connection()
+            conn.request("POST", url_path, body=wav_data, headers=headers)
+            response = conn.getresponse()
+            return response.read().decode("utf-8")
+
     def transcribe(self, audio: np.ndarray, language: str = "de") -> Optional[str]:
         """Transcribe audio using Deepgram Nova-3 REST API.
 
@@ -514,17 +552,13 @@ class DeepgramTranscriber(Transcriber):
             return None
 
         try:
-            import urllib.request
-            import urllib.error
+            import io
 
             # Prepare audio: clip to [-1, 1] and convert to PCM16
             pcm = np.clip(audio, -1.0, 1.0)
             pcm16 = (pcm * 32767).astype(np.int16)
 
             # Write to WAV in memory
-            import io
-            import wave
-
             wav_buffer = io.BytesIO()
             with wave.open(wav_buffer, 'wb') as wf:
                 wf.setnchannels(CHANNELS)
@@ -534,33 +568,15 @@ class DeepgramTranscriber(Transcriber):
 
             wav_data = wav_buffer.getvalue()
 
-            # Build Deepgram API URL with parameters
+            # Build Deepgram API URL path with parameters
             # Nova-3 with language=multi handles code-switching (e.g. German
             # with English words) natively without dropping foreign words.
-            params = [
-                "model=nova-3",
-                "language=multi",
-                "smart_format=true",
-                "punctuate=true",
-            ]
-            url = f"https://api.deepgram.com/v1/listen?{'&'.join(params)}"
+            url_path = "/v1/listen?model=nova-3&language=multi&smart_format=true&punctuate=true"
 
-            # Create request
-            request = urllib.request.Request(
-                url,
-                data=wav_data,
-                headers={
-                    "Authorization": f"Token {self.api_key}",
-                    "Content-Type": "audio/wav",
-                },
-                method="POST",
-            )
-
-            # Send request with timeout
-            debug(f"Sending audio to Deepgram Nova-3 (language=multi)...")
-            with urllib.request.urlopen(request, timeout=30) as response:
-                response_data = response.read().decode('utf-8')
-                result = json.loads(response_data)
+            # Send request via persistent connection
+            debug("Sending audio to Deepgram Nova-3 (language=multi)...")
+            response_data = self._send_request(url_path, wav_data)
+            result = json.loads(response_data)
 
             # Extract transcript from response
             # Deepgram response structure:
@@ -575,17 +591,6 @@ class DeepgramTranscriber(Transcriber):
                 debug(f"Response: {result}")
                 return None
 
-        except urllib.error.HTTPError as e:
-            debug(f"Deepgram HTTP error: {e.code} - {e.reason}")
-            try:
-                error_body = e.read().decode('utf-8')
-                debug(f"Error details: {error_body}")
-            except:
-                pass
-            return None
-        except urllib.error.URLError as e:
-            debug(f"Deepgram connection error: {e.reason}")
-            return None
         except Exception as exc:
             debug(f"Deepgram transcription failed: {exc}")
             return None
@@ -599,11 +604,15 @@ class DeepgramTranscriber(Transcriber):
         return "Deepgram Nova-3 (multilingual)"
 
     def unload(self) -> None:
-        """Unload Deepgram client to free resources."""
+        """Unload Deepgram client and close persistent connection."""
         with self.client_lock:
+            if self._conn is not None:
+                with contextlib.suppress(Exception):
+                    self._conn.close()
+                self._conn = None
             if self.api_key is not None:
                 self.api_key = None
-                debug("Deepgram API key unloaded")
+                debug("Deepgram client unloaded")
 
 
 class ElevenLabsTranscriber(Transcriber):

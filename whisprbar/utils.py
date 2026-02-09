@@ -183,32 +183,44 @@ def store_icon(name: str, image: Image.Image) -> Path:
     return path
 
 
+# Cache for notification backend (resolved once, avoids repeated shutil.which() calls)
+_notify_backend_cache: Optional[str] = None
+_notify_backend_resolved: bool = False
+
+
 def _notify_backends(title: str, message: str) -> List[List[str]]:
     """Get list of available notification backends.
 
-    Checks for notify-send, zenity, and kdialog in order of preference.
+    Resolves the best notification backend once and caches the result.
 
     Args:
         title: Notification title
         message: Notification message
 
     Returns:
-        List of command arrays to try
+        List of command arrays to try (single best backend)
     """
-    commands: List[List[str]] = []
-    if command_exists("notify-send"):
-        commands.append(["notify-send", title, message])
-    if command_exists("zenity"):
-        commands.append([
-            "zenity",
-            "--notification",
-            "--window-icon=info",
-            "--text",
-            f"{title}\n{message}",
-        ])
-    if command_exists("kdialog"):
-        commands.append(["kdialog", "--passivepopup", message, "5", "--title", title])
-    return commands
+    global _notify_backend_cache, _notify_backend_resolved
+
+    if not _notify_backend_resolved:
+        if command_exists("notify-send"):
+            _notify_backend_cache = "notify-send"
+        elif command_exists("zenity"):
+            _notify_backend_cache = "zenity"
+        elif command_exists("kdialog"):
+            _notify_backend_cache = "kdialog"
+        _notify_backend_resolved = True
+
+    if _notify_backend_cache == "notify-send":
+        return [["notify-send", title, message]]
+    elif _notify_backend_cache == "zenity":
+        return [[
+            "zenity", "--notification", "--window-icon=info",
+            "--text", f"{title}\n{message}",
+        ]]
+    elif _notify_backend_cache == "kdialog":
+        return [["kdialog", "--passivepopup", message, "5", "--title", title]]
+    return []
 
 
 def notify(message: str, title: str = None, *, force: bool = False) -> None:
