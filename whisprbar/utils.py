@@ -716,6 +716,11 @@ def copy_to_clipboard(text: str, *, silent: bool = False) -> bool:
     return False
 
 
+# Cache for audio feedback: resolved sound file paths and playback command
+# Avoids repeated os.path.exists() and shutil.which() calls on every sound play
+_audio_feedback_cache: dict = {}
+
+
 def play_audio_feedback(sound_type: str = "start") -> None:
     """Play audio feedback for recording events.
 
@@ -731,11 +736,25 @@ def play_audio_feedback(sound_type: str = "start") -> None:
 
     volume = max(0.0, min(1.0, float(cfg.get("audio_feedback_volume", 0.3))))
 
+    # Resolve playback command once and cache it
+    if "playback_cmd" not in _audio_feedback_cache:
+        if command_exists("paplay"):
+            _audio_feedback_cache["playback_cmd"] = "paplay"
+        elif command_exists("aplay"):
+            _audio_feedback_cache["playback_cmd"] = "aplay"
+        else:
+            _audio_feedback_cache["playback_cmd"] = None
+            debug("No audio playback command available (paplay/aplay)")
+
+    playback_cmd = _audio_feedback_cache["playback_cmd"]
+    if playback_cmd is None:
+        return
+
     # Use system sounds via paplay (PulseAudio) or aplay (ALSA)
     # Each sound type has distinct audio to be easily recognizable:
     # - start: short click when recording begins
     # - done: clear "complete" sound when transcription is finished
-    sound_files = {
+    _sound_file_candidates = {
         "start": [
             "/usr/share/sounds/LinuxMint/stereo/button-pressed.ogg",
             "/usr/share/sounds/freedesktop/stereo/camera-shutter.oga",
@@ -750,15 +769,20 @@ def play_audio_feedback(sound_type: str = "start") -> None:
         ],
     }
 
-    # Find first available sound file
-    sound_path = None
-    for path in sound_files.get(sound_type, []):
-        if os.path.exists(path):
-            sound_path = path
-            break
+    # Resolve sound file path once per sound_type and cache it
+    cache_key = f"sound_path_{sound_type}"
+    if cache_key not in _audio_feedback_cache:
+        resolved = None
+        for path in _sound_file_candidates.get(sound_type, []):
+            if os.path.exists(path):
+                resolved = path
+                break
+        _audio_feedback_cache[cache_key] = resolved
+        if resolved is None:
+            debug(f"No system sound file found for {sound_type}")
 
+    sound_path = _audio_feedback_cache[cache_key]
     if not sound_path:
-        debug(f"No system sound file found for {sound_type}")
         return
 
     def _play_sound():
@@ -768,50 +792,35 @@ def play_audio_feedback(sound_type: str = "start") -> None:
         if sound_type == "stop":
             time.sleep(0.08)  # 80ms delay
 
-        # Try paplay first (PulseAudio)
-        if command_exists("paplay"):
-            try:
-                # paplay with volume control
+        try:
+            if playback_cmd == "paplay":
                 volume_percent = int(volume * 65536)  # paplay uses 0-65536 range
                 proc = subprocess.Popen(
                     ["paplay", "--volume", str(volume_percent), sound_path],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
                 )
-                # Wait for completion and check for errors
-                _, stderr = proc.communicate(timeout=2.0)
-                if proc.returncode != 0 and stderr:
-                    debug(f"paplay error ({sound_type}): {stderr.decode().strip()}")
-                else:
-                    debug(f"Audio feedback: {sound_type} (volume: {volume:.1%})")
-                return
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                debug(f"paplay timeout for {sound_type}")
-            except Exception as exc:
-                debug(f"paplay failed: {exc}")
-
-        # Fallback to aplay (ALSA) - no volume control
-        if command_exists("aplay"):
-            try:
+            else:
+                # aplay fallback - no volume control
                 proc = subprocess.Popen(
                     ["aplay", "-q", sound_path],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
                 )
-                _, stderr = proc.communicate(timeout=2.0)
-                if proc.returncode != 0 and stderr:
-                    debug(f"aplay error ({sound_type}): {stderr.decode().strip()}")
+
+            _, stderr = proc.communicate(timeout=2.0)
+            if proc.returncode != 0 and stderr:
+                debug(f"{playback_cmd} error ({sound_type}): {stderr.decode().strip()}")
+            else:
+                if playback_cmd == "paplay":
+                    debug(f"Audio feedback: {sound_type} (volume: {volume:.1%})")
                 else:
                     debug(f"Audio feedback: {sound_type} (aplay, no volume control)")
-                return
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                debug(f"aplay timeout for {sound_type}")
-            except Exception as exc:
-                debug(f"aplay failed: {exc}")
-
-        debug("No audio playback command available (paplay/aplay)")
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            debug(f"{playback_cmd} timeout for {sound_type}")
+        except Exception as exc:
+            debug(f"{playback_cmd} failed: {exc}")
 
     # Run in thread to avoid blocking (especially important for stop sounds with delay)
     threading.Thread(target=_play_sound, daemon=True, name=f"audio-feedback-{sound_type}").start()

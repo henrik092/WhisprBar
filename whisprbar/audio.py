@@ -336,17 +336,24 @@ def stop_recording() -> Optional[np.ndarray]:
             stream.close()
     recording_state["stream"] = None
 
-    # Drain all remaining frames from queue with single unified timeout
-    # No separate sleep needed - we drain with timeout which serves both purposes
+    # Drain all remaining frames from queue with early-exit optimization
+    # After the stream is stopped, buffered frames arrive briefly then stop.
+    # Break early after consecutive empty polls instead of waiting full timeout.
     if queue_obj is not None:
         drain_deadline = time.monotonic() + drain_timeout_seconds
+        consecutive_empty = 0
+        # 3 consecutive empty polls (150ms) = no more data coming
+        max_consecutive_empty = 3
         while time.monotonic() < drain_deadline:
             try:
                 frame = queue_obj.get(timeout=0.05)
                 frames.append(frame)
+                consecutive_empty = 0  # Reset on successful read
             except queue.Empty:
-                # No more frames available, but keep trying until timeout
-                continue
+                consecutive_empty += 1
+                if consecutive_empty >= max_consecutive_empty:
+                    debug(f"Queue drain: early exit after {consecutive_empty} empty polls")
+                    break
 
         # Final non-blocking drain to catch any stragglers
         while True:
