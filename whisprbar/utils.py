@@ -507,11 +507,9 @@ def collect_diagnostics() -> List[DiagnosticResult]:
     return results
 
 
-def ensure_directories() -> None:
-    """Ensure all required directories exist."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    HIST_FILE.touch(exist_ok=True)
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+# Re-export ensure_directories from config (single source of truth)
+# Imported by tray.py and other modules via utils
+from .config import ensure_directories  # noqa: F811
 
 
 def read_history(limit: int = 10) -> List[Dict[str, any]]:

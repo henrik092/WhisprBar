@@ -761,10 +761,10 @@ def hide_live_overlay() -> None:
         print(f"[WARN] Failed to schedule overlay hide: {exc}", file=sys.stderr)
         # Fallback: destroy immediately
         try:
-            if _overlay_window:
-                _overlay_window.destroy()
+            if window_ref:
+                window_ref.destroy()
                 _overlay_window = None
-        except:
+        except Exception:
             pass
 
 
@@ -970,7 +970,7 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
                     try:
                         binding = parse_hotkey(current_hotkey)
                         display = hotkey_to_label(binding)
-                    except:
+                    except Exception:
                         display = current_hotkey or "Nicht gesetzt"
                 else:
                     display = "Nicht gesetzt"
@@ -988,7 +988,7 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
                 try:
                     hotkey_binding = parse_hotkey(hotkey_str)
                     display_label = hotkey_to_label(hotkey_binding)
-                except:
+                except Exception:
                     display_label = hotkey_str or "Nicht gesetzt"
             else:
                 display_label = "Nicht gesetzt"

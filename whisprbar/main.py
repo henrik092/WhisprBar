@@ -34,12 +34,10 @@ from whisprbar.audio import (
 )
 from whisprbar.transcription import transcribe_audio, get_transcriber
 from whisprbar.hotkeys import (
-    start_hotkey_listener,
-    stop_hotkey_listener,
     parse_hotkey,
     get_hotkey_manager,
 )
-from whisprbar.paste import is_wayland_session, PASTE_OPTIONS
+from whisprbar.paste import is_wayland_session
 from whisprbar.ui import (
     maybe_show_first_run_diagnostics,
     open_diagnostics_window,
@@ -142,9 +140,9 @@ class AppState:
             self._recording = False
             self._transcribing = False
 
-    # Proxy methods for non-threaded state (for backwards compatibility)
+    # Proxy methods for state access (all thread-safe via self._lock)
     def get(self, key: str, default: Any = None) -> Any:
-        """Get state value (thread-safe for recording/transcribing/last_transcript/shutdown_requested)."""
+        """Get state value (thread-safe)."""
         if key == "recording":
             return self.recording
         elif key == "transcribing":
@@ -154,10 +152,11 @@ class AppState:
         elif key == "shutdown_requested":
             return self.shutdown_requested
         else:
-            return self._state.get(key, default)
+            with self._lock:
+                return self._state.get(key, default)
 
     def __getitem__(self, key: str) -> Any:
-        """Dict-style access."""
+        """Dict-style access (thread-safe)."""
         if key == "recording":
             return self.recording
         elif key == "transcribing":
@@ -167,10 +166,11 @@ class AppState:
         elif key == "shutdown_requested":
             return self.shutdown_requested
         else:
-            return self._state[key]
+            with self._lock:
+                return self._state[key]
 
     def __setitem__(self, key: str, value: Any):
-        """Dict-style assignment."""
+        """Dict-style assignment (thread-safe)."""
         if key == "recording":
             self.recording = value
         elif key == "transcribing":
@@ -180,7 +180,8 @@ class AppState:
         elif key == "shutdown_requested":
             self.shutdown_requested = value
         else:
-            self._state[key] = value
+            with self._lock:
+                self._state[key] = value
 
 
 # Global application state (thread-safe)
@@ -244,7 +245,7 @@ def ensure_stdin_open() -> None:
         # Recreate stdin file object
         try:
             sys.stdin.close()
-        except:
+        except Exception:
             pass
         sys.stdin = os.fdopen(0, 'r')
 
@@ -397,30 +398,11 @@ def toggle_recording() -> None:
         start_recording()
 
 
-def set_language(language: str) -> None:
-    """Change transcription language (menu callback)."""
-    if language not in {"de", "en"}:
-        return
-    cfg["language"] = language
-    save_config(cfg)
-    notify(f"Language set to {language}.")
-    refresh_menu(get_callbacks(), state)
-
-
-def set_device(name: str) -> None:
-    """Change audio input device (menu callback)."""
-    cfg["device_name"] = name
-    save_config(cfg)
-    update_device_index()
-    label = name or "System Default"
-    notify(f"Input device set to {label}.")
-    refresh_menu(get_callbacks(), state)
-
 
 def toggle_notifications() -> None:
     """Toggle notifications on/off (menu callback)."""
     cfg["notifications_enabled"] = not cfg.get("notifications_enabled", True)
-    save_config(cfg)
+    save_config()
     notify_state = "on" if cfg["notifications_enabled"] else "off"
     if cfg["notifications_enabled"]:
         notify(f"Notifications {notify_state}.")
@@ -430,7 +412,7 @@ def toggle_notifications() -> None:
 def toggle_auto_paste() -> None:
     """Toggle auto-paste on/off (menu callback)."""
     cfg["auto_paste_enabled"] = not cfg.get("auto_paste_enabled", False)
-    save_config(cfg)
+    save_config()
     state_txt = "enabled" if cfg["auto_paste_enabled"] else "disabled"
     notify(f"Auto-paste {state_txt}.")
 
@@ -444,15 +426,6 @@ def toggle_auto_paste() -> None:
     refresh_menu(get_callbacks(), state)
 
 
-def set_paste_sequence(seq: str) -> None:
-    """Change paste sequence (menu callback)."""
-    if seq not in PASTE_OPTIONS:
-        return
-    cfg["paste_sequence"] = seq
-    save_config(cfg)
-    notify(f"Paste sequence set to {PASTE_OPTIONS[seq]}.")
-    refresh_menu(get_callbacks(), state)
-
 
 def toggle_vad() -> None:
     """Toggle VAD on/off (menu callback)."""
@@ -460,7 +433,7 @@ def toggle_vad() -> None:
         notify("WebRTC VAD not installed.")
         return
     cfg["use_vad"] = not cfg.get("use_vad", False)
-    save_config(cfg)
+    save_config()
     state_txt = "enabled" if cfg["use_vad"] else "disabled"
     notify(f"VAD {state_txt}.")
     refresh_menu(get_callbacks(), state)
@@ -518,11 +491,8 @@ def get_callbacks() -> Dict[str, Any]:
         "toggle_recording": toggle_recording,
         "open_settings": open_settings_callback,
         "open_diagnostics": open_diagnostics_callback,
-        "set_language": set_language,
-        "set_device": set_device,
         "toggle_notifications": toggle_notifications,
         "toggle_auto_paste": toggle_auto_paste,
-        "set_paste_sequence": set_paste_sequence,
         "toggle_vad": toggle_vad,
         "copy_to_clipboard": copy_to_clipboard_callback,
         "clear_history": clear_history_callback,

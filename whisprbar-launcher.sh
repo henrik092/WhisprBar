@@ -47,8 +47,8 @@ if [[ ! -x "$PYTHON" ]]; then
   fail "Virtualenv missing. Run 'python3 -m venv .venv' and install dependencies."
 fi
 
-if [[ -z "${OPENAI_API_KEY:-}" ]]; then
-  fail "OPENAI_API_KEY not set. Edit $ENV_FILE and add 'OPENAI_API_KEY=…'"
+if [[ -z "${OPENAI_API_KEY:-}" ]] && [[ -z "${DEEPGRAM_API_KEY:-}" ]] && [[ -z "${ELEVENLABS_API_KEY:-}" ]]; then
+  log "No API key set (OPENAI_API_KEY, DEEPGRAM_API_KEY, or ELEVENLABS_API_KEY). Online transcription will not work until configured in Settings or $ENV_FILE. Local backends (faster-whisper, sherpa-onnx) work without API keys."
 fi
 
 log "Starting WhisprBar..."
