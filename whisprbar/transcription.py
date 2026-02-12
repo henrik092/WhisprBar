@@ -881,51 +881,8 @@ def get_transcriber() -> Transcriber:
         return _transcriber
 
 
-def split_audio_into_chunks(
-    audio: np.ndarray,
-) -> List[Tuple[np.ndarray, int, int]]:
-    """Split audio into overlapping chunks for parallel processing.
-
-    Args:
-        audio: Audio data as float32 numpy array
-
-    Returns:
-        List of (chunk_audio, start_sample, end_sample) tuples
-    """
-    duration_seconds = audio.size / SAMPLE_RATE
-    chunk_duration = max(5.0, float(cfg.get("chunk_duration_seconds", 30.0)))
-    overlap_duration = max(
-        0.5, min(chunk_duration * 0.2, float(cfg.get("chunk_overlap_seconds", 2.0)))
-    )
-
-    chunk_samples = int(chunk_duration * SAMPLE_RATE)
-    overlap_samples = int(overlap_duration * SAMPLE_RATE)
-    step_samples = chunk_samples - overlap_samples
-
-    chunks: List[Tuple[np.ndarray, int, int]] = []
-    start = 0
-
-    while start < audio.size:
-        end = min(start + chunk_samples, audio.size)
-        chunk = audio[start:end]
-
-        # Skip chunks that are too short (min 1 second)
-        if chunk.size < int(SAMPLE_RATE * 1.0):
-            break
-
-        chunks.append((chunk, start, end))
-
-        # If we've reached the end, stop
-        if end >= audio.size:
-            break
-
-        start += step_samples
-
-    debug(
-        f"Split {duration_seconds:.1f}s audio into {len(chunks)} chunks "
-        f"(chunk={chunk_duration:.1f}s, overlap={overlap_duration:.1f}s)"
-    )
-    return chunks
+# split_audio_into_chunks is defined in audio.py (single source of truth)
+from .audio import split_audio_into_chunks
 
 
 def transcribe_chunk(

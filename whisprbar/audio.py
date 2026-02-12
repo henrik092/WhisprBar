@@ -43,6 +43,7 @@ AUDIO_QUEUE: Optional[queue.Queue] = None
 VAD_MONITOR_QUEUE: Optional[queue.Queue] = None  # Separate queue for VAD monitoring
 audio_queue_lock = threading.Lock()
 vad_monitor_lock = threading.Lock()
+_recording_state_lock = threading.Lock()  # Protects recording_state from concurrent access
 recording_state = {
     "recording": False,
     "stream": None,
@@ -103,7 +104,8 @@ def find_device_index_by_name(name: Optional[str]) -> Optional[int]:
 def update_device_index() -> None:
     """Update device index from current config."""
     idx = find_device_index_by_name(cfg.get("device_name"))
-    recording_state["device_idx"] = idx
+    with _recording_state_lock:
+        recording_state["device_idx"] = idx
 
 
 def recording_callback(indata, frames, time_info, status):
@@ -169,7 +171,10 @@ def vad_auto_stop_monitor() -> None:
     debug(f"VAD auto-stop monitor started (threshold: {silence_threshold}s, max_chunks: {max_chunks})")
 
     try:
-        while recording_state.get("recording"):
+        while True:
+            with _recording_state_lock:
+                if not recording_state.get("recording"):
+                    break
             time.sleep(check_interval)
 
             # Get monitor queue reference
@@ -262,18 +267,22 @@ def start_recording() -> None:
             with vad_monitor_lock:
                 VAD_MONITOR_QUEUE = vad_queue_obj
 
+        with _recording_state_lock:
+            device_idx = recording_state.get("device_idx")
+
         stream = sd.InputStream(
             samplerate=SAMPLE_RATE,
             channels=CHANNELS,
             blocksize=BLOCK_SIZE,
             callback=recording_callback,
             dtype="float32",
-            device=recording_state.get("device_idx"),
+            device=device_idx,
         )
         stream.start()
-        recording_state["stream"] = stream
-        recording_state["recording"] = True
-        recording_state["audio_data"] = None
+        with _recording_state_lock:
+            recording_state["stream"] = stream
+            recording_state["recording"] = True
+            recording_state["audio_data"] = None
 
         debug("Recording started")
 
@@ -308,14 +317,14 @@ def stop_recording() -> Optional[np.ndarray]:
     """
     global AUDIO_QUEUE, VAD_MONITOR_QUEUE
 
-    if not recording_state.get("recording"):
-        return None
+    with _recording_state_lock:
+        if not recording_state.get("recording"):
+            return None
+        recording_state["recording"] = False
+        stream = recording_state.get("stream")
 
     with audio_queue_lock:
         queue_obj = AUDIO_QUEUE
-
-    stream = recording_state.get("stream")
-    recording_state["recording"] = False
 
     frames: List[np.ndarray] = []
 
@@ -334,7 +343,8 @@ def stop_recording() -> Optional[np.ndarray]:
         with contextlib.suppress(Exception):
             stream.stop()
             stream.close()
-    recording_state["stream"] = None
+    with _recording_state_lock:
+        recording_state["stream"] = None
 
     # Drain all remaining frames from queue with early-exit optimization
     # After the stream is stopped, buffered frames arrive briefly then stop.
@@ -379,7 +389,8 @@ def stop_recording() -> Optional[np.ndarray]:
         debug(f"Captured audio duration: {duration:.2f}s, samples: {audio_data.shape[0]}")
 
     # Store audio data in recording state for main.py to access
-    recording_state["audio_data"] = audio_data
+    with _recording_state_lock:
+        recording_state["audio_data"] = audio_data
 
     # Call on_stop callback if set
     if _recording_callbacks.get("on_stop"):
@@ -723,9 +734,10 @@ def set_recording_callbacks(on_start=None, on_stop=None):
 
 
 def get_recording_state() -> dict:
-    """Get current recording state.
-    
+    """Get current recording state (thread-safe snapshot).
+
     Returns:
         Dictionary with recording state information
     """
-    return recording_state.copy()
+    with _recording_state_lock:
+        return recording_state.copy()

@@ -31,6 +31,7 @@ DEFAULT_CFG = {
     "notifications_enabled": False,
     "auto_paste_enabled": True,
     "auto_paste_add_newline": True,  # Add newline after each transcription
+    "auto_paste_add_space": True,  # Add trailing space after pasted text
     "paste_sequence": "auto",
     "paste_delay_ms": 250,
     "use_vad": True,  # Enabled by default for better quality
@@ -40,6 +41,10 @@ DEFAULT_CFG = {
     "vad_auto_stop_enabled": False,  # Auto-stop recording after silence
     "vad_auto_stop_silence_seconds": 2.0,  # Silence duration to trigger auto-stop
     "vad_calibration_enabled": False,  # Measure ambient noise before recording
+    "vad_energy_floor": 0.0005,  # Minimum energy threshold for VAD frame detection
+    "vad_padding_ms": 200,  # Padding added around detected speech segments (ms)
+    "vad_min_output_ratio": 0.4,  # Minimum output/input ratio to accept VAD result
+    "vad_mode": 1,  # WebRTC VAD aggressiveness mode (0-3, higher = more aggressive)
     "chunking_enabled": True,  # Split long audio into chunks for faster processing
     "chunk_duration_seconds": 30.0,  # Duration of each chunk
     "chunk_overlap_seconds": 2.0,  # Overlap between chunks for smooth merging

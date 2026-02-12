@@ -249,8 +249,7 @@ def modifier_name(key) -> Optional[str]:
     return MODIFIER_LOOKUP.get(key)
 
 
-# Global hotkey listener instance (legacy single listener)
-_hotkey_listener: Optional[keyboard.Listener] = None
+# Current hotkey binding (used by capture_hotkey and update_hotkey_binding)
 _current_hotkey: HotkeyBinding = (frozenset(), "F9")
 
 # =============================================================================
@@ -527,99 +526,6 @@ def get_hotkey_manager() -> HotkeyManager:
     return _hotkey_manager
 
 
-def start_hotkey_listener(
-    hotkey: HotkeyBinding,
-    on_hotkey: Callable[[], None],
-    on_esc_while_recording: Optional[Callable[[], None]] = None,
-    is_recording: Optional[Callable[[], bool]] = None,
-    is_hotkey_capture_active: Optional[Callable[[], bool]] = None,
-) -> None:
-    """Start global hotkey listener.
-
-    Args:
-        hotkey: Hotkey binding to listen for
-        on_hotkey: Callback when hotkey is pressed
-        on_esc_while_recording: Callback when ESC pressed during recording (optional)
-        is_recording: Function returning True if currently recording (optional)
-        is_hotkey_capture_active: Function returning True if capturing new hotkey (optional)
-    """
-    global _hotkey_listener, _current_hotkey
-
-    # Stop existing listener
-    if _hotkey_listener:
-        _hotkey_listener.stop()
-        _hotkey_listener = None
-
-    _current_hotkey = hotkey
-    active_modifiers: Set[str] = set()
-    active_tokens: Set[str] = set()
-
-    def on_press(key):
-        # Handle ESC during recording
-        if is_recording and is_recording() and key == keyboard.Key.esc:
-            if on_esc_while_recording:
-                on_esc_while_recording()
-            return
-
-        # Ignore keys during hotkey capture
-        if is_hotkey_capture_active and is_hotkey_capture_active():
-            return
-
-        # Check if it's a modifier
-        mod = modifier_name(key)
-        if mod:
-            active_modifiers.add(mod)
-            return
-
-        # Check if it's a recognized key token
-        token = event_to_token(key)
-        if not token:
-            return
-
-        # Check if this matches our hotkey
-        required_mods, required_token = _current_hotkey
-        if token != required_token:
-            return
-
-        # Prevent key repeat
-        if token in active_tokens:
-            return
-
-        active_tokens.add(token)
-
-        # Check if all required modifiers are pressed
-        if required_mods.issubset(active_modifiers):
-            on_hotkey()
-
-    def on_release(key):
-        # Ignore keys during hotkey capture
-        if is_hotkey_capture_active and is_hotkey_capture_active():
-            return
-
-        # Release modifier
-        mod = modifier_name(key)
-        if mod:
-            active_modifiers.discard(mod)
-
-        # Release token
-        token = event_to_token(key)
-        if token:
-            active_tokens.discard(token)
-
-    listener = keyboard.Listener(on_press=on_press, on_release=on_release)
-    listener.daemon = True
-    listener.start()
-    _hotkey_listener = listener
-
-
-def stop_hotkey_listener() -> None:
-    """Stop the global hotkey listener."""
-    global _hotkey_listener
-
-    if _hotkey_listener:
-        _hotkey_listener.stop()
-        _hotkey_listener = None
-
 
 def get_current_hotkey() -> HotkeyBinding:
     """Get the currently configured hotkey.
@@ -768,7 +674,11 @@ def update_hotkey_binding(
 
     # Save to config
     cfg["hotkey"] = hotkey_to_config(_current_hotkey)
-    save_config(cfg)
+    # Also update the hotkeys dict for the new multi-hotkey format
+    if "hotkeys" not in cfg:
+        cfg["hotkeys"] = {}
+    cfg["hotkeys"]["toggle_recording"] = hotkey_to_config(_current_hotkey)
+    save_config()
 
     # Notify user
     if notify_change:
