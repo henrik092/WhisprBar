@@ -163,12 +163,13 @@ def test_perform_auto_paste_clipboard_only(monkeypatch, mock_config):
     mock_config["paste_sequence"] = "auto"
     paste.cfg = mock_config
 
-    with patch("whisprbar.paste.notify") as mock_notify:
-        paste.perform_auto_paste("Test text")
+    with patch("whisprbar.paste.copy_to_clipboard", return_value=True):
+        with patch("whisprbar.paste.notify") as mock_notify:
+            paste.perform_auto_paste("Test text")
 
-        # Should show notification on Wayland
-        mock_notify.assert_called_once()
-        assert "clipboard" in mock_notify.call_args[0][0].lower()
+            # Should show notification on Wayland
+            mock_notify.assert_called_once()
+            assert "clipboard" in mock_notify.call_args[0][0].lower()
 
 
 @pytest.mark.unit
@@ -200,16 +201,17 @@ def test_perform_auto_paste_ctrl_v_with_xdotool(monkeypatch, mock_config):
     mock_run = MagicMock()
     mock_run.returncode = 0
 
-    with patch("shutil.which", return_value="/usr/bin/xdotool"):
-        with patch("subprocess.run", return_value=mock_run) as mock_subprocess:
-            paste.perform_auto_paste("Test")
+    with patch("whisprbar.paste.copy_to_clipboard", return_value=True):
+        with patch("shutil.which", return_value="/usr/bin/xdotool"):
+            with patch("subprocess.run", return_value=mock_run) as mock_subprocess:
+                paste.perform_auto_paste("Test")
 
-            # Should call xdotool
-            mock_subprocess.assert_called_once()
-            args = mock_subprocess.call_args[0][0]
-            assert "xdotool" in args[0]
-            assert "key" in args
-            assert "ctrl+v" in args
+                # Should call xdotool
+                mock_subprocess.assert_called_once()
+                args = mock_subprocess.call_args[0][0]
+                assert "xdotool" in args[0]
+                assert "key" in args
+                assert "ctrl+v" in args
 
 
 @pytest.mark.unit
