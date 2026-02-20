@@ -392,10 +392,18 @@ def vad_available() -> bool:
 
 def toggle_recording() -> None:
     """Toggle recording on/off (menu callback)."""
-    if state.get("recording"):
-        stop_recording()
-    else:
-        start_recording()
+    try:
+        if state.get("recording"):
+            stop_recording()
+        else:
+            start_recording()
+    except Exception as exc:
+        debug(f"[RECORDING] Toggle failed: {exc}")
+        notify(f"Aufnahme-Fehler: {exc}")
+        # Reset state so the app isn't stuck in a broken recording state
+        state.recording = False
+        state.transcribing = False
+        refresh_tray_indicator(state)
 
 
 
@@ -589,12 +597,12 @@ def on_recording_stop() -> None:
             return
 
         try:
-            # Lower CPU priority for transcription to prevent UI lag
-            # nice(10) gives this thread lower priority than interactive tasks
+            # Mild priority reduction to keep UI responsive, but not so aggressive
+            # that transcription (an interactive action) becomes slow.
             try:
                 import os
-                os.nice(10)
-                debug("Transcription thread running with nice priority +10")
+                os.nice(3)
+                debug("Transcription thread running with nice priority +3")
             except (OSError, AttributeError) as exc:
                 debug(f"Could not set nice priority: {exc}")
 
@@ -607,13 +615,24 @@ def on_recording_stop() -> None:
             # Show live overlay if enabled
             show_live_overlay(cfg, "Processing audio...")
 
-            # Apply noise reduction first (before VAD)
-            audio_nr = apply_noise_reduction(audio_data)
+            input_seconds = audio_data.size / SAMPLE_RATE if audio_data.size else 0.0
+
+            # Apply noise reduction only for longer recordings where it helps.
+            # noisereduce uses FFT (O(n log n)) and takes 1-10 s on long audio.
+            # For short recordings (< 8 s) the benefit is negligible; skip it
+            # to cut perceived latency dramatically.
+            NR_MIN_SECONDS = 8.0
+            if cfg.get("noise_reduction_enabled") and input_seconds >= NR_MIN_SECONDS:
+                debug(f"Applying noise reduction ({input_seconds:.1f}s recording)")
+                audio_nr = apply_noise_reduction(audio_data)
+            else:
+                if cfg.get("noise_reduction_enabled") and input_seconds < NR_MIN_SECONDS:
+                    debug(f"Skipping noise reduction for short recording ({input_seconds:.1f}s < {NR_MIN_SECONDS}s)")
+                audio_nr = audio_data
 
             # Then apply VAD
             processed = apply_vad(audio_nr)
 
-            input_seconds = audio_data.size / SAMPLE_RATE if audio_data.size else 0.0
             output_seconds = processed.size / SAMPLE_RATE if processed.size else 0.0
             debug(f"Audio: {input_seconds:.2f}s → {output_seconds:.2f}s after VAD")
 

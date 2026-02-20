@@ -427,7 +427,14 @@ class HotkeyManager:
 
             # CRITICAL: Call callback outside lock to prevent deadlock
             if callback_to_call:
-                callback_to_call()
+                try:
+                    callback_to_call()
+                except Exception as exc:
+                    # Never let callback exceptions kill the pynput listener thread.
+                    # The callback (e.g. toggle_recording) is responsible for its own
+                    # error handling; we just make sure the listener stays alive.
+                    from .utils import debug
+                    debug(f"[HOTKEY] Callback error (listener kept alive): {exc}")
 
         def on_release(key):
             """Handle key release events. Runs in pynput's listener thread.

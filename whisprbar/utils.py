@@ -828,6 +828,7 @@ def play_audio_feedback(sound_type: str = "start") -> None:
                     debug(f"Audio feedback: {sound_type} (aplay, no volume control)")
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait()  # Reap the zombie; without this the process table leaks
             debug(f"{playback_cmd} timeout for {sound_type}")
         except Exception as exc:
             debug(f"{playback_cmd} failed: {exc}")

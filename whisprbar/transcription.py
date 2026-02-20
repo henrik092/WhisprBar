@@ -474,7 +474,9 @@ class DeepgramTranscriber(Transcriber):
     # Max idle time before proactively closing connection (seconds).
     # Deepgram likely closes idle connections after ~60s; we close earlier
     # to avoid hitting a stale connection that hangs on getresponse().
-    _CONN_MAX_IDLE = 25
+    # 55s gives a comfortable margin while allowing reuse across typical
+    # recording gaps (user records, does something for 30-50s, records again).
+    _CONN_MAX_IDLE = 55
 
     def __init__(self):
         """Initialize Deepgram transcriber."""
@@ -1196,14 +1198,16 @@ def transcribe_audio(audio: np.ndarray, language: str = "de") -> Optional[str]:
         debug("OpenAI API key not configured")
         return None
 
-    # Show live overlay if enabled
-    show_live_overlay(cfg, "Processing audio...")
+    # NOTE: show_live_overlay() is intentionally NOT called here.
+    # main.py's transcribe_thread already called it before invoking this function.
+    # Calling it again would duplicate the overlay and cause UI glitches.
 
     try:
         # Audio is already preprocessed (VAD + noise reduction done in main.py)
         processed = audio
         duration = processed.shape[0] / SAMPLE_RATE
-        notify("Processing audio...")
+        # NOTE: No notify() here — desktop notifications for normal processing are noisy.
+        # Errors are notified by the caller (main.py).
         debug(f"Transcribing {duration:.2f}s of preprocessed audio")
 
         # Check if enough speech remains
