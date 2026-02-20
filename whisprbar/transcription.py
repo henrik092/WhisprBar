@@ -1070,8 +1070,10 @@ def postprocess_fix_spacing(text: str) -> str:
     # Fix quotes and parentheses
     text = re.sub(r"\(\s+", "(", text)  # No space after opening paren
     text = re.sub(r"\s+\)", ")", text)  # No space before closing paren
-    text = re.sub(r'"\s+', '"', text)  # No space after opening quote
-    text = re.sub(r'\s+"', '"', text)  # No space before closing quote
+    # Normalize spacing inside balanced ASCII quotes while preserving outer spacing.
+    text = re.sub(r'"\s*([^"]*?)\s*"', r'"\1"', text)
+    # Fallback for unmatched opening quote at start/bracket boundaries.
+    text = re.sub(r'(^|[\s(\[{])"\s+', r'\1"', text)
 
     # Fix common formatting issues
     text = re.sub(r"\s+\.", ".", text)  # Remove space before period

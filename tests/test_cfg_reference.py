@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Test cfg reference issue."""
 
+import pytest
+
+pytest.skip("Debug helper script, not part of automated pytest suite.", allow_module_level=True)
+
 import sys
 from pathlib import Path
 

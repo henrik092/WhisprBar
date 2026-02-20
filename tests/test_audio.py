@@ -80,7 +80,8 @@ def test_apply_noise_reduction_disabled(sample_audio, mock_config):
     from whisprbar import config
 
     mock_config["noise_reduction_enabled"] = False
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
 
     result = audio.apply_noise_reduction(sample_audio)
 
@@ -96,7 +97,8 @@ def test_apply_noise_reduction_enabled(sample_audio, mock_config):
 
     mock_config["noise_reduction_enabled"] = True
     mock_config["noise_reduction_strength"] = 0.5
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
 
     result = audio.apply_noise_reduction(sample_audio)
 
@@ -111,7 +113,8 @@ def test_apply_vad_disabled(sample_audio, mock_config):
     from whisprbar import config
 
     mock_config["use_vad"] = False
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
 
     result = audio.apply_vad(sample_audio)
 
@@ -130,7 +133,8 @@ def test_apply_vad_enabled_with_speech(sample_audio, mock_config):
     mock_config["vad_energy_ratio"] = 0.05
     mock_config["vad_bridge_ms"] = 300
     mock_config["vad_min_energy_frames"] = 2
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
 
     result = audio.apply_vad(sample_audio)
 
@@ -147,7 +151,8 @@ def test_apply_vad_with_silence(sample_audio_silent, mock_config):
 
     mock_config["use_vad"] = True
     mock_config["vad_energy_ratio"] = 0.05
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
 
     result = audio.apply_vad(sample_audio_silent)
 
@@ -162,7 +167,8 @@ def test_split_audio_into_chunks(sample_audio_long, mock_config):
 
     mock_config["chunk_duration_seconds"] = 30.0
     mock_config["chunk_overlap_seconds"] = 2.0
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
 
     chunks = audio.split_audio_into_chunks(sample_audio_long)
 
@@ -184,7 +190,8 @@ def test_split_audio_into_chunks_short_audio(sample_audio, mock_config):
     from whisprbar import config
 
     mock_config["chunk_duration_seconds"] = 30.0
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
 
     chunks = audio.split_audio_into_chunks(sample_audio)
 

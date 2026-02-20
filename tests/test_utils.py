@@ -102,7 +102,7 @@ def test_build_notification_icon():
 
 
 @pytest.mark.unit
-def test_write_history_creates_jsonl(monkeypatch_home, tmp_path):
+def test_write_history_creates_jsonl(monkeypatch_home, tmp_path, monkeypatch):
     """Test that write_history appends to history file."""
     from whisprbar import config
 
@@ -111,6 +111,8 @@ def test_write_history_creates_jsonl(monkeypatch_home, tmp_path):
 
     monkeypatch.setattr(config, "HIST_FILE", hist_file)
     monkeypatch.setattr(config, "DATA_DIR", data_dir)
+    monkeypatch.setattr(utils, "HIST_FILE", hist_file)
+    monkeypatch.setattr(utils, "DATA_DIR", data_dir)
     monkeypatch.setattr(config, "cfg", {"language": "en"})
 
     # Write first entry
@@ -170,7 +172,8 @@ def test_collect_diagnostics_basic(monkeypatch):
     monkeypatch.setattr(utils, "command_exists", mock_command_exists)
 
     # Mock env values
-    monkeypatch.setattr(utils, "load_env_file_values", lambda: {"OPENAI_API_KEY": "sk-test-key"})
+    from whisprbar import config
+    monkeypatch.setattr(config, "load_env_file_values", lambda: {"OPENAI_API_KEY": "sk-test-key"})
 
     results = utils.collect_diagnostics()
 
@@ -214,12 +217,13 @@ def test_collect_diagnostics_wayland_warning(monkeypatch):
 
 
 @pytest.mark.unit
-def test_store_icon_creates_file(monkeypatch_home, tmp_path):
+def test_store_icon_creates_file(monkeypatch_home, tmp_path, monkeypatch):
     """Test that store_icon saves icon to disk."""
     from whisprbar import config
 
     data_dir = tmp_path / ".local" / "share" / "whisprbar"
     monkeypatch.setattr(config, "DATA_DIR", data_dir)
+    monkeypatch.setattr(utils, "DATA_DIR", data_dir)
 
     icon = utils.build_icon(size=32)
     path = utils.store_icon("test_icon", icon)

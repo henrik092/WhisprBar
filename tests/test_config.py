@@ -32,8 +32,15 @@ def test_load_env_file_values_nonexistent():
 
 
 @pytest.mark.unit
-def test_load_config_with_defaults(monkeypatch_home):
+def test_load_config_with_defaults(monkeypatch_home, monkeypatch):
     """Test that load_config returns default values when no config file exists."""
+    data_dir = monkeypatch_home / ".local" / "share" / "whisprbar"
+    hist_file = data_dir / "history.jsonl"
+    config_path = monkeypatch_home / ".config" / "whisprbar.json"
+    monkeypatch.setattr(config, "DATA_DIR", data_dir)
+    monkeypatch.setattr(config, "HIST_FILE", hist_file)
+    monkeypatch.setattr(config, "CONFIG_PATH", config_path)
+
     config.load_config()
 
     # Check that essential defaults are present
@@ -60,7 +67,7 @@ def test_load_config_merges_with_defaults(mock_config_file, monkeypatch):
 
 
 @pytest.mark.unit
-def test_save_config_creates_file(monkeypatch_home, tmp_path):
+def test_save_config_creates_file(monkeypatch_home, tmp_path, monkeypatch):
     """Test that save_config creates a valid JSON file."""
     config_path = tmp_path / ".config" / "whisprbar.json"
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -121,7 +128,7 @@ def test_validate_config_clamps_vad_energy_ratio():
 
 
 @pytest.mark.unit
-def test_ensure_directories_creates_paths(monkeypatch_home, tmp_path):
+def test_ensure_directories_creates_paths(monkeypatch_home, tmp_path, monkeypatch):
     """Test that ensure_directories creates necessary directories and files."""
     data_dir = tmp_path / ".local" / "share" / "whisprbar"
     hist_file = data_dir / "history.jsonl"

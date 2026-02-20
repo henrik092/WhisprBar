@@ -13,7 +13,6 @@ from collections import deque
 from typing import List, Optional, Tuple
 
 import numpy as np
-import sounddevice as sd
 
 from .config import cfg
 from .utils import debug
@@ -57,6 +56,42 @@ _recording_callbacks = {
     "on_stop": None,
 }
 
+# Lazy-loaded sounddevice module (import can block/fail in headless CI)
+_sd_module = None
+_sd_import_error: Optional[str] = None
+_sd_lock = threading.Lock()
+
+
+def _get_sounddevice():
+    """Lazily import sounddevice only when audio I/O is needed."""
+    global _sd_module, _sd_import_error
+    with _sd_lock:
+        if _sd_import_error is not None:
+            raise RuntimeError(_sd_import_error)
+        if _sd_module is None:
+            result = {"module": None, "error": None}
+
+            def _import_worker() -> None:
+                try:
+                    import sounddevice as sd
+                    result["module"] = sd
+                except Exception as exc:
+                    result["error"] = str(exc)
+
+            worker = threading.Thread(target=_import_worker, daemon=True)
+            worker.start()
+            worker.join(timeout=2.0)
+
+            if worker.is_alive():
+                _sd_import_error = "sounddevice import timed out"
+                raise RuntimeError(_sd_import_error)
+            if result["error"]:
+                _sd_import_error = result["error"]
+                raise RuntimeError(_sd_import_error)
+
+            _sd_module = result["module"]
+    return _sd_module
+
 
 def list_input_devices() -> List[dict]:
     """List all available audio input devices.
@@ -65,12 +100,21 @@ def list_input_devices() -> List[dict]:
         List of dicts with 'index' and 'name' keys for each input device
     """
     devices = []
-    for idx, info in enumerate(sd.query_devices()):
+    try:
+        sd = _get_sounddevice()
+        query_result = sd.query_devices()
+    except Exception as exc:
+        debug(f"Failed to query audio devices: {exc}")
+        return devices
+
+    for idx, info in enumerate(query_result):
         if info.get("max_input_channels", 0) > 0:
-            devices.append({
-                "index": idx,
-                "name": info.get("name", f"Device {idx}"),
-            })
+            devices.append(
+                {
+                    "index": idx,
+                    "name": info.get("name", f"Device {idx}"),
+                }
+            )
     return devices
 
 
@@ -252,6 +296,8 @@ def start_recording() -> None:
     update_device_index()
 
     try:
+        sd = _get_sounddevice()
+
         # Use unbounded queue to support recordings of any length
         # Memory usage is self-limiting: bounded by user behavior (hotkey release)
         # Queue is drained immediately after recording stops and then destroyed

@@ -1,10 +1,13 @@
 """Unit tests for whisprbar.hotkeys module."""
 
 import pytest
-from pynput import keyboard
 
 from whisprbar import hotkeys
 
+pytestmark = pytest.mark.skipif(
+    not hotkeys.PYNPUT_AVAILABLE,
+    reason="pynput backend unavailable in this environment",
+)
 
 @pytest.mark.unit
 def test_normalize_key_token_fkeys():
@@ -174,7 +177,7 @@ def test_modifier_name():
     """Test modifier_name function."""
     # Test that keyboard modifiers are recognized
     # Note: These tests require actual keyboard.Key objects
-    ctrl_key = keyboard.Key.ctrl
+    ctrl_key = hotkeys.keyboard.Key.ctrl
     result = hotkeys.modifier_name(ctrl_key)
     assert result == "CTRL"
 

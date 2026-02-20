@@ -9,7 +9,6 @@ This module handles all user interface components:
 """
 
 from typing import Optional, Callable, List
-import contextlib
 import sys
 import threading
 
@@ -36,7 +35,7 @@ from whisprbar.utils import (
     notify,
 )
 from whisprbar.audio import list_input_devices, update_device_index
-from whisprbar.hotkeys import key_to_label, capture_hotkey, update_hotkey_binding
+from whisprbar.hotkeys import capture_hotkey, cancel_hotkey_capture
 from whisprbar.paste import PASTE_OPTIONS, is_wayland_session
 
 # Module state - window references
@@ -45,7 +44,6 @@ _overlay_window_lock = threading.Lock()
 _settings_window = None
 _settings_window_lock = threading.Lock()
 _diagnostics_window = None
-_capture_listener = None
 
 # Check VAD availability
 try:
@@ -787,7 +785,7 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         state: Application state dictionary
         on_save: Optional callback to invoke after saving settings
     """
-    global _settings_window, _capture_listener
+    global _settings_window
 
     try:
         from gi.repository import Gtk, GLib
@@ -804,7 +802,7 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             return
 
     def _present_settings() -> bool:
-        global _settings_window, _capture_listener
+        global _settings_window
 
         # Thread-safe double-check
         with _settings_window_lock:
@@ -914,6 +912,7 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         # Get hotkeys from config
         from whisprbar.hotkeys import parse_hotkey, hotkey_to_label
         hotkeys_config = cfg.get("hotkeys", {})
+        pending_hotkeys = dict(hotkeys_config)
 
         hotkey_actions = {
             "toggle_recording": "Aufnahme umschalten",
@@ -927,9 +926,7 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             capture_state["active"] = False
             capture_state["current_action"] = None
             state["hotkey_capture_active"] = False
-            if "hotkeys" not in cfg:
-                cfg["hotkeys"] = {}
-            cfg["hotkeys"][action_id] = hotkey_str
+            pending_hotkeys[action_id] = hotkey_str
             widgets = hotkey_widgets.get(action_id)
             if widgets:
                 widgets["label"].set_text(label)
@@ -941,13 +938,15 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         def begin_hotkey_capture(action_id: str) -> None:
             if capture_state["active"]:
                 return
-            capture_state["active"] = True
-            capture_state["current_action"] = action_id
-            state["hotkey_capture_active"] = True
-
             widgets = hotkey_widgets.get(action_id)
             if not widgets:
                 return
+
+            previous_hotkey = pending_hotkeys.get(action_id)
+
+            capture_state["active"] = True
+            capture_state["current_action"] = action_id
+            state["hotkey_capture_active"] = True
 
             widgets["label"].set_text("Taste drücken...")
             widgets["change_btn"].set_label("Warten...")
@@ -960,7 +959,26 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             try:
                 def on_complete(config_str: str, label: str) -> None:
                     finish_hotkey_capture(action_id, config_str, label)
-                capture_hotkey(on_complete=on_complete, notify_user=False)
+
+                def on_cancel() -> None:
+                    capture_state["active"] = False
+                    capture_state["current_action"] = None
+                    state["hotkey_capture_active"] = False
+                    if previous_hotkey:
+                        try:
+                            binding = parse_hotkey(previous_hotkey)
+                            previous_label = hotkey_to_label(binding)
+                        except Exception:
+                            previous_label = previous_hotkey
+                    else:
+                        previous_label = "Nicht gesetzt"
+                    widgets["label"].set_text(previous_label)
+                    widgets["change_btn"].set_label("Ändern")
+                    widgets["change_btn"].set_sensitive(True)
+                    for action, wdgs in hotkey_widgets.items():
+                        wdgs["change_btn"].set_sensitive(True)
+
+                capture_hotkey(on_complete=on_complete, on_cancel=on_cancel, notify_user=False)
             except Exception as exc:
                 capture_state["active"] = False
                 capture_state["current_action"] = None
@@ -1558,7 +1576,7 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         button_box.pack_start(save_button, False, False, 0)
 
         def close_window(*_args) -> None:
-            global _settings_window, _capture_listener
+            global _settings_window
             if _settings_window is None:
                 return
             window_ref = _settings_window
@@ -1566,10 +1584,7 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             window_ref.destroy()
             capture_state["active"] = False
             state["hotkey_capture_active"] = False
-            if _capture_listener:
-                with contextlib.suppress(Exception):
-                    _capture_listener.stop()
-            _capture_listener = None
+            cancel_hotkey_capture()
 
         def on_cancel(_button) -> None:
             close_window()
@@ -1582,6 +1597,8 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             cfg["notifications_enabled"] = notify_switch.get_active()
             cfg["paste_sequence"] = paste_combo.get_active_id() or "auto"
             cfg["paste_delay_ms"] = int(round(paste_delay_spin.get_value()))
+            cfg["hotkeys"] = pending_hotkeys.copy()
+            cfg["hotkey"] = cfg["hotkeys"].get("toggle_recording", cfg.get("hotkey", "F9"))
 
             # Tab 2: Audio
             device_id = device_combo.get_active_id() or "__default__"

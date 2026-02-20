@@ -68,7 +68,8 @@ def test_postprocess_transcript_disabled(mock_config):
     from whisprbar import config
 
     mock_config["postprocess_enabled"] = False
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
 
     text = "hello   world . this is   a test"
     result = transcription.postprocess_transcript(text)
@@ -85,7 +86,8 @@ def test_postprocess_transcript_enabled(mock_config):
     mock_config["postprocess_enabled"] = True
     mock_config["postprocess_fix_spacing"] = True
     mock_config["postprocess_fix_capitalization"] = True
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
 
     text = "hello   world . this is   a test  !"
     result = transcription.postprocess_transcript(text, language="en")
@@ -103,7 +105,8 @@ def test_split_audio_into_chunks_creates_correct_chunks(sample_audio_long, mock_
 
     mock_config["chunk_duration_seconds"] = 30.0
     mock_config["chunk_overlap_seconds"] = 2.0
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
 
     # 90 seconds with 30s chunks and 2s overlap should create 4 chunks
     # Chunk 1: 0-30s, Chunk 2: 28-58s, Chunk 3: 56-86s, Chunk 4: 84-90s
@@ -155,7 +158,8 @@ def test_get_transcriber_returns_openai_by_default(mock_config):
     from whisprbar import config
 
     mock_config["transcription_backend"] = "openai"
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
 
     # Reset global transcriber
     transcription._transcriber = None
@@ -171,7 +175,8 @@ def test_get_transcriber_returns_faster_whisper(mock_config):
     from whisprbar import config
 
     mock_config["transcription_backend"] = "faster_whisper"
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
 
     # Reset global transcriber
     transcription._transcriber = None
@@ -187,7 +192,8 @@ def test_get_transcriber_returns_streaming(mock_config):
     from whisprbar import config
 
     mock_config["transcription_backend"] = "streaming"
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
 
     # Reset global transcriber
     transcription._transcriber = None
@@ -203,7 +209,8 @@ def test_get_transcriber_caches_instance(mock_config):
     from whisprbar import config
 
     mock_config["transcription_backend"] = "openai"
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
 
     # Reset global transcriber
     transcription._transcriber = None
@@ -222,7 +229,8 @@ def test_get_transcriber_resets_on_backend_change(mock_config):
 
     # Start with OpenAI
     mock_config["transcription_backend"] = "openai"
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
     transcription._transcriber = None
 
     transcriber1 = transcription.get_transcriber()
@@ -230,7 +238,8 @@ def test_get_transcriber_resets_on_backend_change(mock_config):
 
     # Change to faster_whisper
     mock_config["transcription_backend"] = "faster_whisper"
-    config.cfg = mock_config
+    config.cfg.clear()
+    config.cfg.update(mock_config)
 
     transcriber2 = transcription.get_transcriber()
     assert isinstance(transcriber2, transcription.FasterWhisperTranscriber)

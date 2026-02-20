@@ -451,6 +451,11 @@ def open_settings_callback() -> None:
     """Open settings window (menu callback)."""
     def on_save():
         """Callback after settings are saved."""
+        # Apply changed hotkeys immediately without restart.
+        try:
+            register_configured_hotkeys(get_hotkey_manager(), restart_listener=True)
+        except Exception as exc:
+            debug(f"Failed to apply updated hotkeys: {exc}")
         refresh_menu(get_callbacks(), state)
         refresh_tray_indicator(state)
 
@@ -509,6 +514,61 @@ def get_callbacks() -> Dict[str, Any]:
         "tray_backend_label": tray_backend_label,
         "vad_available": vad_available,
     }
+
+
+def register_configured_hotkeys(hotkey_manager, restart_listener: bool = False) -> None:
+    """Register all configured hotkeys on the provided manager.
+
+    Args:
+        hotkey_manager: Global hotkey manager instance
+        restart_listener: If True, restart listener after re-registration
+    """
+    # Clear previously registered actions to avoid stale bindings.
+    for action in ("toggle_recording", "open_settings", "show_history"):
+        hotkey_manager.unregister(action)
+
+    hotkeys_config = cfg.get("hotkeys", {}) or {}
+
+    # Register toggle_recording hotkey
+    toggle_hotkey_str = hotkeys_config.get("toggle_recording") or cfg.get("hotkey", "F9")
+    try:
+        toggle_hotkey = parse_hotkey(toggle_hotkey_str)
+        hotkey_manager.register("toggle_recording", toggle_hotkey, toggle_recording)
+        debug(f"Registered toggle_recording hotkey: {toggle_hotkey_str}")
+        # Store key token for tray label.
+        state["hotkey_key"] = toggle_hotkey[1]
+    except Exception as exc:
+        debug(f"Failed to register toggle_recording hotkey '{toggle_hotkey_str}': {exc}")
+        state["hotkey_key"] = "F9"
+
+    # Register open_settings hotkey
+    open_settings_hotkey_str = hotkeys_config.get("open_settings")
+    if open_settings_hotkey_str:
+        try:
+            open_settings_hotkey = parse_hotkey(open_settings_hotkey_str)
+            hotkey_manager.register("open_settings", open_settings_hotkey, open_settings_callback)
+            debug(f"Registered open_settings hotkey: {open_settings_hotkey_str}")
+        except Exception as exc:
+            debug(f"Failed to register open_settings hotkey '{open_settings_hotkey_str}': {exc}")
+
+    # Register show_history hotkey (planned, stub for now)
+    show_history_hotkey_str = hotkeys_config.get("show_history")
+    if show_history_hotkey_str:
+        try:
+            show_history_hotkey = parse_hotkey(show_history_hotkey_str)
+
+            def show_history_stub():
+                debug("Show history not yet implemented")
+                notify("Show history feature coming soon!")
+
+            hotkey_manager.register("show_history", show_history_hotkey, show_history_stub)
+            debug(f"Registered show_history hotkey: {show_history_hotkey_str}")
+        except Exception as exc:
+            debug(f"Failed to register show_history hotkey '{show_history_hotkey_str}': {exc}")
+
+    if restart_listener:
+        hotkey_manager.stop()
+        hotkey_manager.start()
 
 
 # =============================================================================
@@ -910,10 +970,14 @@ def main() -> None:
     maybe_show_first_run_diagnostics(cfg)
     debug("First-run diagnostics completed")
 
-    # Prepare OpenAI client
-    client_ready = prepare_openai_client()
-    if not client_ready:
-        debug("Transcription client not ready; will retry when needed")
+    # Prepare backend client lazily. Only preflight OpenAI when it is selected.
+    if cfg.get("transcription_backend", "openai") == "openai":
+        client_ready = prepare_openai_client()
+        if not client_ready:
+            debug("Transcription client not ready; will retry when needed")
+    else:
+        state["client_ready"] = True
+        state["client_warning_shown"] = False
 
     # Get or create hotkey manager
     hotkey_manager = get_hotkey_manager()
@@ -925,51 +989,8 @@ def main() -> None:
         is_capture_active=lambda: state.get("hotkey_capture_active", False)
     )
 
-    # Register all hotkeys from config
-    hotkeys_config = cfg.get("hotkeys", {})
-
-    # Register toggle_recording hotkey
-    toggle_hotkey_str = hotkeys_config.get("toggle_recording")
-    if toggle_hotkey_str:
-        try:
-            toggle_hotkey = parse_hotkey(toggle_hotkey_str)
-            hotkey_manager.register("toggle_recording", toggle_hotkey, toggle_recording)
-            debug(f"Registered toggle_recording hotkey: {toggle_hotkey_str}")
-            # Store key for legacy UI compatibility
-            state["hotkey_key"] = toggle_hotkey[1]  # Store the key token
-        except Exception as exc:
-            debug(f"Failed to register toggle_recording hotkey '{toggle_hotkey_str}': {exc}")
-            # Fallback to F9
-            from pynput import keyboard
-            state["hotkey_key"] = keyboard.Key.f9
-    else:
-        debug("No toggle_recording hotkey configured, using F9 default")
-        from pynput import keyboard
-        state["hotkey_key"] = keyboard.Key.f9
-
-    # Register open_settings hotkey
-    open_settings_hotkey_str = hotkeys_config.get("open_settings")
-    if open_settings_hotkey_str:
-        try:
-            open_settings_hotkey = parse_hotkey(open_settings_hotkey_str)
-            hotkey_manager.register("open_settings", open_settings_hotkey, open_settings_callback)
-            debug(f"Registered open_settings hotkey: {open_settings_hotkey_str}")
-        except Exception as exc:
-            debug(f"Failed to register open_settings hotkey '{open_settings_hotkey_str}': {exc}")
-
-    # Register show_history hotkey (planned, stub for now)
-    show_history_hotkey_str = hotkeys_config.get("show_history")
-    if show_history_hotkey_str:
-        try:
-            show_history_hotkey = parse_hotkey(show_history_hotkey_str)
-            # TODO: Implement show_history_callback
-            def show_history_stub():
-                debug("Show history not yet implemented")
-                notify("Show history feature coming soon!")
-            hotkey_manager.register("show_history", show_history_hotkey, show_history_stub)
-            debug(f"Registered show_history hotkey: {show_history_hotkey_str}")
-        except Exception as exc:
-            debug(f"Failed to register show_history hotkey '{show_history_hotkey_str}': {exc}")
+    # Register all configured hotkeys.
+    register_configured_hotkeys(hotkey_manager, restart_listener=False)
 
     # Start the hotkey manager
     hotkey_manager.start()

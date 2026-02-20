@@ -13,7 +13,13 @@ import threading
 import time
 from typing import Dict, List, Any
 
-from pynput import keyboard
+try:
+    from pynput import keyboard
+    PYNPUT_AVAILABLE = True
+except Exception as exc:
+    keyboard = None
+    PYNPUT_AVAILABLE = False
+    _PYNPUT_IMPORT_ERROR = str(exc)
 
 from .config import cfg
 from .utils import debug, detect_session_type, notify, copy_to_clipboard
@@ -57,7 +63,7 @@ PASTE_DETECT_TIMEOUT = float(os.environ.get("WHISPRBAR_PASTE_DETECT_TIMEOUT", "0
 _AUTO_PASTE_CACHE: Dict[str, Any] = {"sequence": "ctrl_v", "timestamp": 0.0}
 
 # Keyboard controller for simulating key presses
-_controller = keyboard.Controller()
+_controller = keyboard.Controller() if PYNPUT_AVAILABLE else None
 
 
 def is_wayland_session() -> bool:
@@ -75,6 +81,8 @@ def press_key(key_obj) -> None:
     Args:
         key_obj: keyboard.Key or string character
     """
+    if _controller is None:
+        return
     _controller.press(key_obj)
     _controller.release(key_obj)
 
@@ -243,6 +251,9 @@ def simulate_typing(text: str, delay_ms: float = 10.0) -> None:
     """
     if not text:
         return
+    if _controller is None:
+        debug("Type simulation unavailable: pynput backend not available")
+        return
 
     debug(f"Simulating typing: {len(text)} characters with {delay_ms}ms delay")
 
@@ -327,6 +338,10 @@ def perform_auto_paste(text: str) -> None:
                 debug(f"xdotool failed ({exc}), falling back to pynput")
 
     # Fallback to pynput keyboard simulation
+    if _controller is None or not PYNPUT_AVAILABLE:
+        notify("Auto-paste failed: keyboard injection backend is unavailable.", force=True)
+        return
+
     if sequence == "ctrl_shift_v":
         with _controller.pressed(keyboard.Key.ctrl):
             with _controller.pressed(keyboard.Key.shift):

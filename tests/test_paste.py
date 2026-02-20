@@ -27,7 +27,7 @@ def test_get_paste_delay_seconds_default(mock_config):
     from whisprbar import config
 
     mock_config["paste_delay_ms"] = 250
-    config.cfg = mock_config
+    paste.cfg = mock_config
 
     delay = paste.get_paste_delay_seconds()
     assert delay == 0.25
@@ -40,12 +40,12 @@ def test_get_paste_delay_seconds_clamped(mock_config):
 
     # Test clamping large value
     mock_config["paste_delay_ms"] = 10000
-    config.cfg = mock_config
+    paste.cfg = mock_config
     assert paste.get_paste_delay_seconds() == 5.0
 
     # Test clamping negative value
     mock_config["paste_delay_ms"] = -100
-    config.cfg = mock_config
+    paste.cfg = mock_config
     assert paste.get_paste_delay_seconds() == 0.0
 
 
@@ -55,7 +55,7 @@ def test_get_paste_delay_seconds_invalid(mock_config):
     from whisprbar import config
 
     mock_config["paste_delay_ms"] = "invalid"
-    config.cfg = mock_config
+    paste.cfg = mock_config
 
     delay = paste.get_paste_delay_seconds()
     assert delay == 0.0
@@ -134,16 +134,19 @@ def test_detect_auto_paste_sequence_terminal_detection(monkeypatch):
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not paste.PYNPUT_AVAILABLE, reason="pynput backend unavailable")
 def test_simulate_typing():
     """Test simulate_typing calls controller.type()."""
     text = "Hello world"
 
     with patch.object(paste._controller, "type") as mock_type:
-        paste.simulate_typing(text)
-        mock_type.assert_called_once_with(text)
+        paste.simulate_typing(text, delay_ms=0)
+        assert mock_type.call_count == len(text)
+        assert mock_type.call_args_list[0][0][0] == "H"
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not paste.PYNPUT_AVAILABLE, reason="pynput backend unavailable")
 def test_simulate_typing_empty():
     """Test simulate_typing with empty text does nothing."""
     with patch.object(paste._controller, "type") as mock_type:
@@ -158,7 +161,7 @@ def test_perform_auto_paste_clipboard_only(monkeypatch, mock_config):
 
     monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
     mock_config["paste_sequence"] = "auto"
-    config.cfg = mock_config
+    paste.cfg = mock_config
 
     with patch("whisprbar.paste.notify") as mock_notify:
         paste.perform_auto_paste("Test text")
@@ -169,17 +172,19 @@ def test_perform_auto_paste_clipboard_only(monkeypatch, mock_config):
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not paste.PYNPUT_AVAILABLE, reason="pynput backend unavailable")
 def test_perform_auto_paste_type_simulation(mock_config):
     """Test perform_auto_paste with type simulation."""
     from whisprbar import config
 
     mock_config["paste_sequence"] = "type"
     mock_config["paste_delay_ms"] = 0
-    config.cfg = mock_config
+    paste.cfg = mock_config
 
     with patch.object(paste._controller, "type") as mock_type:
         paste.perform_auto_paste("Hello")
-        mock_type.assert_called_once_with("Hello")
+        # perform_auto_paste() appends a trailing space by default
+        assert mock_type.call_count == len("Hello ")
 
 
 @pytest.mark.unit
@@ -190,7 +195,7 @@ def test_perform_auto_paste_ctrl_v_with_xdotool(monkeypatch, mock_config):
     monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
     mock_config["paste_sequence"] = "ctrl_v"
     mock_config["paste_delay_ms"] = 0
-    config.cfg = mock_config
+    paste.cfg = mock_config
 
     mock_run = MagicMock()
     mock_run.returncode = 0
@@ -208,6 +213,7 @@ def test_perform_auto_paste_ctrl_v_with_xdotool(monkeypatch, mock_config):
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(not paste.PYNPUT_AVAILABLE, reason="pynput backend unavailable")
 def test_perform_auto_paste_fallback_to_pynput(monkeypatch, mock_config):
     """Test perform_auto_paste falls back to pynput when xdotool unavailable."""
     from whisprbar import config
@@ -215,7 +221,7 @@ def test_perform_auto_paste_fallback_to_pynput(monkeypatch, mock_config):
     monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
     mock_config["paste_sequence"] = "ctrl_v"
     mock_config["paste_delay_ms"] = 0
-    config.cfg = mock_config
+    paste.cfg = mock_config
 
     # Mock xdotool as unavailable
     with patch("shutil.which", return_value=None):

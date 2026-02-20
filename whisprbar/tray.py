@@ -29,7 +29,7 @@ except (ImportError, ValueError):
 
 try:
     import pystray
-except ImportError:
+except Exception:
     pystray = None
 
 from whisprbar.utils import (

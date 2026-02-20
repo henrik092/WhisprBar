@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Detailed test for BUG #2."""
 
+import pytest
+
+pytest.skip("Debug helper script, not part of automated pytest suite.", allow_module_level=True)
+
 import sys
 from pathlib import Path
 

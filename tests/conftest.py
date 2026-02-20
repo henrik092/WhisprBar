@@ -1,10 +1,8 @@
 """Pytest configuration and shared fixtures for WhisprBar tests."""
 
+import copy
 import json
-import os
-import tempfile
 from pathlib import Path
-from typing import Dict
 
 import numpy as np
 import pytest
@@ -187,11 +185,18 @@ def isolate_config(monkeypatch):
     """
     # Store original config
     from whisprbar import config
-    original_cfg = config.cfg.copy()
-    original_default = config.DEFAULT_CFG.copy()
+    cfg_ref = config.cfg
+    default_ref = config.DEFAULT_CFG
+    original_cfg = copy.deepcopy(cfg_ref)
+    original_default = copy.deepcopy(default_ref)
 
     yield
 
     # Restore original config
-    config.cfg = original_cfg
-    config.DEFAULT_CFG = original_default
+    cfg_ref.clear()
+    cfg_ref.update(original_cfg)
+    config.cfg = cfg_ref
+
+    default_ref.clear()
+    default_ref.update(original_default)
+    config.DEFAULT_CFG = default_ref

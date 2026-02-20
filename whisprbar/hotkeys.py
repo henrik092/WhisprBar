@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Hotkey handling for WhisprBar.
 
 Provides global hotkey detection using pynput, key parsing, and
@@ -8,7 +10,13 @@ import contextlib
 import threading
 from typing import Callable, Dict, Optional, Set, Tuple
 
-from pynput import keyboard
+try:
+    from pynput import keyboard
+    PYNPUT_AVAILABLE = True
+except Exception as exc:
+    keyboard = None
+    PYNPUT_AVAILABLE = False
+    _PYNPUT_IMPORT_ERROR = str(exc)
 
 # Type alias for hotkey binding
 # (frozenset of modifiers like {"CTRL", "ALT"}, key token like "F9")
@@ -16,11 +24,12 @@ HotkeyBinding = Tuple[frozenset[str], str]
 
 # Build F-key mapping (F1-F24)
 FKEYS: Dict[str, keyboard.Key] = {}
-for idx in range(1, 25):
-    attr = f"f{idx}"
-    key_obj = getattr(keyboard.Key, attr, None)
-    if key_obj is not None:
-        FKEYS[f"F{idx}"] = key_obj
+if PYNPUT_AVAILABLE:
+    for idx in range(1, 25):
+        attr = f"f{idx}"
+        key_obj = getattr(keyboard.Key, attr, None)
+        if key_obj is not None:
+            FKEYS[f"F{idx}"] = key_obj
 
 
 def _collect_keys(*names: str) -> Set[keyboard.Key]:
@@ -32,6 +41,9 @@ def _collect_keys(*names: str) -> Set[keyboard.Key]:
     Returns:
         Set of keyboard.Key objects
     """
+    if not PYNPUT_AVAILABLE:
+        return set()
+
     keys: Set[keyboard.Key] = set()
     for name in names:
         key_obj = getattr(keyboard.Key, name, None)
@@ -144,18 +156,23 @@ def key_to_label(key_obj) -> str:
             parts.append(token.upper())
         return "+".join(parts) if parts else token.upper()
 
+    # Handle direct token strings (used by tray state for configured hotkeys)
+    if isinstance(key_obj, str):
+        token = normalize_key_token(key_obj)
+        return token or key_obj.strip().upper() or "F9"
+
     # Check if it's an F-key
     for name, key in FKEYS.items():
         if key_obj == key:
             return name
 
     # Check if it's a character key
-    if isinstance(key_obj, keyboard.KeyCode):
+    if PYNPUT_AVAILABLE and isinstance(key_obj, keyboard.KeyCode):
         if key_obj.char:
             return key_obj.char.upper()
 
     # Check if it's a special key
-    if isinstance(key_obj, keyboard.Key):
+    if PYNPUT_AVAILABLE and isinstance(key_obj, keyboard.Key):
         return str(key_obj).split(".")[-1].upper()
 
     return "F9"
@@ -184,7 +201,7 @@ def key_to_config_string(key_obj) -> str:
             return name
 
     # Check if it's a character key
-    if isinstance(key_obj, keyboard.KeyCode) and key_obj.char:
+    if PYNPUT_AVAILABLE and isinstance(key_obj, keyboard.KeyCode) and key_obj.char:
         return key_obj.char.upper()
 
     return "F9"
@@ -223,6 +240,9 @@ def event_to_token(key) -> Optional[str]:
     Returns:
         Normalized token (e.g., "F9", "A") or None if not recognized
     """
+    if not PYNPUT_AVAILABLE:
+        return None
+
     # Check F-keys first
     for name, key_obj in FKEYS.items():
         if key == key_obj:
@@ -366,6 +386,9 @@ class HotkeyManager:
 
         Thread-safe: Can be called from any thread.
         """
+        if not PYNPUT_AVAILABLE:
+            raise RuntimeError("Global hotkeys unavailable (pynput backend not available)")
+
         with self._lock:
             if self._listener is not None:
                 self.stop()
@@ -549,25 +572,30 @@ _capture_listener: Optional[keyboard.Listener] = None
 
 def capture_hotkey(
     on_complete: Optional[Callable[[str, str], None]] = None,
+    on_cancel: Optional[Callable[[], None]] = None,
     notify_user: bool = True,
     timeout_seconds: float = 30.0,
+    apply_to_action: Optional[str] = None,
 ) -> None:
-    """Capture the next keypress globally and store it as hotkey.
+    """Capture the next keypress globally.
 
     Opens a temporary keyboard listener to capture a new hotkey combination.
-    When a key is pressed (with optional modifiers), it updates the hotkey
-    configuration and restarts the main hotkey listener.
+    Optionally applies the captured binding to a specific action.
 
     Args:
         on_complete: Callback function called with (config_value, label) when done
+        on_cancel: Optional callback called when capture is cancelled/timed out
         notify_user: If True, show notification when starting capture
         timeout_seconds: Timeout after which capture is cancelled (default: 30s)
+        apply_to_action: Optional action id to apply immediately (e.g. "toggle_recording")
     """
+    if not PYNPUT_AVAILABLE:
+        raise RuntimeError("Hotkey capture unavailable (pynput backend not available)")
+
     global _capture_listener
-    from .config import cfg, save_config
+    from .config import cfg
     from .utils import notify
     import threading
-    import time
 
     # Stop existing capture listener
     if _capture_listener:
@@ -603,16 +631,41 @@ def capture_hotkey(
         if not token:
             if notify_user:
                 notify("Hotkey capture cancelled.")
+            if on_cancel:
+                try:
+                    from gi.repository import GLib
+
+                    def _fire_cancel() -> bool:
+                        on_cancel()
+                        return False
+
+                    GLib.idle_add(_fire_cancel)
+                except ImportError:
+                    on_cancel()
             return
 
-        # Update hotkey binding
-        update_hotkey_binding(set(capture_modifiers), token, notify_change=notify_user)
+        valid_mods = {mod for mod in capture_modifiers if mod in MODIFIER_MAP}
+        normalized_token = normalize_key_token(token) or "F9"
+        binding: HotkeyBinding = (frozenset(valid_mods), normalized_token)
+        config_value = hotkey_to_config(binding)
+        label = hotkey_to_label(binding)
+
+        # Optionally apply immediately (legacy behavior)
+        if apply_to_action:
+            update_hotkey_binding(
+                set(valid_mods),
+                normalized_token,
+                action=apply_to_action,
+                notify_change=notify_user,
+            )
 
         # Call completion callback if provided
         if on_complete:
-            config_value = cfg.get("hotkey", "")
-            global _current_hotkey
-            label = hotkey_to_label(_current_hotkey)
+            # If action was applied, read potentially normalized saved value
+            if apply_to_action == "toggle_recording":
+                config_value = cfg.get("hotkey", config_value)
+                global _current_hotkey
+                label = hotkey_to_label(_current_hotkey)
 
             # Try to use GLib.idle_add if available (for GTK thread safety)
             try:
@@ -654,9 +707,19 @@ def capture_hotkey(
     timeout_timer["timer"].start()
 
 
+def cancel_hotkey_capture() -> None:
+    """Cancel any active global hotkey capture listener."""
+    global _capture_listener
+    if _capture_listener:
+        with contextlib.suppress(Exception):
+            _capture_listener.stop()
+        _capture_listener = None
+
+
 def update_hotkey_binding(
     modifiers: Set[str],
     token: str,
+    action: str = "toggle_recording",
     notify_change: bool = True,
     restart_listener: bool = True,
 ) -> None:
@@ -665,6 +728,7 @@ def update_hotkey_binding(
     Args:
         modifiers: Set of modifier names (e.g., {"CTRL", "SHIFT"})
         token: Key token (e.g., "F9", "A")
+        action: Hotkey action to update (default: "toggle_recording")
         notify_change: If True, show notification about the change
         restart_listener: If True, restart the hotkey listener (default: True)
     """
@@ -679,12 +743,16 @@ def update_hotkey_binding(
     # Update current hotkey
     _current_hotkey = (frozenset(valid_mods), normalized_token)
 
-    # Save to config
-    cfg["hotkey"] = hotkey_to_config(_current_hotkey)
-    # Also update the hotkeys dict for the new multi-hotkey format
+    # Save to config (multi-hotkey format)
+    hotkey_value = hotkey_to_config(_current_hotkey)
     if "hotkeys" not in cfg:
         cfg["hotkeys"] = {}
-    cfg["hotkeys"]["toggle_recording"] = hotkey_to_config(_current_hotkey)
+    cfg["hotkeys"][action] = hotkey_value
+
+    # Keep legacy single hotkey in sync for toggle action
+    if action == "toggle_recording":
+        cfg["hotkey"] = hotkey_value
+
     save_config()
 
     # Notify user
