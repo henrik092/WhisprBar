@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-02-21
+
 ### Added
+- **Side-specific modifier hotkeys**: Right/Left modifier keys can now be captured as primary hotkeys
+  - Supports tokens like `CTRL_R`, `CTRL_L`, `ALT_R`, `SHIFT_L`, `SUPER_R`
+  - Enables reliable binding of right Ctrl as activation key
+
+- **Dedicated recording hotkeys**: Separate actions for start and stop recording
+  - New hotkey actions: `start_recording` and `stop_recording`
+  - Configurable directly in settings without restart
+
+- **Session diagnostics functional check**
+  - Added `tests/functional/check_session_diagnostics.py`
+  - Validates `--diagnose` output paths for both X11 and Wayland
+
 - **Deepgram Nova-2 Backend**: New ultra-fast transcription backend
   - Sub-300ms latency (6-10x faster than OpenAI)
   - Excellent accuracy for single-language transcription
@@ -42,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Faster end-of-recording response while still capturing final words
 
 ### Fixed
+- **Functional dependency check GI import**
+  - Fixed invalid GI module import in `tests/functional/check_dependencies.py`
+  - Dependency check now correctly validates Gtk/Gdk/GLib/AppIndicator modules
+
 - **CRITICAL: Language Parameter Lost in Chunked Transcription** (2026-01-01)
   - **Problem**: Multi-language transcription broken for recordings >60 seconds
   - **Root Cause**: `transcribe_audio_chunked()` had no `language` parameter
