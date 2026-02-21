@@ -88,10 +88,13 @@ run_check "Dependency Check" "check_dependencies.py" "required"
 # Check 2: Configuration
 run_check "Configuration Check" "check_config.py" "optional"
 
-# Check 3: Audio Devices
+# Check 3: Session diagnostics (X11/Wayland code paths)
+run_check "Session Diagnose Check" "check_session_diagnostics.py" "optional"
+
+# Check 4: Audio Devices
 run_check "Audio Device Check" "check_audio.py" "required"
 
-# Check 4: API Key
+# Check 5: API Key
 run_check "API Key Check" "check_api_key.py" "optional"
 
 # Summary
@@ -131,6 +134,7 @@ else
     echo "  - Run individual checks for detailed output:"
     echo "      python3 tests/functional/check_dependencies.py"
     echo "      python3 tests/functional/check_config.py"
+    echo "      python3 tests/functional/check_session_diagnostics.py"
     echo "      python3 tests/functional/check_audio.py"
     echo "      python3 tests/functional/check_api_key.py"
     echo ""

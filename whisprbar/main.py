@@ -33,13 +33,9 @@ from whisprbar.audio import (
     get_recording_state,
 )
 from whisprbar.transcription import transcribe_audio, get_transcriber
-from whisprbar.hotkeys import (
-    parse_hotkey,
-    hotkey_to_config,
-    find_hotkey_conflicts,
-    get_hotkey_manager,
-)
+from whisprbar.hotkeys import get_hotkey_manager
 from whisprbar.hotkey_actions import HOTKEY_ACTION_ORDER
+from whisprbar.hotkey_runtime import build_runtime_hotkey_config, resolve_runtime_hotkeys
 from whisprbar.paste import is_wayland_session
 from whisprbar.ui import (
     maybe_show_first_run_diagnostics,
@@ -559,16 +555,10 @@ def register_configured_hotkeys(hotkey_manager, restart_listener: bool = False) 
         hotkey_manager.unregister(action)
 
     hotkeys_config = cfg.get("hotkeys", {}) or {}
-    configured_hotkeys = {
-        "toggle_recording": hotkeys_config.get("toggle_recording") or cfg.get("hotkey", "F9"),
-        "start_recording": hotkeys_config.get("start_recording"),
-        "stop_recording": hotkeys_config.get("stop_recording"),
-        "open_settings": hotkeys_config.get("open_settings"),
-        "show_history": hotkeys_config.get("show_history"),
-    }
+    configured_hotkeys = build_runtime_hotkey_config(hotkeys_config, cfg.get("hotkey", "F9"))
+    resolution = resolve_runtime_hotkeys(configured_hotkeys, HOTKEY_ACTION_ORDER)
 
-    conflicts = find_hotkey_conflicts(configured_hotkeys)
-    for hotkey_str, action_ids in sorted(conflicts.items()):
+    for hotkey_str, action_ids in sorted(resolution.conflicts.items()):
         debug(
             f"Duplicate hotkey '{hotkey_str}' configured for actions: "
             f"{', '.join(action_ids)}"
@@ -586,36 +576,22 @@ def register_configured_hotkeys(hotkey_manager, restart_listener: bool = False) 
         "show_history": show_history_stub,
     }
 
-    seen_bindings = set()
     state["hotkey_key"] = "F9"
+    for action, hotkey_str, exc_msg in resolution.parse_errors:
+        debug(f"Failed to parse {action} hotkey '{hotkey_str}': {exc_msg}")
 
-    for action in HOTKEY_ACTION_ORDER:
-        hotkey_str = configured_hotkeys.get(action)
-        if not hotkey_str:
-            continue
+    for action, hotkey_str, normalized in resolution.skipped_duplicates:
+        debug(
+            f"Skipped {action} hotkey '{hotkey_str}' because the binding "
+            f"'{normalized}' is already assigned earlier."
+        )
 
-        try:
-            hotkey_binding = parse_hotkey(hotkey_str)
-            normalized = hotkey_to_config(hotkey_binding)
-        except Exception as exc:
-            debug(f"Failed to parse {action} hotkey '{hotkey_str}': {exc}")
-            continue
-
-        if normalized in seen_bindings:
-            debug(
-                f"Skipped {action} hotkey '{hotkey_str}' because the binding "
-                f"'{normalized}' is already assigned earlier."
-            )
-            continue
-
+    for action, hotkey_binding, hotkey_str in resolution.registrations:
         callback = callbacks.get(action)
         if callback is None:
             continue
-
         hotkey_manager.register(action, hotkey_binding, callback)
-        seen_bindings.add(normalized)
         debug(f"Registered {action} hotkey: {hotkey_str}")
-
         if action == "toggle_recording":
             state["hotkey_key"] = hotkey_binding[1]
 

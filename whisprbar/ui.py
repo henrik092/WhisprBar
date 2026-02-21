@@ -35,8 +35,13 @@ from whisprbar.utils import (
     notify,
 )
 from whisprbar.audio import list_input_devices, update_device_index
-from whisprbar.hotkeys import capture_hotkey, cancel_hotkey_capture, find_hotkey_conflicts
+from whisprbar.hotkeys import capture_hotkey, cancel_hotkey_capture
 from whisprbar.hotkey_actions import HOTKEY_SETTINGS_LABELS
+from whisprbar.ui_hotkeys import (
+    build_hotkey_conflict_message,
+    build_pending_hotkeys,
+    get_hotkey_conflicts_for_actions,
+)
 from whisprbar.paste import PASTE_OPTIONS, is_wayland_session
 
 # Module state - window references
@@ -913,11 +918,8 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         # Get hotkeys from config
         from whisprbar.hotkeys import parse_hotkey, hotkey_to_label
         hotkeys_config = cfg.get("hotkeys", {})
-        pending_hotkeys = dict(hotkeys_config)
-
         hotkey_actions = HOTKEY_SETTINGS_LABELS.copy()
-        for action_id in hotkey_actions:
-            pending_hotkeys.setdefault(action_id, None)
+        pending_hotkeys = build_pending_hotkeys(hotkeys_config, hotkey_actions)
 
         hotkey_widgets = {}
         capture_state = {"active": False, "current_action": None}
@@ -999,19 +1001,6 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
                 for action, wdgs in hotkey_widgets.items():
                     wdgs["change_btn"].set_sensitive(True)
                 print(f"[WARN] Hotkey capture failed: {exc}", file=sys.stderr)
-
-        def _get_hotkey_conflicts() -> dict:
-            scoped_hotkeys = {
-                action_id: pending_hotkeys.get(action_id)
-                for action_id in hotkey_actions
-            }
-            return find_hotkey_conflicts(scoped_hotkeys)
-
-        def _format_hotkey_for_notice(config_hotkey: str) -> str:
-            try:
-                return hotkey_to_label(parse_hotkey(config_hotkey))
-            except Exception:
-                return config_hotkey
 
         for action_id, action_label in hotkey_actions.items():
             hotkey_str = hotkeys_config.get(action_id)
@@ -1603,17 +1592,10 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             close_window()
 
         def on_save_clicked(_button) -> None:
-            conflicts = _get_hotkey_conflicts()
-            if conflicts:
-                conflict_hotkey = sorted(conflicts.keys())[0]
-                conflict_actions = conflicts[conflict_hotkey]
-                action_names = ", ".join(
-                    hotkey_actions.get(action_id, action_id) for action_id in conflict_actions
-                )
-                readable_hotkey = _format_hotkey_for_notice(conflict_hotkey)
-                notify(
-                    f"Hotkey-Konflikt: {readable_hotkey} ist mehrfach belegt ({action_names})."
-                )
+            conflicts = get_hotkey_conflicts_for_actions(pending_hotkeys, hotkey_actions)
+            conflict_message = build_hotkey_conflict_message(conflicts, hotkey_actions)
+            if conflict_message:
+                notify(conflict_message)
                 return
 
             # Tab 1: Basis
