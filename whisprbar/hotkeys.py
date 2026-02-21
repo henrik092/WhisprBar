@@ -24,12 +24,57 @@ HotkeyBinding = Tuple[frozenset[str], str]
 
 # Build F-key mapping (F1-F24)
 FKEYS: Dict[str, keyboard.Key] = {}
+FKEY_TOKENS = {f"F{i}" for i in range(1, 25)}
 if PYNPUT_AVAILABLE:
     for idx in range(1, 25):
         attr = f"f{idx}"
         key_obj = getattr(keyboard.Key, attr, None)
         if key_obj is not None:
             FKEYS[f"F{idx}"] = key_obj
+
+
+SPECIAL_KEY_DEFINITIONS = [
+    ("CTRL_R", ("ctrl_r",)),
+    ("CTRL_L", ("ctrl_l",)),
+    ("ALT_R", ("alt_r",)),
+    ("ALT_L", ("alt_l",)),
+    ("SHIFT_R", ("shift_r",)),
+    ("SHIFT_L", ("shift_l",)),
+    ("SUPER_R", ("cmd_r", "super_r")),
+    ("SUPER_L", ("cmd_l", "super_l")),
+    ("CTRL", ("ctrl",)),
+    ("ALT", ("alt",)),
+    ("SHIFT", ("shift",)),
+    ("SUPER", ("cmd", "super")),
+]
+
+
+SPECIAL_KEY_LABELS: Dict[str, str] = {
+    "CTRL_R": "Right Ctrl",
+    "CTRL_L": "Left Ctrl",
+    "ALT_R": "Right Alt",
+    "ALT_L": "Left Alt",
+    "SHIFT_R": "Right Shift",
+    "SHIFT_L": "Left Shift",
+    "SUPER_R": "Right Super",
+    "SUPER_L": "Left Super",
+    "CTRL": "Ctrl",
+    "ALT": "Alt",
+    "SHIFT": "Shift",
+    "SUPER": "Super",
+}
+
+
+SPECIAL_KEY_ALIASES: Dict[str, str] = {
+    "RIGHT_CTRL": "CTRL_R",
+    "LEFT_CTRL": "CTRL_L",
+    "RIGHT_ALT": "ALT_R",
+    "LEFT_ALT": "ALT_L",
+    "RIGHT_SHIFT": "SHIFT_R",
+    "LEFT_SHIFT": "SHIFT_L",
+    "RIGHT_SUPER": "SUPER_R",
+    "LEFT_SUPER": "SUPER_L",
+}
 
 
 def _collect_keys(*names: str) -> Set[keyboard.Key]:
@@ -52,6 +97,22 @@ def _collect_keys(*names: str) -> Set[keyboard.Key]:
     return keys
 
 
+def _build_special_key_maps() -> Tuple[Dict[str, Set[keyboard.Key]], Dict[keyboard.Key, str]]:
+    """Build token->keys and key->token maps for supported special keys."""
+    token_map: Dict[str, Set[keyboard.Key]] = {}
+    lookup: Dict[keyboard.Key, str] = {}
+    for token, attrs in SPECIAL_KEY_DEFINITIONS:
+        keys = _collect_keys(*attrs)
+        if not keys:
+            continue
+        token_map[token] = keys
+        # Keep first match to prefer side-specific definitions over generic ones.
+        for key_obj in keys:
+            if key_obj not in lookup:
+                lookup[key_obj] = token
+    return token_map, lookup
+
+
 # Modifier key mappings
 MODIFIER_MAP: Dict[str, Set[keyboard.Key]] = {
     "CTRL": _collect_keys("ctrl", "ctrl_l", "ctrl_r"),
@@ -64,6 +125,7 @@ MODIFIER_MAP: Dict[str, Set[keyboard.Key]] = {
 MODIFIER_LOOKUP: Dict[keyboard.Key, str] = {
     key: name for name, keys in MODIFIER_MAP.items() for key in keys
 }
+SPECIAL_KEY_MAP, SPECIAL_KEY_LOOKUP = _build_special_key_maps()
 
 # Human-readable labels for modifiers
 MODIFIER_LABELS: Dict[str, str] = {
@@ -91,10 +153,13 @@ def normalize_key_token(token: str) -> Optional[str]:
     Returns:
         Normalized token (e.g., "F9", "A") or None if invalid
     """
-    token = (token or "").strip().upper()
+    token = (token or "").strip().upper().replace("-", "_").replace(" ", "_")
     if not token:
         return None
-    if token in FKEYS:
+    token = SPECIAL_KEY_ALIASES.get(token, token)
+    if token in FKEY_TOKENS:
+        return token
+    if token in SPECIAL_KEY_MAP:
         return token
     if len(token) == 1:
         return token
@@ -150,8 +215,10 @@ def key_to_label(key_obj) -> str:
             MODIFIER_LABELS[m]
             for m in sorted(modifiers, key=lambda x: MODIFIER_ORDER.get(x, 99))
         ]
-        if token in FKEYS:
+        if token in FKEY_TOKENS:
             parts.append(token)
+        elif token in SPECIAL_KEY_LABELS:
+            parts.append(SPECIAL_KEY_LABELS[token])
         else:
             parts.append(token.upper())
         return "+".join(parts) if parts else token.upper()
@@ -159,6 +226,8 @@ def key_to_label(key_obj) -> str:
     # Handle direct token strings (used by tray state for configured hotkeys)
     if isinstance(key_obj, str):
         token = normalize_key_token(key_obj)
+        if token in SPECIAL_KEY_LABELS:
+            return SPECIAL_KEY_LABELS[token]
         return token or key_obj.strip().upper() or "F9"
 
     # Check if it's an F-key
@@ -253,6 +322,10 @@ def event_to_token(key) -> Optional[str]:
         char = key.char.strip()
         if len(char) == 1:
             return char.upper()
+
+    token = SPECIAL_KEY_LOOKUP.get(key)
+    if token:
+        return token
 
     return None
 
@@ -424,7 +497,6 @@ class HotkeyManager:
             if mod:
                 with self._lock:
                     self._active_modifiers.add(mod)
-                return
 
             # Check if it's a recognized key token
             token = event_to_token(key)
@@ -608,6 +680,7 @@ def capture_hotkey(
 
     capture_modifiers: Set[str] = set()
     capture_done = {"value": False}
+    has_non_modifier_token = {"value": False}
     timeout_timer = {"timer": None}
 
     def finalize_hotkey(token: Optional[str]) -> None:
@@ -682,17 +755,22 @@ def capture_hotkey(
 
     def _on_press(key):
         mod = modifier_name(key)
+        token = event_to_token(key)
         if mod:
             capture_modifiers.add(mod)
             return
-        token = event_to_token(key)
         if token:
+            has_non_modifier_token["value"] = True
             finalize_hotkey(token)
 
     def _on_release(key):
         mod = modifier_name(key)
         if mod:
             capture_modifiers.discard(mod)
+            token = event_to_token(key)
+            # Allow modifier-only hotkeys (e.g. Right Ctrl) on key release.
+            if token and not capture_done["value"] and not has_non_modifier_token["value"] and not capture_modifiers:
+                finalize_hotkey(token)
 
     _capture_listener = keyboard.Listener(on_press=_on_press, on_release=_on_release)
     _capture_listener.daemon = True

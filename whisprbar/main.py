@@ -406,6 +406,34 @@ def toggle_recording() -> None:
         refresh_tray_indicator(state)
 
 
+def start_recording_hotkey() -> None:
+    """Start recording only if currently idle."""
+    if state.get("recording"):
+        return
+    try:
+        start_recording()
+    except Exception as exc:
+        debug(f"[RECORDING] Start hotkey failed: {exc}")
+        notify(f"Aufnahme-Start fehlgeschlagen: {exc}")
+        state.recording = False
+        state.transcribing = False
+        refresh_tray_indicator(state)
+
+
+def stop_recording_hotkey() -> None:
+    """Stop recording only if currently active."""
+    if not state.get("recording"):
+        return
+    try:
+        stop_recording()
+    except Exception as exc:
+        debug(f"[RECORDING] Stop hotkey failed: {exc}")
+        notify(f"Aufnahme-Stopp fehlgeschlagen: {exc}")
+        state.recording = False
+        state.transcribing = False
+        refresh_tray_indicator(state)
+
+
 
 def toggle_notifications() -> None:
     """Toggle notifications on/off (menu callback)."""
@@ -524,7 +552,13 @@ def register_configured_hotkeys(hotkey_manager, restart_listener: bool = False) 
         restart_listener: If True, restart listener after re-registration
     """
     # Clear previously registered actions to avoid stale bindings.
-    for action in ("toggle_recording", "open_settings", "show_history"):
+    for action in (
+        "toggle_recording",
+        "start_recording",
+        "stop_recording",
+        "open_settings",
+        "show_history",
+    ):
         hotkey_manager.unregister(action)
 
     hotkeys_config = cfg.get("hotkeys", {}) or {}
@@ -540,6 +574,26 @@ def register_configured_hotkeys(hotkey_manager, restart_listener: bool = False) 
     except Exception as exc:
         debug(f"Failed to register toggle_recording hotkey '{toggle_hotkey_str}': {exc}")
         state["hotkey_key"] = "F9"
+
+    # Register dedicated start hotkey (optional)
+    start_hotkey_str = hotkeys_config.get("start_recording")
+    if start_hotkey_str:
+        try:
+            start_hotkey = parse_hotkey(start_hotkey_str)
+            hotkey_manager.register("start_recording", start_hotkey, start_recording_hotkey)
+            debug(f"Registered start_recording hotkey: {start_hotkey_str}")
+        except Exception as exc:
+            debug(f"Failed to register start_recording hotkey '{start_hotkey_str}': {exc}")
+
+    # Register dedicated stop hotkey (optional)
+    stop_hotkey_str = hotkeys_config.get("stop_recording")
+    if stop_hotkey_str:
+        try:
+            stop_hotkey = parse_hotkey(stop_hotkey_str)
+            hotkey_manager.register("stop_recording", stop_hotkey, stop_recording_hotkey)
+            debug(f"Registered stop_recording hotkey: {stop_hotkey_str}")
+        except Exception as exc:
+            debug(f"Failed to register stop_recording hotkey '{stop_hotkey_str}': {exc}")
 
     # Register open_settings hotkey
     open_settings_hotkey_str = hotkeys_config.get("open_settings")

@@ -38,6 +38,8 @@ def test_bug1_config_migration(monkeypatch, tmp_path):
     loaded = config.load_config()
 
     assert loaded["hotkeys"]["toggle_recording"] == "F8"
+    assert "start_recording" in loaded["hotkeys"]
+    assert "stop_recording" in loaded["hotkeys"]
     assert loaded["hotkey"] == "F8"
 
 

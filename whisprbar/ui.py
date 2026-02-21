@@ -916,8 +916,12 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
 
         hotkey_actions = {
             "toggle_recording": "Aufnahme umschalten",
+            "start_recording": "Aufnahme starten",
+            "stop_recording": "Aufnahme stoppen",
             "open_settings": "Einstellungen öffnen",
         }
+        for action_id in hotkey_actions:
+            pending_hotkeys.setdefault(action_id, None)
 
         hotkey_widgets = {}
         capture_state = {"active": False, "current_action": None}

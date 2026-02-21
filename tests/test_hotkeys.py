@@ -27,6 +27,13 @@ def test_normalize_key_token_letters():
 
 
 @pytest.mark.unit
+def test_normalize_key_token_special_aliases():
+    """Test normalization of special key aliases."""
+    assert hotkeys.normalize_key_token("right_ctrl") == "CTRL_R"
+    assert hotkeys.normalize_key_token("left_ctrl") == "CTRL_L"
+
+
+@pytest.mark.unit
 def test_normalize_key_token_invalid():
     """Test normalization of invalid tokens."""
     assert hotkeys.normalize_key_token("") is None
@@ -41,6 +48,14 @@ def test_parse_hotkey_simple_fkey():
     modifiers, key = hotkeys.parse_hotkey("F9")
     assert modifiers == frozenset()
     assert key == "F9"
+
+
+@pytest.mark.unit
+def test_parse_hotkey_special_key():
+    """Test parsing hotkey with special key token."""
+    modifiers, key = hotkeys.parse_hotkey("CTRL_R")
+    assert modifiers == frozenset()
+    assert key == "CTRL_R"
 
 
 @pytest.mark.unit
@@ -108,6 +123,13 @@ def test_key_to_label_simple():
 
 
 @pytest.mark.unit
+def test_key_to_label_special_key():
+    """Test key_to_label with side-specific modifier token as key."""
+    binding = (frozenset(), "CTRL_R")
+    assert hotkeys.key_to_label(binding) == "Right Ctrl"
+
+
+@pytest.mark.unit
 def test_key_to_label_with_modifiers():
     """Test key_to_label with modifiers."""
     binding = (frozenset(["CTRL"]), "F9")
@@ -170,6 +192,14 @@ def test_event_to_token_fkeys():
     for name, key_obj in hotkeys.FKEYS.items():
         token = hotkeys.event_to_token(key_obj)
         assert token == name
+
+
+@pytest.mark.unit
+def test_event_to_token_special_key():
+    """Test converting special key events to tokens."""
+    token = "CTRL_R" if hotkeys.SPECIAL_KEY_MAP.get("CTRL_R") else "CTRL"
+    key_obj = next(iter(hotkeys.SPECIAL_KEY_MAP[token]))
+    assert hotkeys.event_to_token(key_obj) == token
 
 
 @pytest.mark.unit

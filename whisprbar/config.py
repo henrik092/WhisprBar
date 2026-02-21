@@ -22,6 +22,8 @@ DEFAULT_CFG = {
     # Multiple hotkey support (new in V6.1)
     "hotkeys": {
         "toggle_recording": "F9",
+        "start_recording": None,  # Optional dedicated start hotkey
+        "stop_recording": None,  # Optional dedicated stop hotkey
         "open_settings": "F10",
         "show_history": None,  # Not assigned by default
         "cancel_recording": None,  # Not assigned (ESC is hardcoded)

@@ -46,6 +46,8 @@ def test_load_config_with_defaults(monkeypatch_home, monkeypatch):
     # Check that essential defaults are present
     assert config.cfg["language"] == "de"
     assert config.cfg["hotkey"] == "F9"
+    assert "start_recording" in config.cfg["hotkeys"]
+    assert "stop_recording" in config.cfg["hotkeys"]
     assert config.cfg["use_vad"] is True
     assert config.cfg["transcription_backend"] == "openai"
 
