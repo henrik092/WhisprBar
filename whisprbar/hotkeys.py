@@ -8,7 +8,7 @@ hotkey configuration management.
 
 import contextlib
 import threading
-from typing import Callable, Dict, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 try:
     from pynput import keyboard
@@ -298,6 +298,34 @@ def hotkey_to_config(binding: HotkeyBinding) -> str:
         Config string
     """
     return key_to_config_string(binding)
+
+
+def find_hotkey_conflicts(hotkeys_config: Dict[str, Optional[str]]) -> Dict[str, List[str]]:
+    """Find duplicate hotkey bindings across actions.
+
+    Args:
+        hotkeys_config: Mapping action_id -> hotkey string (or None)
+
+    Returns:
+        Mapping normalized hotkey string -> list of conflicting action IDs
+        (only entries with 2+ actions are returned)
+    """
+    by_hotkey: Dict[str, List[str]] = {}
+    for action_id, hotkey_str in hotkeys_config.items():
+        if not hotkey_str:
+            continue
+        try:
+            binding = parse_hotkey(hotkey_str)
+            normalized = hotkey_to_config(binding)
+        except Exception:
+            continue
+        by_hotkey.setdefault(normalized, []).append(action_id)
+
+    return {
+        normalized: actions
+        for normalized, actions in by_hotkey.items()
+        if len(actions) > 1
+    }
 
 
 def event_to_token(key) -> Optional[str]:

@@ -186,6 +186,22 @@ def test_hotkey_to_config():
 
 
 @pytest.mark.unit
+def test_find_hotkey_conflicts_detects_duplicates():
+    """Test duplicate binding detection across hotkey actions."""
+    conflicts = hotkeys.find_hotkey_conflicts(
+        {
+            "toggle_recording": "ctrl+f9",
+            "start_recording": "CTRL+F9",
+            "stop_recording": "F10",
+            "open_settings": None,
+        }
+    )
+
+    assert "CTRL+F9" in conflicts
+    assert set(conflicts["CTRL+F9"]) == {"toggle_recording", "start_recording"}
+
+
+@pytest.mark.unit
 def test_event_to_token_fkeys():
     """Test converting keyboard events to tokens for F-keys."""
     # Test each F-key mapping

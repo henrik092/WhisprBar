@@ -52,6 +52,8 @@ VISUAL_CONTENT_GUIDE.md
 # Test coverage
 .coverage
 coverage.xml
+htmlcov/
+.pytest_cache/
 
 # Old versions
 Alte version*/

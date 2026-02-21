@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Test that audio processing happens only once (no duplication)."""
 import sys
+from pathlib import Path
+
 import numpy as np
-sys.path.insert(0, '/home/rik/WhisprBar')
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
 
 from whisprbar.transcription import transcribe_audio
 from whisprbar.config import load_config
 from whisprbar import audio
-from unittest import mock
 
 print("=" * 60)
 print("Duplicate Audio Processing Test")

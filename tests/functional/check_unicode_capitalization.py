@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Test unicode capitalization fix."""
 import sys
-sys.path.insert(0, '/home/rik/WhisprBar')
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
 
 from whisprbar.transcription import postprocess_fix_capitalization
 

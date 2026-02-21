@@ -10,18 +10,26 @@ import time
 import signal
 import sys
 import os
+from pathlib import Path
 
 print("=" * 60)
 print("Signal Handler Safety Test")
 print("=" * 60)
 
-# Ensure we're in the right directory
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PYTHON_BIN = REPO_ROOT / ".venv" / "bin" / "python3"
+APP_ENTRY = REPO_ROOT / "whisprbar.py"
+
+# Ensure we're in the project root directory
+os.chdir(REPO_ROOT)
+
+if not PYTHON_BIN.exists():
+    PYTHON_BIN = Path(sys.executable)
 
 # Test 1: SIGTERM during idle
 print("\n1. Testing SIGTERM during idle...")
 proc = subprocess.Popen(
-    [".venv/bin/python3", "whisprbar.py"],
+    [str(PYTHON_BIN), str(APP_ENTRY)],
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
     env={**os.environ, "WHISPRBAR_DEBUG": "1"}
@@ -50,7 +58,7 @@ except subprocess.TimeoutExpired:
 # Test 2: SIGINT (Ctrl+C)
 print("\n2. Testing SIGINT (Ctrl+C)...")
 proc = subprocess.Popen(
-    [".venv/bin/python3", "whisprbar.py"],
+    [str(PYTHON_BIN), str(APP_ENTRY)],
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
     env={**os.environ, "WHISPRBAR_DEBUG": "1"}
@@ -79,7 +87,7 @@ except subprocess.TimeoutExpired:
 # Test 3: Rapid signals (stress test)
 print("\n3. Testing rapid signals (stress test)...")
 proc = subprocess.Popen(
-    [".venv/bin/python3", "whisprbar.py"],
+    [str(PYTHON_BIN), str(APP_ENTRY)],
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
     env={**os.environ, "WHISPRBAR_DEBUG": "1"}

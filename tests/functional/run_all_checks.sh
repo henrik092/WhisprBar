@@ -45,6 +45,7 @@ fi
 TOTAL_TESTS=0
 PASSED_TESTS=0
 FAILED_TESTS=0
+FAILED_REQUIRED_TESTS=0
 
 run_check() {
     local name="$1"
@@ -63,6 +64,7 @@ run_check() {
     else
         FAILED_TESTS=$((FAILED_TESTS + 1))
         if [ "$required" = "required" ]; then
+            FAILED_REQUIRED_TESTS=$((FAILED_REQUIRED_TESTS + 1))
             echo -e "${RED}✗ $name: FAILED (Required)${NC}"
         else
             echo -e "${YELLOW}⚠ $name: FAILED (Optional)${NC}"
@@ -101,10 +103,14 @@ echo ""
 echo -e "Total Tests:  ${TOTAL_TESTS}"
 echo -e "Passed:       ${GREEN}${PASSED_TESTS}${NC}"
 echo -e "Failed:       ${RED}${FAILED_TESTS}${NC}"
+echo -e "Required Failed: ${RED}${FAILED_REQUIRED_TESTS}${NC}"
 echo ""
 
-if [ $FAILED_TESTS -eq 0 ]; then
+if [ $FAILED_REQUIRED_TESTS -eq 0 ]; then
     echo -e "${GREEN}✓ All automated checks passed!${NC}"
+    if [ $FAILED_TESTS -gt 0 ]; then
+        echo -e "${YELLOW}⚠ Some optional checks failed. Review warnings above.${NC}"
+    fi
     echo ""
     echo "Your system is ready to run WhisprBar V6."
     echo ""

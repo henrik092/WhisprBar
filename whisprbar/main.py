@@ -35,8 +35,11 @@ from whisprbar.audio import (
 from whisprbar.transcription import transcribe_audio, get_transcriber
 from whisprbar.hotkeys import (
     parse_hotkey,
+    hotkey_to_config,
+    find_hotkey_conflicts,
     get_hotkey_manager,
 )
+from whisprbar.hotkey_actions import HOTKEY_ACTION_ORDER
 from whisprbar.paste import is_wayland_session
 from whisprbar.ui import (
     maybe_show_first_run_diagnostics,
@@ -552,73 +555,69 @@ def register_configured_hotkeys(hotkey_manager, restart_listener: bool = False) 
         restart_listener: If True, restart listener after re-registration
     """
     # Clear previously registered actions to avoid stale bindings.
-    for action in (
-        "toggle_recording",
-        "start_recording",
-        "stop_recording",
-        "open_settings",
-        "show_history",
-    ):
+    for action in HOTKEY_ACTION_ORDER:
         hotkey_manager.unregister(action)
 
     hotkeys_config = cfg.get("hotkeys", {}) or {}
+    configured_hotkeys = {
+        "toggle_recording": hotkeys_config.get("toggle_recording") or cfg.get("hotkey", "F9"),
+        "start_recording": hotkeys_config.get("start_recording"),
+        "stop_recording": hotkeys_config.get("stop_recording"),
+        "open_settings": hotkeys_config.get("open_settings"),
+        "show_history": hotkeys_config.get("show_history"),
+    }
 
-    # Register toggle_recording hotkey
-    toggle_hotkey_str = hotkeys_config.get("toggle_recording") or cfg.get("hotkey", "F9")
-    try:
-        toggle_hotkey = parse_hotkey(toggle_hotkey_str)
-        hotkey_manager.register("toggle_recording", toggle_hotkey, toggle_recording)
-        debug(f"Registered toggle_recording hotkey: {toggle_hotkey_str}")
-        # Store key token for tray label.
-        state["hotkey_key"] = toggle_hotkey[1]
-    except Exception as exc:
-        debug(f"Failed to register toggle_recording hotkey '{toggle_hotkey_str}': {exc}")
-        state["hotkey_key"] = "F9"
+    conflicts = find_hotkey_conflicts(configured_hotkeys)
+    for hotkey_str, action_ids in sorted(conflicts.items()):
+        debug(
+            f"Duplicate hotkey '{hotkey_str}' configured for actions: "
+            f"{', '.join(action_ids)}"
+        )
 
-    # Register dedicated start hotkey (optional)
-    start_hotkey_str = hotkeys_config.get("start_recording")
-    if start_hotkey_str:
+    def show_history_stub() -> None:
+        debug("Show history not yet implemented")
+        notify("Show history feature coming soon!")
+
+    callbacks = {
+        "toggle_recording": toggle_recording,
+        "start_recording": start_recording_hotkey,
+        "stop_recording": stop_recording_hotkey,
+        "open_settings": open_settings_callback,
+        "show_history": show_history_stub,
+    }
+
+    seen_bindings = set()
+    state["hotkey_key"] = "F9"
+
+    for action in HOTKEY_ACTION_ORDER:
+        hotkey_str = configured_hotkeys.get(action)
+        if not hotkey_str:
+            continue
+
         try:
-            start_hotkey = parse_hotkey(start_hotkey_str)
-            hotkey_manager.register("start_recording", start_hotkey, start_recording_hotkey)
-            debug(f"Registered start_recording hotkey: {start_hotkey_str}")
+            hotkey_binding = parse_hotkey(hotkey_str)
+            normalized = hotkey_to_config(hotkey_binding)
         except Exception as exc:
-            debug(f"Failed to register start_recording hotkey '{start_hotkey_str}': {exc}")
+            debug(f"Failed to parse {action} hotkey '{hotkey_str}': {exc}")
+            continue
 
-    # Register dedicated stop hotkey (optional)
-    stop_hotkey_str = hotkeys_config.get("stop_recording")
-    if stop_hotkey_str:
-        try:
-            stop_hotkey = parse_hotkey(stop_hotkey_str)
-            hotkey_manager.register("stop_recording", stop_hotkey, stop_recording_hotkey)
-            debug(f"Registered stop_recording hotkey: {stop_hotkey_str}")
-        except Exception as exc:
-            debug(f"Failed to register stop_recording hotkey '{stop_hotkey_str}': {exc}")
+        if normalized in seen_bindings:
+            debug(
+                f"Skipped {action} hotkey '{hotkey_str}' because the binding "
+                f"'{normalized}' is already assigned earlier."
+            )
+            continue
 
-    # Register open_settings hotkey
-    open_settings_hotkey_str = hotkeys_config.get("open_settings")
-    if open_settings_hotkey_str:
-        try:
-            open_settings_hotkey = parse_hotkey(open_settings_hotkey_str)
-            hotkey_manager.register("open_settings", open_settings_hotkey, open_settings_callback)
-            debug(f"Registered open_settings hotkey: {open_settings_hotkey_str}")
-        except Exception as exc:
-            debug(f"Failed to register open_settings hotkey '{open_settings_hotkey_str}': {exc}")
+        callback = callbacks.get(action)
+        if callback is None:
+            continue
 
-    # Register show_history hotkey (planned, stub for now)
-    show_history_hotkey_str = hotkeys_config.get("show_history")
-    if show_history_hotkey_str:
-        try:
-            show_history_hotkey = parse_hotkey(show_history_hotkey_str)
+        hotkey_manager.register(action, hotkey_binding, callback)
+        seen_bindings.add(normalized)
+        debug(f"Registered {action} hotkey: {hotkey_str}")
 
-            def show_history_stub():
-                debug("Show history not yet implemented")
-                notify("Show history feature coming soon!")
-
-            hotkey_manager.register("show_history", show_history_hotkey, show_history_stub)
-            debug(f"Registered show_history hotkey: {show_history_hotkey_str}")
-        except Exception as exc:
-            debug(f"Failed to register show_history hotkey '{show_history_hotkey_str}': {exc}")
+        if action == "toggle_recording":
+            state["hotkey_key"] = hotkey_binding[1]
 
     if restart_listener:
         hotkey_manager.stop()

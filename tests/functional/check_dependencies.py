@@ -60,7 +60,7 @@ def check_gi_module(module: str, version: str = None) -> Tuple[bool, str]:
         import gi
         if version:
             gi.require_version(module, version)
-        gi.repository.__import__(module)
+        importlib.import_module(f"gi.repository.{module}")
         version_str = f" {version}" if version else ""
         return True, f"✓ GI: {module}{version_str}"
     except (ImportError, ValueError) as e:
