@@ -92,7 +92,7 @@ pip install -r requirements.txt
 .venv/bin/python whisprbar.py
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [CLAUDE.md](CLAUDE.md) for architecture docs.
+See [CLAUDE.md](CLAUDE.md) for architecture docs.
 
 ## License
 
