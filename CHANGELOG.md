@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-03-17
+
+### Added
+- **History window**: View recent transcriptions from the tray menu
+  - Refresh, clear-history, and copy-to-clipboard actions
+  - Replaced the previous `show_history` stub with a full implementation
+
 ### Fixed
 - **Audio feedback backend fallback**
   - Added a real stop sound in the recording stop handler
@@ -17,9 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Improved tray shutdown so PyStray icons are hidden before stop and tray state is cleared reliably
   - Added cleanup for tray startup failures and unexpected tray loop exits
   - Fixed signal-handling functional test isolation so singleton locking no longer breaks the test itself
-- **History hotkey**
-  - Replaced the `show_history` stub with a real history window showing recent transcripts
-  - Added refresh, clear-history, and copy-to-clipboard actions for recent entries
+
+### Changed
+- **Repository prepared for public release**
+  - Added `pyproject.toml` for Python packaging
+  - Added GitHub issue and PR templates
+  - Added `CONTRIBUTING.md`
+  - Removed internal development files from repository
+  - Removed personal email addresses from public documentation
 
 ## [1.0.1] - 2026-02-21
 
