@@ -40,6 +40,7 @@ from whisprbar.paste import is_wayland_session
 from whisprbar.ui import (
     maybe_show_first_run_diagnostics,
     open_diagnostics_window,
+    open_history_window,
     open_settings_window,
     _run_diagnostics_cli,
 )
@@ -494,6 +495,11 @@ def open_diagnostics_callback() -> None:
     open_diagnostics_window(cfg, first_run=False)
 
 
+def open_history_callback() -> None:
+    """Open transcription history window (menu/hotkey callback)."""
+    open_history_window(cfg)
+
+
 def copy_to_clipboard_callback(text: str) -> None:
     """Copy text to clipboard (menu callback)."""
     from whisprbar.utils import copy_to_clipboard
@@ -564,16 +570,12 @@ def register_configured_hotkeys(hotkey_manager, restart_listener: bool = False) 
             f"{', '.join(action_ids)}"
         )
 
-    def show_history_stub() -> None:
-        debug("Show history not yet implemented")
-        notify("Show history feature coming soon!")
-
     callbacks = {
         "toggle_recording": toggle_recording,
         "start_recording": start_recording_hotkey,
         "stop_recording": stop_recording_hotkey,
         "open_settings": open_settings_callback,
-        "show_history": show_history_stub,
+        "show_history": open_history_callback,
     }
 
     state["hotkey_key"] = "F9"
@@ -664,6 +666,9 @@ def on_recording_stop() -> None:
     refresh_tray_indicator(state)
     refresh_menu(get_callbacks(), state)
     debug("Recording stopped, starting transcription")
+
+    # Confirm stop immediately, before transcription work begins.
+    play_audio_feedback("stop")
 
     # Get audio data from recording state
     recording_state = get_recording_state()
@@ -969,116 +974,144 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Load configuration
-    load_config()
-    debug("Config loaded")
+    hotkey_manager = None
+    hotkey_started = False
 
-    # Clean up old temp files from previous crashes
-    from whisprbar.utils import cleanup_old_temp_files
-    cleanup_old_temp_files()
-    debug("Old temp files cleaned up")
-
-    # Detect session type
-    debug("Detecting session type...")
-    state["session_type"] = detect_session_type()
-    debug(f"Session type: {state['session_type']}")
-
-    # Select and set tray backend
-    debug("Selecting tray backend...")
-    tray_backend = select_tray_backend()
-    state["tray_backend"] = tray_backend
-    debug(f"Tray backend: {tray_backend}")
-
-    # Check for updates asynchronously
-    debug("Checking for updates...")
-    check_for_updates_async()
-    debug("Update check initiated")
-
-    # Show first-run diagnostics if needed
-    debug("Checking first-run diagnostics...")
-    maybe_show_first_run_diagnostics(cfg)
-    debug("First-run diagnostics completed")
-
-    # Prepare backend client lazily. Only preflight OpenAI when it is selected.
-    if cfg.get("transcription_backend", "openai") == "openai":
-        client_ready = prepare_openai_client()
-        if not client_ready:
-            debug("Transcription client not ready; will retry when needed")
-    else:
-        state["client_ready"] = True
-        state["client_warning_shown"] = False
-
-    # Get or create hotkey manager
-    hotkey_manager = get_hotkey_manager()
-
-    # Set special handlers for ESC during recording and capture mode
-    hotkey_manager.set_special_handlers(
-        is_recording=lambda: state.get("recording", False),
-        on_esc=lambda: stop_recording() if state.get("recording") else None,
-        is_capture_active=lambda: state.get("hotkey_capture_active", False)
-    )
-
-    # Register all configured hotkeys.
-    register_configured_hotkeys(hotkey_manager, restart_listener=False)
-
-    # Start the hotkey manager
-    hotkey_manager.start()
-    debug("Hotkey manager started")
-
-    # Wayland warning
-    if is_wayland_session():
-        debug("Wayland session detected. Auto-paste limited to clipboard-only mode.")
-        print("[INFO] Wayland session detected. Auto-paste limited to clipboard-only mode.")
-        if cfg.get("auto_paste_enabled") and not state.get("wayland_notice_shown"):
-            notify("Wayland session detected: auto-paste is clipboard-only.")
-            if cfg.get("notifications_enabled"):
-                state["wayland_notice_shown"] = True
-
-    # Print tray backend info
-    print(f"[INFO] Tray backend in use: {tray_backend_label()}")
-
-    # Update audio device index
-    update_device_index()
-
-    # Set up recording callbacks
-    from whisprbar.audio import set_recording_callbacks
-    set_recording_callbacks(on_recording_start, on_recording_stop)
-
-    # Install signal handlers
-    install_signal_handlers()
-
-    # Initialize icons
-    initialize_icons()
-
-    # Install shutdown checker in GTK main loop (checks every 500ms)
-    # This allows signal-safe shutdown via flag polling
-    from gi.repository import GLib
-    GLib.timeout_add(500, check_shutdown_signal)
-    debug("Shutdown checker installed (polling every 500ms)")
-
-    # Start tray
-    callbacks = get_callbacks()
-
-    loop_runner = None
-    if tray_backend == "appindicator":
-        try:
-            loop_runner = start_appindicator_tray(callbacks, state)
-        except Exception as exc:
-            print(f"[WARN] AppIndicator startup failed: {exc}")
-            state["tray_backend"] = "gtk"
-            import os
-            os.environ["PYSTRAY_BACKEND"] = "gtk"
-            loop_runner = start_pystray_tray(callbacks, state)
-    else:
-        loop_runner = start_pystray_tray(callbacks, state)
-
-    # Run tray event loop
     try:
-        loop_runner()
-    except KeyboardInterrupt:
-        debug("[SHUTDOWN] KeyboardInterrupt received, setting shutdown flag")
-        state["shutdown_requested"] = True
+        # Load configuration
+        load_config()
+        debug("Config loaded")
+
+        # Clean up old temp files from previous crashes
+        from whisprbar.utils import cleanup_old_temp_files
+        cleanup_old_temp_files()
+        debug("Old temp files cleaned up")
+
+        # Detect session type
+        debug("Detecting session type...")
+        state["session_type"] = detect_session_type()
+        debug(f"Session type: {state['session_type']}")
+
+        # Select and set tray backend
+        debug("Selecting tray backend...")
+        tray_backend = select_tray_backend()
+        state["tray_backend"] = tray_backend
+        debug(f"Tray backend: {tray_backend}")
+
+        # Check for updates asynchronously
+        debug("Checking for updates...")
+        check_for_updates_async()
+        debug("Update check initiated")
+
+        # Show first-run diagnostics if needed
+        debug("Checking first-run diagnostics...")
+        maybe_show_first_run_diagnostics(cfg)
+        debug("First-run diagnostics completed")
+
+        # Prepare backend client lazily. Only preflight OpenAI when it is selected.
+        if cfg.get("transcription_backend", "openai") == "openai":
+            client_ready = prepare_openai_client()
+            if not client_ready:
+                debug("Transcription client not ready; will retry when needed")
+        else:
+            state["client_ready"] = True
+            state["client_warning_shown"] = False
+
+        # Get or create hotkey manager
+        hotkey_manager = get_hotkey_manager()
+
+        # Set special handlers for ESC during recording and capture mode
+        hotkey_manager.set_special_handlers(
+            is_recording=lambda: state.get("recording", False),
+            on_esc=lambda: stop_recording() if state.get("recording") else None,
+            is_capture_active=lambda: state.get("hotkey_capture_active", False)
+        )
+
+        # Register all configured hotkeys.
+        register_configured_hotkeys(hotkey_manager, restart_listener=False)
+
+        # Start the hotkey manager
+        hotkey_manager.start()
+        hotkey_started = True
+        debug("Hotkey manager started")
+
+        # Wayland warning
+        if is_wayland_session():
+            debug("Wayland session detected. Auto-paste limited to clipboard-only mode.")
+            print("[INFO] Wayland session detected. Auto-paste limited to clipboard-only mode.")
+            if cfg.get("auto_paste_enabled") and not state.get("wayland_notice_shown"):
+                notify("Wayland session detected: auto-paste is clipboard-only.")
+                if cfg.get("notifications_enabled"):
+                    state["wayland_notice_shown"] = True
+
+        # Print tray backend info
+        print(f"[INFO] Tray backend in use: {tray_backend_label()}")
+
+        # Update audio device index
+        update_device_index()
+
+        # Set up recording callbacks
+        from whisprbar.audio import set_recording_callbacks
+        set_recording_callbacks(on_recording_start, on_recording_stop)
+
+        # Install signal handlers
+        install_signal_handlers()
+
+        # Initialize icons
+        initialize_icons()
+
+        # Install shutdown checker in GTK main loop when GLib is available.
+        # PyStray GTK runs a GTK loop underneath, so this remains effective there.
+        try:
+            from gi.repository import GLib
+        except (ImportError, ValueError):
+            GLib = None
+
+        if GLib is not None:
+            GLib.timeout_add(500, check_shutdown_signal)
+            debug("Shutdown checker installed (polling every 500ms)")
+        else:
+            debug("Shutdown checker unavailable: GLib not installed")
+
+        # Start tray
+        callbacks = get_callbacks()
+
+        loop_runner = None
+        if tray_backend == "appindicator":
+            try:
+                loop_runner = start_appindicator_tray(callbacks, state)
+            except Exception as exc:
+                print(f"[WARN] AppIndicator startup failed: {exc}")
+                state["tray_backend"] = "gtk"
+                import os
+                os.environ["PYSTRAY_BACKEND"] = "gtk"
+                loop_runner = start_pystray_tray(callbacks, state)
+        elif tray_backend in {"gtk", "xorg"}:
+            loop_runner = start_pystray_tray(callbacks, state)
+        else:
+            raise RuntimeError("No supported tray backend available")
+
+        # Run tray event loop
+        try:
+            loop_runner()
+        except KeyboardInterrupt:
+            debug("[SHUTDOWN] KeyboardInterrupt received, setting shutdown flag")
+            state["shutdown_requested"] = True
+            graceful_shutdown()
+
+        # If the tray loop exits without an explicit shutdown path, clean up.
+        debug("[SHUTDOWN] Tray loop exited, performing cleanup")
         graceful_shutdown()
+    except SystemExit:
+        raise
+    except Exception:
+        if hotkey_manager is not None and hotkey_started:
+            with contextlib.suppress(Exception):
+                hotkey_manager.stop()
+        with contextlib.suppress(Exception):
+            shutdown_tray(state)
+        release_singleton_lock()
+        raise
 
 
 # =============================================================================

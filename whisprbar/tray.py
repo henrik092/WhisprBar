@@ -68,6 +68,11 @@ def select_tray_backend() -> str:
         os.environ["PYSTRAY_BACKEND"] = "appindicator"
         return "appindicator"
 
+    if pystray is None:
+        debug("No PyStray backend available")
+        os.environ.pop("PYSTRAY_BACKEND", None)
+        return "auto"
+
     for backend in ("gtk", "xorg"):
         if backend == "gtk" and not GI_AVAILABLE:
             continue
@@ -520,10 +525,15 @@ def shutdown_tray(state: Dict[str, Any]) -> None:
         if _gtk_loop is not None and _gtk_loop.is_running():
             _gtk_loop.quit()
         _indicator = None
+        _gtk_loop = None
     else:
         with _icon_ready_lock:
             if _icon and _icon_ready:
-                _icon.stop()
+                with contextlib.suppress(Exception):
+                    _icon.visible = False
+                with contextlib.suppress(Exception):
+                    _icon.stop()
+            _icon = None
 
     with _icon_ready_lock:
         _icon_ready = False

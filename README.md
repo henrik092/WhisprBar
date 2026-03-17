@@ -1,17 +1,13 @@
 # WhisprBar
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/henrik092/whisprBar/releases)
+[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/henrik092/whisprBar/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)](https://www.linux.org/)
 
 **WhisprBar** is a Linux system tray application for voice-to-text transcription. Record audio with a global hotkey, transcribe using multiple AI backends, and automatically paste the result into any application.
 
-**New to WhisprBar?** Check out the [Quick Start Guide](QUICK_START_GUIDE.md) for a 5-minute setup!
-
-![WhisprBar Demo](docs/demo.gif)
-
-> If you find WhisprBar useful, please give it a star on GitHub! ⭐
+> If you find WhisprBar useful, please give it a star on GitHub!
 
 ---
 
@@ -425,8 +421,8 @@ mv ~/.config/whisprbar.json ~/.config/whisprbar.json.backup
 git clone https://github.com/henrik092/whisprBar.git WhisperBar
 cd WhisperBar
 
-# Create virtual environment
-python3 -m venv .venv
+# Create virtual environment (--system-site-packages required for GTK/AppIndicator)
+python3 -m venv --system-site-packages .venv
 
 # Activate venv
 source .venv/bin/activate
@@ -546,7 +542,6 @@ WhisprBar requires:
 
 ### Other Limitations
 
-- **Single Hotkey**: Only one global hotkey supported
 - **VAD Sensitivity**: May require tuning for different environments
 - **Tray Icon Ordering**: Desktop-dependent, not controllable
 - **No macOS/Windows Support**: Linux-only application
@@ -623,7 +618,7 @@ WhisprBar is licensed under the [MIT License](LICENSE).
 ```
 MIT License
 
-Copyright (c) 2024 Henrik W (henrikw092@gmail.com)
+Copyright (c) 2024 Henrik W (henrik092)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -659,7 +654,6 @@ SOFTWARE.
 ## Links
 
 - **GitHub Repository**: [github.com/henrik092/whisprBar](https://github.com/henrik092/whisprBar)
-- **Quick Start Guide**: [QUICK_START_GUIDE.md](QUICK_START_GUIDE.md) - 5-minute setup for new users
 - **Issues**: [GitHub Issues](https://github.com/henrik092/whisprBar/issues)
 - **Changelog**: [CHANGELOG.md](CHANGELOG.md) - Version history
 - **Developer Guide**: [CLAUDE.md](CLAUDE.md) - Architecture and development
@@ -678,7 +672,6 @@ SOFTWARE.
 
 ### Community
 
-- GitHub Discussions (coming soon)
 - Issue Tracker: [GitHub Issues](https://github.com/henrik092/whisprBar/issues)
 
 ---

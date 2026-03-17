@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Audio feedback backend fallback**
+  - Added a real stop sound in the recording stop handler
+  - Fixed `aplay` fallback to use WAV-compatible files instead of OGG/OGA assets
+  - Prefer `canberra-gtk-play` when available for theme-based playback
+  - Hardened `audio_feedback_volume` against invalid config values
+- **Tray / lifecycle cleanup**
+  - Improved tray shutdown so PyStray icons are hidden before stop and tray state is cleared reliably
+  - Added cleanup for tray startup failures and unexpected tray loop exits
+  - Fixed signal-handling functional test isolation so singleton locking no longer breaks the test itself
+- **History hotkey**
+  - Replaced the `show_history` stub with a real history window showing recent transcripts
+  - Added refresh, clear-history, and copy-to-clipboard actions for recent entries
+
 ## [1.0.1] - 2026-02-21
 
 ### Added
@@ -505,14 +519,13 @@ Your existing configuration will be automatically loaded and used without modifi
 - **Original Author**: Henrik W (henrik092)
 - **V6 Refactoring**: Claude Code (AI-assisted development)
 - **License**: MIT License
-- **Repository**: github.com/henrik092/whisprBar (pending publication)
+- **Repository**: [github.com/henrik092/whisprBar](https://github.com/henrik092/whisprBar)
 
 ### Links
 
-- [GitHub Repository](https://github.com/henrik092/whisprBar) (pending)
+- [GitHub Repository](https://github.com/henrik092/whisprBar)
 - [Developer Guide](CLAUDE.md)
 - [Contributing Guide](CONTRIBUTING.md)
-- [Testing Results](TESTING_RESULTS.md)
 
 ---
 

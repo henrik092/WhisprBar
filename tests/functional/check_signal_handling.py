@@ -10,6 +10,7 @@ import time
 import signal
 import sys
 import os
+import tempfile
 from pathlib import Path
 
 print("=" * 60)
@@ -26,13 +27,27 @@ os.chdir(REPO_ROOT)
 if not PYTHON_BIN.exists():
     PYTHON_BIN = Path(sys.executable)
 
+
+def build_test_env() -> dict:
+    """Create an isolated runtime environment for subprocess-based app tests."""
+    temp_root = tempfile.mkdtemp(prefix="whisprbar-signal-test-")
+    env = {
+        **os.environ,
+        "WHISPRBAR_DEBUG": "1",
+        "HOME": temp_root,
+        "XDG_CONFIG_HOME": os.path.join(temp_root, ".config"),
+        "XDG_CACHE_HOME": os.path.join(temp_root, ".cache"),
+        "XDG_DATA_HOME": os.path.join(temp_root, ".local", "share"),
+    }
+    return env
+
 # Test 1: SIGTERM during idle
 print("\n1. Testing SIGTERM during idle...")
 proc = subprocess.Popen(
     [str(PYTHON_BIN), str(APP_ENTRY)],
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
-    env={**os.environ, "WHISPRBAR_DEBUG": "1"}
+    env=build_test_env()
 )
 time.sleep(3)  # Let it start up
 print(f"   Process started (PID {proc.pid})")
@@ -61,7 +76,7 @@ proc = subprocess.Popen(
     [str(PYTHON_BIN), str(APP_ENTRY)],
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
-    env={**os.environ, "WHISPRBAR_DEBUG": "1"}
+    env=build_test_env()
 )
 time.sleep(3)  # Let it start up
 print(f"   Process started (PID {proc.pid})")
@@ -90,7 +105,7 @@ proc = subprocess.Popen(
     [str(PYTHON_BIN), str(APP_ENTRY)],
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
-    env={**os.environ, "WHISPRBAR_DEBUG": "1"}
+    env=build_test_env()
 )
 time.sleep(3)  # Let it start up
 print(f"   Process started (PID {proc.pid})")

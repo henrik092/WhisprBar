@@ -16,7 +16,7 @@ def test_load_env_file_values_basic(mock_env_file, monkeypatch):
     values = config.load_env_file_values()
 
     assert "OPENAI_API_KEY" in values
-    assert values["OPENAI_API_KEY"] == "sk-test-1234567890abcdef"
+    assert values["OPENAI_API_KEY"] == "sk-test-FAKE-KEY-FOR-TESTING-ONLY"
     assert values["WHISPRBAR_HOME"] == "/custom/home"
     assert "EMPTY_VALUE" in values
     assert values["EMPTY_VALUE"] == ""
@@ -127,6 +127,22 @@ def test_validate_config_clamps_vad_energy_ratio():
     config.cfg["vad_energy_ratio"] = 0.05
     config.validate_config()
     assert config.cfg["vad_energy_ratio"] == 0.05
+
+
+@pytest.mark.unit
+def test_validate_config_clamps_audio_feedback_volume():
+    """Test that validate_config clamps audio_feedback_volume to valid range."""
+    config.cfg["audio_feedback_volume"] = 1.7
+    config.validate_config()
+    assert config.cfg["audio_feedback_volume"] == 1.0
+
+    config.cfg["audio_feedback_volume"] = -0.1
+    config.validate_config()
+    assert config.cfg["audio_feedback_volume"] == 0.0
+
+    config.cfg["audio_feedback_volume"] = "invalid"
+    config.validate_config()
+    assert config.cfg["audio_feedback_volume"] == config.DEFAULT_CFG["audio_feedback_volume"]
 
 
 @pytest.mark.unit

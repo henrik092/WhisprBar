@@ -76,7 +76,7 @@ DEFAULT_CFG = {
     "check_updates": True,
     "theme_mode": "auto",  # Theme mode: auto, light, dark
     "theme_preference": "auto",  # User theme preference: auto, light, dark
-    "audio_feedback_enabled": True,  # Play sounds on recording start/stop
+    "audio_feedback_enabled": True,  # Play sounds on recording start/stop/completion
     "audio_feedback_volume": 0.3,  # Volume for audio feedback (0.0-1.0)
     "min_audio_energy": 0.0008,  # Minimum audio energy to prevent hallucinations (0.0001-0.01)
 }
@@ -243,6 +243,14 @@ def validate_config() -> None:
             cfg["min_drain_timeout_ms"] = max(100, min(500, timeout))
         except (ValueError, TypeError):
             cfg["min_drain_timeout_ms"] = DEFAULT_CFG["min_drain_timeout_ms"]
+
+    # Clamp audio feedback volume
+    if "audio_feedback_volume" in cfg:
+        try:
+            volume = float(cfg["audio_feedback_volume"])
+            cfg["audio_feedback_volume"] = max(0.0, min(1.0, volume))
+        except (ValueError, TypeError):
+            cfg["audio_feedback_volume"] = DEFAULT_CFG["audio_feedback_volume"]
 
 
 def load_config() -> dict:

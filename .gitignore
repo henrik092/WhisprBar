@@ -24,6 +24,13 @@ pip-wheel-metadata/
 AGENTS.md
 DEPLOY_PLAN.md
 WORKLOG.md
+BUGS.md
+INSTALL.md
+.pr-description.md
+
+# Internal bug tracking and fixes documentation
+docs/bugs/
+docs/fixes/
 
 # Development/Release temporary files
 .claude-flow/
@@ -34,7 +41,7 @@ WORKLOG.md
 *_SUMMARY.md
 *_GUIDE.md
 *_NOTES*.md
-CONTRIBUTING.md
+!CONTRIBUTING.md
 ROADMAP_*.md
 STATUS.md
 TESTING.md

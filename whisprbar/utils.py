@@ -5,6 +5,7 @@ platform detection, diagnostics, and audio feedback.
 """
 
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -21,7 +22,7 @@ from typing import Dict, List, Optional
 from PIL import Image, ImageDraw
 
 # Import constants from config module
-from .config import DATA_DIR, HIST_FILE, CONFIG_PATH, cfg
+from .config import DATA_DIR, HIST_FILE, CONFIG_PATH, cfg, DEFAULT_CFG
 
 # Application constants
 APP_NAME = "WhisprBar"
@@ -726,9 +727,56 @@ def copy_to_clipboard(text: str, *, silent: bool = False) -> bool:
     return False
 
 
-# Cache for audio feedback: resolved sound file paths and playback command
+# Cache for audio feedback: resolved sound file paths and playback backends
 # Avoids repeated os.path.exists() and shutil.which() calls on every sound play
 _audio_feedback_cache: dict = {}
+
+_AUDIO_FEEDBACK_SPECS = {
+    "start": {
+        "canberra_id": "button-pressed",
+        "description": "Recording started",
+        "paplay_paths": [
+            "/usr/share/sounds/LinuxMint/stereo/button-pressed.ogg",
+            "/usr/share/sounds/freedesktop/stereo/camera-shutter.oga",
+            "/usr/share/sounds/freedesktop/stereo/bell.oga",
+            "/usr/share/sounds/ubuntu/stereo/message.ogg",
+        ],
+        "aplay_paths": [
+            "/usr/share/sounds/alsa/Front_Center.wav",
+            "/usr/share/sounds/LinuxMint/stereo/dialog-question.wav",
+        ],
+    },
+    "stop": {
+        "canberra_id": "service-logout",
+        "description": "Recording stopped",
+        "paplay_paths": [
+            "/usr/share/sounds/LinuxMint/stereo/button-toggle-off.ogg",
+            "/usr/share/sounds/freedesktop/stereo/service-logout.oga",
+            "/usr/share/sounds/freedesktop/stereo/message.oga",
+            "/usr/share/sounds/freedesktop/stereo/bell.oga",
+        ],
+        "aplay_paths": [
+            "/usr/share/sounds/linuxmint-logout.wav",
+            "/usr/share/sounds/alsa/Rear_Center.wav",
+        ],
+    },
+    "done": {
+        "canberra_id": "complete",
+        "description": "Transcription complete",
+        "paplay_paths": [
+            "/usr/share/sounds/freedesktop/stereo/audio-volume-change.oga",
+            "/usr/share/sounds/freedesktop/stereo/complete.oga",
+            "/usr/share/sounds/LinuxMint/stereo/dialog-information.ogg",
+            "/usr/share/sounds/freedesktop/stereo/bell.oga",
+            "/usr/share/sounds/ubuntu/stereo/dialog-information.ogg",
+        ],
+        "aplay_paths": [
+            "/usr/share/sounds/linuxmint-login.wav",
+            "/usr/share/sounds/speech-dispatcher/test.wav",
+            "/usr/share/sounds/alsa/Front_Left.wav",
+        ],
+    },
+}
 
 
 def play_audio_feedback(sound_type: str = "start") -> None:
@@ -744,56 +792,56 @@ def play_audio_feedback(sound_type: str = "start") -> None:
     if not cfg.get("audio_feedback_enabled", True):
         return
 
-    volume = max(0.0, min(1.0, float(cfg.get("audio_feedback_volume", 0.3))))
+    try:
+        volume = max(
+            0.0,
+            min(1.0, float(cfg.get("audio_feedback_volume", DEFAULT_CFG["audio_feedback_volume"]))),
+        )
+    except (ValueError, TypeError):
+        volume = DEFAULT_CFG["audio_feedback_volume"]
+        debug(f"Invalid audio feedback volume, using default: {volume}")
 
-    # Resolve playback command once and cache it
-    if "playback_cmd" not in _audio_feedback_cache:
-        if command_exists("paplay"):
-            _audio_feedback_cache["playback_cmd"] = "paplay"
-        elif command_exists("aplay"):
-            _audio_feedback_cache["playback_cmd"] = "aplay"
-        else:
-            _audio_feedback_cache["playback_cmd"] = None
-            debug("No audio playback command available (paplay/aplay)")
-
-    playback_cmd = _audio_feedback_cache["playback_cmd"]
-    if playback_cmd is None:
+    if volume <= 0.0:
+        debug(f"Audio feedback muted for {sound_type}")
         return
 
-    # Use system sounds via paplay (PulseAudio) or aplay (ALSA)
-    # Each sound type has distinct audio to be easily recognizable:
-    # - start: short click when recording begins
-    # - done: clear "complete" sound when transcription is finished
-    _sound_file_candidates = {
-        "start": [
-            "/usr/share/sounds/LinuxMint/stereo/button-pressed.ogg",
-            "/usr/share/sounds/freedesktop/stereo/camera-shutter.oga",
-            "/usr/share/sounds/freedesktop/stereo/bell.oga",
-            "/usr/share/sounds/ubuntu/stereo/message.ogg",
-        ],
-        "done": [
-            "/usr/share/sounds/freedesktop/stereo/audio-volume-change.oga",
-            "/usr/share/sounds/LinuxMint/stereo/dialog-information.ogg",
-            "/usr/share/sounds/freedesktop/stereo/bell.oga",
-            "/usr/share/sounds/ubuntu/stereo/dialog-information.ogg",
-        ],
-    }
-
-    # Resolve sound file path once per sound_type and cache it
-    cache_key = f"sound_path_{sound_type}"
-    if cache_key not in _audio_feedback_cache:
-        resolved = None
-        for path in _sound_file_candidates.get(sound_type, []):
-            if os.path.exists(path):
-                resolved = path
-                break
-        _audio_feedback_cache[cache_key] = resolved
-        if resolved is None:
-            debug(f"No system sound file found for {sound_type}")
-
-    sound_path = _audio_feedback_cache[cache_key]
-    if not sound_path:
+    sound_spec = _AUDIO_FEEDBACK_SPECS.get(sound_type)
+    if sound_spec is None:
+        debug(f"Unknown audio feedback sound type: {sound_type}")
         return
+
+    # Resolve available playback backends once and cache them
+    if "playback_backends" not in _audio_feedback_cache:
+        _audio_feedback_cache["playback_backends"] = [
+            backend
+            for backend in ("canberra-gtk-play", "paplay", "aplay")
+            if command_exists(backend)
+        ]
+        if not _audio_feedback_cache["playback_backends"]:
+            debug("No audio playback command available (canberra-gtk-play/paplay/aplay)")
+
+    playback_backends = _audio_feedback_cache["playback_backends"]
+    if not playback_backends:
+        return
+
+    def _resolve_sound_path(playback_cmd: str) -> Optional[str]:
+        """Resolve a backend-compatible sound file path for the requested sound."""
+        if playback_cmd not in {"paplay", "aplay"}:
+            return None
+
+        candidate_key = "paplay_paths" if playback_cmd == "paplay" else "aplay_paths"
+        cache_key = f"{playback_cmd}_sound_path_{sound_type}"
+        if cache_key not in _audio_feedback_cache:
+            resolved = None
+            for path in sound_spec[candidate_key]:
+                if os.path.exists(path):
+                    resolved = path
+                    break
+            _audio_feedback_cache[cache_key] = resolved
+            if resolved is None:
+                debug(f"No compatible sound file found for {sound_type} via {playback_cmd}")
+
+        return _audio_feedback_cache[cache_key]
 
     def _play_sound():
         """Play the sound (runs in thread for stop sounds to allow delay)."""
@@ -802,36 +850,63 @@ def play_audio_feedback(sound_type: str = "start") -> None:
         if sound_type == "stop":
             time.sleep(0.08)  # 80ms delay
 
-        try:
-            if playback_cmd == "paplay":
-                volume_percent = int(volume * 65536)  # paplay uses 0-65536 range
+        errors = []
+        for playback_cmd in playback_backends:
+            proc = None
+            try:
+                if playback_cmd == "canberra-gtk-play":
+                    volume_db = 20.0 * math.log10(volume)
+                    command = [
+                        "canberra-gtk-play",
+                        "--id",
+                        sound_spec["canberra_id"],
+                        "--description",
+                        sound_spec["description"],
+                        "--volume",
+                        f"{volume_db:.2f}",
+                    ]
+                else:
+                    sound_path = _resolve_sound_path(playback_cmd)
+                    if not sound_path:
+                        errors.append(f"{playback_cmd}: no compatible sound file")
+                        continue
+
+                    if playback_cmd == "paplay":
+                        volume_percent = int(volume * 65536)  # paplay uses 0-65536 range
+                        command = ["paplay", "--volume", str(volume_percent), sound_path]
+                    else:
+                        # aplay fallback - no volume control
+                        command = ["aplay", "-q", sound_path]
+
                 proc = subprocess.Popen(
-                    ["paplay", "--volume", str(volume_percent), sound_path],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                )
-            else:
-                # aplay fallback - no volume control
-                proc = subprocess.Popen(
-                    ["aplay", "-q", sound_path],
+                    command,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
                 )
 
-            _, stderr = proc.communicate(timeout=2.0)
-            if proc.returncode != 0 and stderr:
-                debug(f"{playback_cmd} error ({sound_type}): {stderr.decode().strip()}")
-            else:
-                if playback_cmd == "paplay":
-                    debug(f"Audio feedback: {sound_type} (volume: {volume:.1%})")
-                else:
-                    debug(f"Audio feedback: {sound_type} (aplay, no volume control)")
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()  # Reap the zombie; without this the process table leaks
-            debug(f"{playback_cmd} timeout for {sound_type}")
-        except Exception as exc:
-            debug(f"{playback_cmd} failed: {exc}")
+                _, stderr = proc.communicate(timeout=2.0)
+                if proc.returncode == 0:
+                    if playback_cmd in {"canberra-gtk-play", "paplay"}:
+                        debug(f"Audio feedback: {sound_type} via {playback_cmd} (volume: {volume:.1%})")
+                    else:
+                        debug(f"Audio feedback: {sound_type} via aplay (no volume control)")
+                    return
+
+                error_text = stderr.decode().strip() if stderr else f"exit code {proc.returncode}"
+                debug(f"{playback_cmd} error ({sound_type}): {error_text}")
+                errors.append(f"{playback_cmd}: {error_text}")
+            except subprocess.TimeoutExpired:
+                if proc is not None:
+                    proc.kill()
+                    proc.wait()  # Reap the zombie; without this the process table leaks
+                debug(f"{playback_cmd} timeout for {sound_type}")
+                errors.append(f"{playback_cmd}: timeout")
+            except Exception as exc:
+                debug(f"{playback_cmd} failed: {exc}")
+                errors.append(f"{playback_cmd}: {exc}")
+
+        if errors:
+            debug(f"Audio feedback failed for {sound_type}: {'; '.join(errors)}")
 
     # Run in thread to avoid blocking (especially important for stop sounds with delay)
     threading.Thread(target=_play_sound, daemon=True, name=f"audio-feedback-{sound_type}").start()

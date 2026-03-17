@@ -122,7 +122,7 @@ def env_file_content():
         String with sample environment variables
     """
     return """# WhisprBar environment variables
-OPENAI_API_KEY=sk-test-1234567890abcdef
+OPENAI_API_KEY=sk-test-FAKE-KEY-FOR-TESTING-ONLY
 WHISPRBAR_HOME=/custom/home
 # Comment line
 EMPTY_VALUE=

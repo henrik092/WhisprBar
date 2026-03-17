@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "whisprbar"
+version = "1.0.1"
+description = "Linux system tray application for voice-to-text transcription"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.8"
+authors = [
+    { name = "Henrik W", email = "henrik092@users.noreply.github.com" },
+]
+keywords = ["voice-to-text", "transcription", "speech-recognition", "linux", "system-tray"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: X11 Applications :: GTK",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Utilities",
+]
+
+dependencies = [
+    "numpy>=1.24.0",
+    "sounddevice>=0.4.6",
+    "pystray>=0.19.0",
+    "Pillow>=10.0.0",
+    "pyperclip>=1.8.2",
+    "openai>=1.0.0",
+    "webrtcvad>=2.0.10",
+    "pynput>=1.7.6",
+    "noisereduce>=3.0.0",
+]
+
+[project.optional-dependencies]
+elevenlabs = ["elevenlabs"]
+faster-whisper = ["faster-whisper>=0.9.0"]
+sherpa = ["sherpa-onnx>=1.9.0"]
+all = ["elevenlabs", "faster-whisper>=0.9.0", "sherpa-onnx>=1.9.0"]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.11.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/henrik092/whisprBar"
+Repository = "https://github.com/henrik092/whisprBar"
+Issues = "https://github.com/henrik092/whisprBar/issues"
+Changelog = "https://github.com/henrik092/whisprBar/blob/main/CHANGELOG.md"
+
+[project.scripts]
+whisprbar = "whisprbar.main:main"
+
+[tool.setuptools.packages.find]
+include = ["whisprbar*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

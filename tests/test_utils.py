@@ -10,6 +10,19 @@ from PIL import Image
 from whisprbar import utils
 
 
+class _ImmediateThread:
+    """Thread stub that runs the target immediately during tests."""
+
+    def __init__(self, target=None, args=(), kwargs=None, **_extra):
+        self._target = target
+        self._args = args
+        self._kwargs = kwargs or {}
+
+    def start(self):
+        if self._target:
+            self._target(*self._args, **self._kwargs)
+
+
 @pytest.mark.unit
 def test_command_exists_with_existing_command():
     """Test command_exists returns True for existing commands."""
@@ -214,6 +227,96 @@ def test_collect_diagnostics_wayland_warning(monkeypatch):
     assert session_diag is not None
     assert session_diag.status == utils.STATUS_WARN
     assert "Wayland" in session_diag.detail
+
+
+@pytest.mark.unit
+def test_play_audio_feedback_handles_invalid_volume(monkeypatch):
+    """Invalid audio feedback volume should fall back without raising."""
+    utils._audio_feedback_cache.clear()
+    monkeypatch.setitem(utils.cfg, "audio_feedback_enabled", True)
+    monkeypatch.setitem(utils.cfg, "audio_feedback_volume", "invalid")
+    monkeypatch.setattr(utils, "command_exists", lambda _cmd: False)
+
+    utils.play_audio_feedback("start")
+
+
+@pytest.mark.unit
+def test_play_audio_feedback_prefers_canberra_backend(monkeypatch):
+    """canberra-gtk-play should be preferred over file-based backends."""
+    proc = MagicMock()
+    proc.communicate.return_value = (b"", b"")
+    proc.returncode = 0
+
+    utils._audio_feedback_cache.clear()
+    monkeypatch.setitem(utils.cfg, "audio_feedback_enabled", True)
+    monkeypatch.setitem(utils.cfg, "audio_feedback_volume", 0.3)
+    monkeypatch.setattr(utils.threading, "Thread", _ImmediateThread)
+    monkeypatch.setattr(utils, "command_exists", lambda cmd: cmd in {"canberra-gtk-play", "paplay", "aplay"})
+    monkeypatch.setattr(utils.subprocess, "Popen", MagicMock(return_value=proc))
+
+    utils.play_audio_feedback("start")
+
+    utils.subprocess.Popen.assert_called_once()
+    command = utils.subprocess.Popen.call_args.args[0]
+    assert command[0] == "canberra-gtk-play"
+    assert "--id" in command
+    assert "button-pressed" in command
+
+
+@pytest.mark.unit
+def test_play_audio_feedback_aplay_uses_wav_candidate(monkeypatch):
+    """aplay fallback must resolve WAV assets instead of OGG/OGA files."""
+    proc = MagicMock()
+    proc.communicate.return_value = (b"", b"")
+    proc.returncode = 0
+
+    utils._audio_feedback_cache.clear()
+    monkeypatch.setitem(utils.cfg, "audio_feedback_enabled", True)
+    monkeypatch.setitem(utils.cfg, "audio_feedback_volume", 0.3)
+    monkeypatch.setattr(utils.threading, "Thread", _ImmediateThread)
+    monkeypatch.setattr(utils, "command_exists", lambda cmd: cmd == "aplay")
+    monkeypatch.setattr(utils.os.path, "exists", lambda path: path == "/usr/share/sounds/linuxmint-login.wav")
+    monkeypatch.setattr(utils.subprocess, "Popen", MagicMock(return_value=proc))
+
+    utils.play_audio_feedback("done")
+
+    utils.subprocess.Popen.assert_called_once_with(
+        ["aplay", "-q", "/usr/share/sounds/linuxmint-login.wav"],
+        stdout=utils.subprocess.DEVNULL,
+        stderr=utils.subprocess.PIPE,
+    )
+
+
+@pytest.mark.unit
+def test_play_audio_feedback_falls_back_from_canberra_to_paplay(monkeypatch):
+    """If canberra fails at runtime, playback should continue with paplay."""
+    proc_fail = MagicMock()
+    proc_fail.communicate.return_value = (b"", b"theme missing")
+    proc_fail.returncode = 1
+
+    proc_ok = MagicMock()
+    proc_ok.communicate.return_value = (b"", b"")
+    proc_ok.returncode = 0
+
+    utils._audio_feedback_cache.clear()
+    monkeypatch.setitem(utils.cfg, "audio_feedback_enabled", True)
+    monkeypatch.setitem(utils.cfg, "audio_feedback_volume", 0.3)
+    monkeypatch.setattr(utils.threading, "Thread", _ImmediateThread)
+    monkeypatch.setattr(utils, "command_exists", lambda cmd: cmd in {"canberra-gtk-play", "paplay"})
+    monkeypatch.setattr(
+        utils.os.path,
+        "exists",
+        lambda path: path == "/usr/share/sounds/freedesktop/stereo/audio-volume-change.oga",
+    )
+    monkeypatch.setattr(utils.subprocess, "Popen", MagicMock(side_effect=[proc_fail, proc_ok]))
+
+    utils.play_audio_feedback("done")
+
+    assert utils.subprocess.Popen.call_count == 2
+    first_command = utils.subprocess.Popen.call_args_list[0].args[0]
+    second_command = utils.subprocess.Popen.call_args_list[1].args[0]
+    assert first_command[0] == "canberra-gtk-play"
+    assert second_command[0] == "paplay"
 
 
 @pytest.mark.unit

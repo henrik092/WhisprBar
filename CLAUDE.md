@@ -1033,10 +1033,6 @@ def test_load_config():
 - No reliable auto-paste (clipboard-only)
 - No window detection for paste sequence
 
-**Single Hotkey:**
-- Can only bind one global hotkey
-- Cannot have separate hotkeys for different actions
-
 **No Undo:**
 - Transcription immediately pastes
 - History log available for recovery
