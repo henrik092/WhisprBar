@@ -190,8 +190,8 @@ class WhisprBarApp:
         """
         if self.config.paste.auto_paste_enabled:
             try:
-                from whisprbar.paste import auto_paste
-                auto_paste(text, self._cfg_dict)
+                from whisprbar.paste import perform_auto_paste
+                perform_auto_paste(text)
             except Exception as exc:
                 import sys
                 print(f"[WARN] Auto-paste failed: {exc}", file=sys.stderr)
