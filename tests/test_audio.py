@@ -35,7 +35,7 @@ def test_find_device_index_by_name_exact_match():
         {"index": 2, "name": "Built-in Audio"},
     ]
 
-    with patch.object(audio, "list_input_devices", return_value=mock_devices):
+    with patch("whisprbar.audio.recorder.list_input_devices", return_value=mock_devices):
         # Exact match (case-insensitive)
         assert audio.find_device_index_by_name("USB Microphone") == 1
         assert audio.find_device_index_by_name("usb microphone") == 1
@@ -50,7 +50,7 @@ def test_find_device_index_by_name_substring_match():
         {"index": 2, "name": "Built-in Audio"},
     ]
 
-    with patch.object(audio, "list_input_devices", return_value=mock_devices):
+    with patch("whisprbar.audio.recorder.list_input_devices", return_value=mock_devices):
         # Substring match
         assert audio.find_device_index_by_name("USB") == 1
         assert audio.find_device_index_by_name("Microphone") == 1
@@ -70,7 +70,7 @@ def test_find_device_index_by_name_not_found():
         {"index": 1, "name": "USB Microphone"},
     ]
 
-    with patch.object(audio, "list_input_devices", return_value=mock_devices):
+    with patch("whisprbar.audio.recorder.list_input_devices", return_value=mock_devices):
         assert audio.find_device_index_by_name("Nonexistent Device") is None
 
 
