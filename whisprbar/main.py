@@ -655,6 +655,10 @@ def on_recording_start() -> None:
     refresh_menu(get_callbacks(), state)
     debug("Recording started")
 
+    # Show animated recording indicator
+    from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_RECORDING
+    show_recording_indicator(PHASE_RECORDING, cfg)
+
     # Play audio feedback
     play_audio_feedback("start")
 
@@ -667,6 +671,10 @@ def on_recording_stop() -> None:
     refresh_menu(get_callbacks(), state)
     debug("Recording stopped, starting transcription")
 
+    # Switch indicator to processing phase
+    from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_PROCESSING
+    show_recording_indicator(PHASE_PROCESSING, cfg)
+
     # Confirm stop immediately, before transcription work begins.
     play_audio_feedback("stop")
 
@@ -676,6 +684,8 @@ def on_recording_stop() -> None:
 
     if audio_data is None:
         debug("No audio data available")
+        from whisprbar.ui.recording_indicator import hide_recording_indicator
+        hide_recording_indicator()
         state.transcribing = False
         refresh_tray_indicator(state)
         return
@@ -761,8 +771,10 @@ def on_recording_stop() -> None:
                 hide_live_overlay()
                 return
 
-            # Update overlay
+            # Update overlay and indicator
             update_live_overlay("Transcribing...", "Processing...")
+            from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_TRANSCRIBING
+            show_recording_indicator(PHASE_TRANSCRIBING, cfg)
 
             # Transcribe (pass language string, not entire cfg)
             text = transcribe_audio(processed, cfg.get("language", "de"))
@@ -770,6 +782,8 @@ def on_recording_stop() -> None:
             if text:
                 debug(f"Transcription: {text}")
                 update_live_overlay(text, "Complete")
+                from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_COMPLETE
+                show_recording_indicator(PHASE_COMPLETE, cfg)
 
                 # Write to history
                 word_count = len(text.split())
@@ -801,11 +815,15 @@ def on_recording_stop() -> None:
             else:
                 # Empty or failed transcription - notify but don't paste anything
                 debug("Transcription empty or failed")
+                from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_ERROR
+                show_recording_indicator(PHASE_ERROR, cfg)
                 notify("Transcription failed or empty.")
                 hide_live_overlay()
 
         except Exception as exc:
             debug(f"Transcription error: {exc}")
+            from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_ERROR
+            show_recording_indicator(PHASE_ERROR, cfg)
             notify(f"Transcription error: {exc}")
         finally:
             # Always cleanup resources, even on exceptions
@@ -1050,9 +1068,10 @@ def main() -> None:
         # Update audio device index
         update_device_index()
 
-        # Set up recording callbacks
+        # Set up recording callbacks (including audio level for indicator)
         from whisprbar.audio import set_recording_callbacks
-        set_recording_callbacks(on_recording_start, on_recording_stop)
+        from whisprbar.ui.recording_indicator import update_audio_level
+        set_recording_callbacks(on_recording_start, on_recording_stop, on_audio_level=update_audio_level)
 
         # Install signal handlers
         install_signal_handlers()

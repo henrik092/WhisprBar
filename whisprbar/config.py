@@ -79,6 +79,11 @@ DEFAULT_CFG = {
     "audio_feedback_enabled": True,  # Play sounds on recording start/stop/completion
     "audio_feedback_volume": 0.3,  # Volume for audio feedback (0.0-1.0)
     "min_audio_energy": 0.0008,  # Minimum audio energy to prevent hallucinations (0.0001-0.01)
+    "recording_indicator_enabled": True,  # Show animated recording indicator
+    "recording_indicator_style": "soundwave",  # Style: soundwave, pulse, minimal
+    "recording_indicator_position": "bottom-center",  # Position: bottom-center, top-right, etc.
+    "recording_indicator_size": "normal",  # Size: small, normal, large
+    "recording_indicator_opacity": 0.85,  # Opacity (0.0-1.0)
 }
 
 # Global config instance (loaded from disk + defaults)
