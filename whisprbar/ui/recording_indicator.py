@@ -35,12 +35,9 @@ PHASE_TRANSCRIBING = "transcribing"
 PHASE_COMPLETE = "complete"
 PHASE_ERROR = "error"
 
-# Size presets
-SIZE_PRESETS = {
-    "small": (140, 44),
-    "normal": (200, 60),
-    "large": (280, 80),
-}
+# Base dimensions at 100% scale — wide and flat (8:1 ratio)
+BASE_WIDTH = 160
+BASE_HEIGHT = 20
 
 # Colors (RGBA)
 COLOR_RECORDING = (0.91, 0.30, 0.24, 1.0)      # Red/orange
@@ -55,6 +52,15 @@ FPS = 20
 FRAME_MS = 1000 // FPS
 COMPLETE_DISPLAY_MS = 1500
 FADE_DURATION_MS = 400
+
+# Position constants
+POSITION_TOP_CENTER = "top-center"
+POSITION_TOP_LEFT = "top-left"
+POSITION_TOP_RIGHT = "top-right"
+POSITION_BOTTOM_CENTER = "bottom-center"
+POSITION_BOTTOM_LEFT = "bottom-left"
+POSITION_BOTTOM_RIGHT = "bottom-right"
+POSITION_DRAGGABLE = "draggable"
 
 
 class RecordingIndicator:
@@ -80,23 +86,30 @@ class RecordingIndicator:
         self._hide_timer_id: Optional[int] = None
         self._lock = threading.Lock()
 
+        # Dragging state
+        self._dragging = False
+        self._drag_start_x = 0
+        self._drag_start_y = 0
+
         # Config
         cfg = cfg or {}
         self._enabled = cfg.get("recording_indicator_enabled", True)
         self._style = cfg.get("recording_indicator_style", "soundwave")
-        self._position = cfg.get("recording_indicator_position", "bottom-center")
-        self._size_name = cfg.get("recording_indicator_size", "normal")
+        self._position = cfg.get("recording_indicator_position", POSITION_TOP_CENTER)
+        self._scale = float(cfg.get("recording_indicator_scale", 1.0))
         self._opacity = cfg.get("recording_indicator_opacity", 0.85)
+        self._custom_x = cfg.get("recording_indicator_x")
+        self._custom_y = cfg.get("recording_indicator_y")
 
-        self._width, self._height = SIZE_PRESETS.get(self._size_name, (200, 60))
+        # Clamp scale to valid range
+        self._scale = max(0.1, min(2.0, self._scale))
+
+        # Compute actual pixel dimensions
+        self._width = max(16, int(BASE_WIDTH * self._scale))
+        self._height = max(4, int(BASE_HEIGHT * self._scale))
 
     def show(self, phase: str = PHASE_RECORDING) -> None:
-        """Show or update the indicator.
-
-        Args:
-            phase: One of PHASE_RECORDING, PHASE_PROCESSING, PHASE_TRANSCRIBING,
-                   PHASE_COMPLETE, PHASE_ERROR.
-        """
+        """Show or update the indicator."""
         if not self._enabled or not GTK_AVAILABLE:
             return
         GLib.idle_add(self._show_on_main_thread, phase)
@@ -108,11 +121,7 @@ class RecordingIndicator:
         GLib.idle_add(self._hide_on_main_thread)
 
     def set_audio_level(self, level: float) -> None:
-        """Set current audio level for soundwave animation.
-
-        Args:
-            level: Audio level 0.0 (silent) to 1.0 (max).
-        """
+        """Set current audio level for soundwave animation."""
         self._audio_level = max(0.0, min(1.0, level))
 
     def _show_on_main_thread(self, phase: str) -> bool:
@@ -182,6 +191,18 @@ class RecordingIndicator:
         drawing_area.connect("draw", self._on_draw)
         window.add(drawing_area)
 
+        # Enable dragging for "draggable" position mode
+        if self._position == POSITION_DRAGGABLE:
+            window.set_accept_focus(True)
+            window.add_events(
+                Gdk.EventMask.BUTTON_PRESS_MASK
+                | Gdk.EventMask.BUTTON_RELEASE_MASK
+                | Gdk.EventMask.POINTER_MOTION_MASK
+            )
+            window.connect("button-press-event", self._on_button_press)
+            window.connect("button-release-event", self._on_button_release)
+            window.connect("motion-notify-event", self._on_motion_notify)
+
         # Position
         self._position_window(window, screen)
 
@@ -190,6 +211,11 @@ class RecordingIndicator:
 
     def _position_window(self, window, screen) -> None:
         """Position the window based on config."""
+        # If draggable and custom position saved, use that
+        if self._position == POSITION_DRAGGABLE and self._custom_x is not None and self._custom_y is not None:
+            window.move(int(self._custom_x), int(self._custom_y))
+            return
+
         display = screen.get_display()
         monitor = display.get_primary_monitor() or display.get_monitor(0)
         if monitor is None:
@@ -197,23 +223,66 @@ class RecordingIndicator:
         geom = monitor.get_geometry()
         margin = 20
 
-        if self._position == "bottom-center":
-            x = geom.x + (geom.width - self._width) // 2
-            y = geom.y + geom.height - self._height - margin - 60
-        elif self._position == "top-right":
-            x = geom.x + geom.width - self._width - margin
-            y = geom.y + margin
-        elif self._position == "top-center":
+        pos = self._position
+        if pos == POSITION_TOP_CENTER:
             x = geom.x + (geom.width - self._width) // 2
             y = geom.y + margin
-        elif self._position == "bottom-right":
+        elif pos == POSITION_TOP_LEFT:
+            x = geom.x + margin
+            y = geom.y + margin
+        elif pos == POSITION_TOP_RIGHT:
+            x = geom.x + geom.width - self._width - margin
+            y = geom.y + margin
+        elif pos == POSITION_BOTTOM_LEFT:
+            x = geom.x + margin
+            y = geom.y + geom.height - self._height - margin - 60
+        elif pos == POSITION_BOTTOM_RIGHT:
             x = geom.x + geom.width - self._width - margin
             y = geom.y + geom.height - self._height - margin - 60
-        else:  # default: bottom-center
+        elif pos == POSITION_DRAGGABLE:
+            # Default to center of screen
+            x = geom.x + (geom.width - self._width) // 2
+            y = geom.y + (geom.height - self._height) // 2
+        else:
+            # default: bottom-center
             x = geom.x + (geom.width - self._width) // 2
             y = geom.y + geom.height - self._height - margin - 60
 
         window.move(x, y)
+
+    def _on_button_press(self, widget, event) -> bool:
+        if event.button == 1:
+            self._dragging = True
+            self._drag_start_x = event.x_root
+            self._drag_start_y = event.y_root
+        return False
+
+    def _on_button_release(self, widget, event) -> bool:
+        if event.button == 1 and self._dragging:
+            self._dragging = False
+            # Save position to config
+            if self._window:
+                x, y = self._window.get_position()
+                self._custom_x = x
+                self._custom_y = y
+                try:
+                    from whisprbar.config import cfg as app_cfg, save_config
+                    app_cfg["recording_indicator_x"] = x
+                    app_cfg["recording_indicator_y"] = y
+                    save_config()
+                except Exception:
+                    pass
+        return False
+
+    def _on_motion_notify(self, widget, event) -> bool:
+        if self._dragging and self._window:
+            dx = event.x_root - self._drag_start_x
+            dy = event.y_root - self._drag_start_y
+            x, y = self._window.get_position()
+            self._window.move(int(x + dx), int(y + dy))
+            self._drag_start_x = event.x_root
+            self._drag_start_y = event.y_root
+        return False
 
     def _tick(self) -> bool:
         """Animation tick (~20fps). Returns True to keep timer alive."""
@@ -244,8 +313,8 @@ class RecordingIndicator:
         w, h = alloc.width, alloc.height
         alpha = self._fade_alpha * self._opacity
 
-        # Background with rounded corners
-        radius = 12
+        # Background with rounded corners (proportional to height)
+        radius = min(h // 2, 12)
         self._draw_rounded_rect(cr, 0, 0, w, h, radius)
         r, g, b, _ = COLOR_RECORDING_BG
         cr.set_source_rgba(r, g, b, alpha)
@@ -275,54 +344,73 @@ class RecordingIndicator:
         cr.close_path()
 
     def _draw_recording(self, cr, w, h, alpha) -> None:
-        """Draw soundwave bars that react to audio level."""
+        """Draw recording animation based on selected style."""
         r, g, b, _ = COLOR_RECORDING
         t = self._tick_count / FPS  # Time in seconds
         level = self._audio_level
 
         if self._style == "pulse":
-            # Simple pulsing circle
-            cx, cy = w / 2, h / 2
-            base_r = min(w, h) * 0.25
-            pulse = 1.0 + 0.3 * math.sin(t * 4) + level * 0.2
-            cr.arc(cx, cy, base_r * pulse, 0, 2 * math.pi)
-            cr.set_source_rgba(r, g, b, alpha * 0.8)
+            # Horizontal glowing bar that breathes with audio level
+            margin_x = w * 0.1
+            bar_h = h * 0.35
+            cy = h / 2
+            pulse = 0.4 + 0.6 * (0.3 + 0.7 * level) * (0.5 + 0.5 * math.sin(t * 3))
+            bar_w = (w - 2 * margin_x) * pulse
+            bx = (w - bar_w) / 2
+            by = cy - bar_h / 2
+            cap_r = bar_h / 2
+            self._draw_rounded_rect(cr, bx, by, bar_w, bar_h, cap_r)
+            cr.set_source_rgba(r, g, b, alpha * (0.5 + 0.4 * pulse))
             cr.fill()
-            # Inner dot
-            cr.arc(cx, cy, base_r * 0.4, 0, 2 * math.pi)
-            cr.set_source_rgba(r, g, b, alpha)
+            # Brighter core line
+            core_h = bar_h * 0.4
+            core_y = cy - core_h / 2
+            self._draw_rounded_rect(cr, bx + bar_h * 0.2, core_y, max(bar_w - bar_h * 0.4, 1), core_h, core_h / 2)
+            cr.set_source_rgba(r, g, b, alpha * 0.9)
             cr.fill()
             return
 
         if self._style == "minimal":
-            # Minimal pulsing dot
-            cx, cy = w / 2, h / 2
-            dot_r = 6 + 3 * math.sin(t * 3)
-            cr.arc(cx, cy, dot_r, 0, 2 * math.pi)
+            # Small recording LED dot on left + thin animated line
+            cy = h / 2
+            dot_r = h * 0.2
+            dot_x = w * 0.12
+            pulse = 0.7 + 0.3 * math.sin(t * 3)
+            cr.arc(dot_x, cy, dot_r * pulse, 0, 2 * math.pi)
             cr.set_source_rgba(r, g, b, alpha)
+            cr.fill()
+            # Subtle glow
+            cr.arc(dot_x, cy, dot_r * 1.8 * pulse, 0, 2 * math.pi)
+            cr.set_source_rgba(r, g, b, alpha * 0.15)
+            cr.fill()
+            # Thin animated line extending right
+            line_h = h * 0.12
+            line_x = dot_x + dot_r * 2.5
+            line_w = (w * 0.8 - line_x) * (0.2 + 0.8 * level)
+            line_y = cy - line_h / 2
+            self._draw_rounded_rect(cr, line_x, line_y, max(line_w, w * 0.05), line_h, line_h / 2)
+            cr.set_source_rgba(r, g, b, alpha * 0.5 * (0.4 + 0.6 * level))
             cr.fill()
             return
 
-        # Default: soundwave bars
+        # Default: soundwave bars — fill ~85% of the box width
         num_bars = 9
-        bar_width = w * 0.04
-        gap = w * 0.03
+        usable_w = w * 0.85
+        bar_width = usable_w / (num_bars * 1.8)
+        gap = bar_width * 0.8
         total_w = num_bars * bar_width + (num_bars - 1) * gap
         start_x = (w - total_w) / 2
-        max_h = h * 0.6
-        min_h = h * 0.08
+        max_h = h * 0.75
+        min_h = h * 0.1
 
         for i in range(num_bars):
-            # Phase offset for wave effect
             phase = i * 0.7
-            # Sine wave with audio level influence
             wave = math.sin(t * 3.5 + phase) * 0.5 + 0.5
             bar_h = min_h + (max_h - min_h) * (0.3 + 0.7 * level) * wave
 
             x = start_x + i * (bar_width + gap)
             y = (h - bar_h) / 2
 
-            # Rounded bar caps
             cap_r = bar_width / 2
             self._draw_rounded_rect(cr, x, y, bar_width, bar_h, cap_r)
             cr.set_source_rgba(r, g, b, alpha * (0.5 + 0.5 * wave))
@@ -360,7 +448,6 @@ class RecordingIndicator:
 
         for i in range(num_dots):
             phase = i * 0.4
-            # Bounce effect
             bounce = abs(math.sin(t * 3 + phase)) * min(w, h) * 0.12
             x = start_x + i * gap
             y = cy - bounce
@@ -378,7 +465,6 @@ class RecordingIndicator:
         cr.set_line_cap(1)  # CAIRO_LINE_CAP_ROUND
         cr.set_source_rgba(r, g, b, alpha)
 
-        # Checkmark path
         cr.move_to(cx - size * 0.5, cy)
         cr.line_to(cx - size * 0.1, cy + size * 0.4)
         cr.line_to(cx + size * 0.6, cy - size * 0.35)
@@ -422,11 +508,7 @@ _indicator_lock = threading.Lock()
 
 
 def get_recording_indicator(cfg: Optional[dict] = None) -> RecordingIndicator:
-    """Get or create the recording indicator singleton.
-
-    Args:
-        cfg: Config dict (only used on first call to create the indicator).
-    """
+    """Get or create the recording indicator singleton."""
     global _indicator
     with _indicator_lock:
         if _indicator is None:
@@ -435,12 +517,7 @@ def get_recording_indicator(cfg: Optional[dict] = None) -> RecordingIndicator:
 
 
 def show_recording_indicator(phase: str = PHASE_RECORDING, cfg: Optional[dict] = None) -> None:
-    """Show the recording indicator with the given phase.
-
-    Args:
-        phase: Animation phase (PHASE_RECORDING, PHASE_PROCESSING, etc.)
-        cfg: Optional config dict.
-    """
+    """Show the recording indicator with the given phase."""
     indicator = get_recording_indicator(cfg)
     indicator.show(phase)
 
@@ -453,12 +530,17 @@ def hide_recording_indicator() -> None:
             _indicator.hide()
 
 
-def update_audio_level(level: float) -> None:
-    """Update the audio level for the soundwave animation.
+def reset_recording_indicator() -> None:
+    """Destroy the current indicator so a new one is created with fresh config."""
+    global _indicator
+    with _indicator_lock:
+        if _indicator is not None:
+            _indicator.destroy()
+            _indicator = None
 
-    Args:
-        level: Audio level 0.0 (silent) to 1.0 (max).
-    """
+
+def update_audio_level(level: float) -> None:
+    """Update the audio level for the soundwave animation."""
     global _indicator
     with _indicator_lock:
         if _indicator is not None:
