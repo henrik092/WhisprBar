@@ -1,11 +1,11 @@
 """Animated recording indicator for WhisprBar.
 
-Displays a small, frameless, transparent popup window with animated
+Displays a wide, frameless, transparent popup bar with animated
 visual feedback during recording and transcription:
-- RECORDING: Pulsating soundwave bars that react to audio level
-- PROCESSING: Softly pulsing dots
-- TRANSCRIBING: Running dot indicator (typing animation)
-- COMPLETE: Brief green checkmark flash, then fade out
+- RECORDING: Soundwave bars that react to audio level
+- PROCESSING: Pulsing dots
+- TRANSCRIBING: Bouncing dots (typing animation)
+- COMPLETE: Brief green checkmark, then fade out
 - ERROR: Brief red X, then fade out
 
 Technical: GTK3 DrawingArea + Cairo for custom rendering,
@@ -35,9 +35,9 @@ PHASE_TRANSCRIBING = "transcribing"
 PHASE_COMPLETE = "complete"
 PHASE_ERROR = "error"
 
-# Base dimensions at 100% scale — wide and flat (8:1 ratio)
-BASE_WIDTH = 160
-BASE_HEIGHT = 20
+# Base dimensions at 100% scale — wide bar (8:1 ratio)
+BASE_WIDTH = 240
+BASE_HEIGHT = 30
 
 # Colors (RGBA)
 COLOR_RECORDING = (0.91, 0.30, 0.24, 1.0)      # Red/orange
@@ -94,7 +94,6 @@ class RecordingIndicator:
         # Config
         cfg = cfg or {}
         self._enabled = cfg.get("recording_indicator_enabled", True)
-        self._style = cfg.get("recording_indicator_style", "soundwave")
         self._position = cfg.get("recording_indicator_position", POSITION_TOP_CENTER)
         self._scale = float(cfg.get("recording_indicator_scale", 1.0))
         self._opacity = cfg.get("recording_indicator_opacity", 0.85)
@@ -344,57 +343,12 @@ class RecordingIndicator:
         cr.close_path()
 
     def _draw_recording(self, cr, w, h, alpha) -> None:
-        """Draw recording animation based on selected style."""
+        """Draw soundwave bars that react to audio level."""
         r, g, b, _ = COLOR_RECORDING
         t = self._tick_count / FPS  # Time in seconds
         level = self._audio_level
 
-        if self._style == "pulse":
-            # Horizontal glowing bar that breathes with audio level
-            margin_x = w * 0.1
-            bar_h = h * 0.35
-            cy = h / 2
-            pulse = 0.4 + 0.6 * (0.3 + 0.7 * level) * (0.5 + 0.5 * math.sin(t * 3))
-            bar_w = (w - 2 * margin_x) * pulse
-            bx = (w - bar_w) / 2
-            by = cy - bar_h / 2
-            cap_r = bar_h / 2
-            self._draw_rounded_rect(cr, bx, by, bar_w, bar_h, cap_r)
-            cr.set_source_rgba(r, g, b, alpha * (0.5 + 0.4 * pulse))
-            cr.fill()
-            # Brighter core line
-            core_h = bar_h * 0.4
-            core_y = cy - core_h / 2
-            self._draw_rounded_rect(cr, bx + bar_h * 0.2, core_y, max(bar_w - bar_h * 0.4, 1), core_h, core_h / 2)
-            cr.set_source_rgba(r, g, b, alpha * 0.9)
-            cr.fill()
-            return
-
-        if self._style == "minimal":
-            # Small recording LED dot on left + thin animated line
-            cy = h / 2
-            dot_r = h * 0.2
-            dot_x = w * 0.12
-            pulse = 0.7 + 0.3 * math.sin(t * 3)
-            cr.arc(dot_x, cy, dot_r * pulse, 0, 2 * math.pi)
-            cr.set_source_rgba(r, g, b, alpha)
-            cr.fill()
-            # Subtle glow
-            cr.arc(dot_x, cy, dot_r * 1.8 * pulse, 0, 2 * math.pi)
-            cr.set_source_rgba(r, g, b, alpha * 0.15)
-            cr.fill()
-            # Thin animated line extending right
-            line_h = h * 0.12
-            line_x = dot_x + dot_r * 2.5
-            line_w = (w * 0.8 - line_x) * (0.2 + 0.8 * level)
-            line_y = cy - line_h / 2
-            self._draw_rounded_rect(cr, line_x, line_y, max(line_w, w * 0.05), line_h, line_h / 2)
-            cr.set_source_rgba(r, g, b, alpha * 0.5 * (0.4 + 0.6 * level))
-            cr.fill()
-            return
-
-        # Default: soundwave bars — fill ~85% of the box width
-        num_bars = 9
+        num_bars = 12
         usable_w = w * 0.85
         bar_width = usable_w / (num_bars * 1.8)
         gap = bar_width * 0.8

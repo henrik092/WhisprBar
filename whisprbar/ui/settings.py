@@ -781,15 +781,6 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
 
         ri_rows: List[Gtk.Widget] = []
 
-        # Style combo
-        ri_style_combo = Gtk.ComboBoxText()
-        for sid, slabel in [("soundwave", "Soundwave"), ("pulse", "Puls"), ("minimal", "Minimal")]:
-            ri_style_combo.append(sid, slabel)
-        ri_style_combo.set_active_id(cfg.get("recording_indicator_style", "soundwave"))
-        ri_style_row = make_row("  Stil", ri_style_combo)
-        ri_rows.append(ri_style_row)
-        adv_page.pack_start(ri_style_row, False, False, 0)
-
         # Position combo
         ri_pos_combo = Gtk.ComboBoxText()
         for pid, plabel in [
@@ -1015,13 +1006,11 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             cfg["chunking_enabled"] = chunking_switch.get_active()
             # Recording indicator settings
             old_ri_enabled = cfg.get("recording_indicator_enabled")
-            old_ri_style = cfg.get("recording_indicator_style")
             old_ri_position = cfg.get("recording_indicator_position")
             old_ri_scale = cfg.get("recording_indicator_scale")
             old_ri_opacity = cfg.get("recording_indicator_opacity")
 
             cfg["recording_indicator_enabled"] = ri_switch.get_active()
-            cfg["recording_indicator_style"] = ri_style_combo.get_active_id() or "soundwave"
             cfg["recording_indicator_position"] = ri_pos_combo.get_active_id() or "top-center"
             cfg["recording_indicator_scale"] = round(float(ri_scale.get_value()), 1)
             cfg["recording_indicator_opacity"] = round(float(ri_opacity.get_value()), 2)
@@ -1029,7 +1018,6 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             # Reset indicator singleton if any indicator settings changed
             ri_changed = (
                 old_ri_enabled != cfg["recording_indicator_enabled"]
-                or old_ri_style != cfg["recording_indicator_style"]
                 or old_ri_position != cfg["recording_indicator_position"]
                 or old_ri_scale != cfg["recording_indicator_scale"]
                 or old_ri_opacity != cfg["recording_indicator_opacity"]

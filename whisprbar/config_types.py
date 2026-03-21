@@ -150,9 +150,9 @@ class IndicatorConfig:
     """Recording indicator (animated popup) settings."""
 
     recording_indicator_enabled: bool = True
-    recording_indicator_style: str = "soundwave"  # "soundwave", "pulse", "minimal"
+    recording_indicator_style: str = "soundwave"  # Currently only soundwave
     recording_indicator_position: str = "top-center"  # "top-center", "bottom-center", etc.
-    recording_indicator_scale: float = 1.0  # 0.1 - 2.0 (1.0 = 160x20 base)
+    recording_indicator_scale: float = 1.0  # 0.1 - 2.0 (1.0 = 240x30 base)
     recording_indicator_opacity: float = 0.85
     recording_indicator_x: Optional[int] = None
     recording_indicator_y: Optional[int] = None
