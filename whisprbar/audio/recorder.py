@@ -31,6 +31,7 @@ recording_state = {
 _recording_callbacks = {
     "on_start": None,
     "on_stop": None,
+    "on_audio_level": None,
 }
 
 # Lazy-loaded sounddevice module (import can block/fail in headless CI)
@@ -157,6 +158,17 @@ def recording_callback(indata, frames, time_info, status):
             except queue.Full:
                 # Should never happen with unbounded queue, but handle defensively
                 print("[ERROR] Audio queue unexpectedly full, dropping frame", file=sys.stderr)
+
+    # Feed audio level to recording indicator
+    if _recording_callbacks.get("on_audio_level"):
+        try:
+            import numpy as np
+            rms = float(np.sqrt(np.mean(data_copy.astype(np.float32) ** 2)))
+            # Normalize: typical speech RMS ~0.01-0.1, scale to 0.0-1.0
+            level = min(1.0, rms * 10.0)
+            _recording_callbacks["on_audio_level"](level)
+        except Exception:
+            pass
 
     # Also feed to VAD monitor queue if it exists
     from .vad import vad_monitor_lock, VAD_MONITOR_QUEUE
@@ -347,15 +359,17 @@ def stop_recording() -> Optional[np.ndarray]:
 # Callback Management
 # =============================================================================
 
-def set_recording_callbacks(on_start=None, on_stop=None):
+def set_recording_callbacks(on_start=None, on_stop=None, on_audio_level=None):
     """Set callbacks for recording events.
 
     Args:
         on_start: Function to call when recording starts
         on_stop: Function to call when recording stops
+        on_audio_level: Function(float) called per audio frame with level 0.0-1.0
     """
     _recording_callbacks["on_start"] = on_start
     _recording_callbacks["on_stop"] = on_stop
+    _recording_callbacks["on_audio_level"] = on_audio_level
 
 
 def get_recording_state() -> dict:
