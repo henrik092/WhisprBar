@@ -698,6 +698,8 @@ def on_recording_stop() -> None:
             notify("Transcription busy, please wait for current transcription to finish.")
             state.transcribing = False
             refresh_tray_indicator(state)
+            from whisprbar.ui.recording_indicator import hide_recording_indicator
+            hide_recording_indicator()
             return
 
         try:
@@ -754,6 +756,8 @@ def on_recording_stop() -> None:
                 state.transcribing = False
                 refresh_tray_indicator(state)
                 hide_live_overlay()
+                from whisprbar.ui.recording_indicator import hide_recording_indicator
+                hide_recording_indicator()
                 return
 
             # Audio energy check (prevent hallucinations on noise-only audio)
@@ -769,6 +773,8 @@ def on_recording_stop() -> None:
                 state.transcribing = False
                 refresh_tray_indicator(state)
                 hide_live_overlay()
+                from whisprbar.ui.recording_indicator import hide_recording_indicator
+                hide_recording_indicator()
                 return
 
             # Update overlay and indicator
@@ -830,6 +836,8 @@ def on_recording_stop() -> None:
             try:
                 from whisprbar.ui import hide_live_overlay
                 hide_live_overlay()
+                from whisprbar.ui.recording_indicator import hide_recording_indicator
+                hide_recording_indicator()
             except Exception as cleanup_exc:
                 debug(f"Error during overlay cleanup: {cleanup_exc}")
 

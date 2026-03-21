@@ -127,8 +127,11 @@ class TestIndicatorConfig:
         cfg = IndicatorConfig()
         assert cfg.recording_indicator_enabled is True
         assert cfg.recording_indicator_style == "soundwave"
-        assert cfg.recording_indicator_position == "bottom-center"
+        assert cfg.recording_indicator_position == "top-center"
+        assert cfg.recording_indicator_scale == 1.0
         assert cfg.recording_indicator_opacity == 0.85
+        assert cfg.recording_indicator_x is None
+        assert cfg.recording_indicator_y is None
 
 
 @pytest.mark.unit

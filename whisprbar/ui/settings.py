@@ -770,6 +770,77 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
 
         adv_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
 
+        # Recording Indicator section
+        ri_section = Gtk.Label()
+        ri_section.set_markup("<b>Aufnahme-Indikator</b>")
+        ri_section.set_xalign(0.0)
+        adv_page.pack_start(ri_section, False, False, 6)
+
+        ri_row, ri_switch = build_switch("Indikator aktivieren", cfg.get("recording_indicator_enabled", True), "Animiertes Aufnahme-Fenster anzeigen")
+        adv_page.pack_start(ri_row, False, False, 0)
+
+        ri_rows: List[Gtk.Widget] = []
+
+        # Style combo
+        ri_style_combo = Gtk.ComboBoxText()
+        for sid, slabel in [("soundwave", "Soundwave"), ("pulse", "Puls"), ("minimal", "Minimal")]:
+            ri_style_combo.append(sid, slabel)
+        ri_style_combo.set_active_id(cfg.get("recording_indicator_style", "soundwave"))
+        ri_style_row = make_row("  Stil", ri_style_combo)
+        ri_rows.append(ri_style_row)
+        adv_page.pack_start(ri_style_row, False, False, 0)
+
+        # Position combo
+        ri_pos_combo = Gtk.ComboBoxText()
+        for pid, plabel in [
+            ("top-center", "Oben Mitte"), ("top-left", "Oben Links"), ("top-right", "Oben Rechts"),
+            ("bottom-center", "Unten Mitte"), ("bottom-left", "Unten Links"), ("bottom-right", "Unten Rechts"),
+            ("draggable", "Frei verschiebbar"),
+        ]:
+            ri_pos_combo.append(pid, plabel)
+        ri_pos_combo.set_active_id(cfg.get("recording_indicator_position", "top-center"))
+        ri_pos_row = make_row("  Position", ri_pos_combo)
+        ri_rows.append(ri_pos_row)
+        adv_page.pack_start(ri_pos_row, False, False, 0)
+
+        # Scale slider (10% - 200%, default 100% = 160x20 base)
+        ri_scale_val = float(cfg.get("recording_indicator_scale", 1.0))
+        ri_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.1, 2.0, 0.1)
+        ri_scale.set_digits(1)
+        ri_scale.set_value(max(0.1, min(2.0, ri_scale_val)))
+        ri_scale.set_draw_value(True)
+        ri_scale.set_value_pos(Gtk.PositionType.RIGHT)
+        ri_scale.set_hexpand(True)
+        ri_scale.clear_marks()
+        ri_scale.connect("format-value", lambda scale, value: f"{int(value * 100)}%")
+        ri_scale_row = make_row("  Groesse", ri_scale, expand=True, defaults_text="(Standard: 100%)")
+        ri_rows.append(ri_scale_row)
+        adv_page.pack_start(ri_scale_row, False, False, 0)
+
+        # Opacity slider
+        ri_opacity_val = float(cfg.get("recording_indicator_opacity", 0.85))
+        ri_opacity = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.3, 1.0, 0.05)
+        ri_opacity.set_digits(2)
+        ri_opacity.set_value(max(0.3, min(1.0, ri_opacity_val)))
+        ri_opacity.set_draw_value(True)
+        ri_opacity.set_value_pos(Gtk.PositionType.RIGHT)
+        ri_opacity.set_hexpand(True)
+        ri_opacity.clear_marks()
+        ri_opacity.connect("format-value", lambda scale, value: f"{int(value * 100)}%")
+        ri_opacity_row = make_row("  Transparenz", ri_opacity, expand=True, defaults_text="(Standard: 85%)")
+        ri_rows.append(ri_opacity_row)
+        adv_page.pack_start(ri_opacity_row, False, False, 0)
+
+        def sync_ri_controls(*_args) -> None:
+            active = ri_switch.get_active()
+            for row in ri_rows:
+                row.set_visible(active)
+
+        ri_switch.connect("notify::active", sync_ri_controls)
+        sync_ri_controls()
+
+        adv_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
+
         # Live Overlay
         overlay_section = Gtk.Label()
         overlay_section.set_markup("<b>Live-Overlay</b>")
@@ -942,6 +1013,34 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             cfg["postprocess_fix_spacing"] = pp_spacing_switch.get_active() and pp_switch.get_active()
             cfg["postprocess_fix_capitalization"] = pp_caps_switch.get_active() and pp_switch.get_active()
             cfg["chunking_enabled"] = chunking_switch.get_active()
+            # Recording indicator settings
+            old_ri_enabled = cfg.get("recording_indicator_enabled")
+            old_ri_style = cfg.get("recording_indicator_style")
+            old_ri_position = cfg.get("recording_indicator_position")
+            old_ri_scale = cfg.get("recording_indicator_scale")
+            old_ri_opacity = cfg.get("recording_indicator_opacity")
+
+            cfg["recording_indicator_enabled"] = ri_switch.get_active()
+            cfg["recording_indicator_style"] = ri_style_combo.get_active_id() or "soundwave"
+            cfg["recording_indicator_position"] = ri_pos_combo.get_active_id() or "top-center"
+            cfg["recording_indicator_scale"] = round(float(ri_scale.get_value()), 1)
+            cfg["recording_indicator_opacity"] = round(float(ri_opacity.get_value()), 2)
+
+            # Reset indicator singleton if any indicator settings changed
+            ri_changed = (
+                old_ri_enabled != cfg["recording_indicator_enabled"]
+                or old_ri_style != cfg["recording_indicator_style"]
+                or old_ri_position != cfg["recording_indicator_position"]
+                or old_ri_scale != cfg["recording_indicator_scale"]
+                or old_ri_opacity != cfg["recording_indicator_opacity"]
+            )
+            if ri_changed:
+                try:
+                    from whisprbar.ui.recording_indicator import reset_recording_indicator
+                    reset_recording_indicator()
+                except Exception:
+                    pass
+
             cfg["live_overlay_enabled"] = overlay_switch.get_active()
             cfg["live_overlay_font_size"] = int(font_scale.get_value())
             cfg["live_overlay_opacity"] = round(float(opacity_scale.get_value()), 2)

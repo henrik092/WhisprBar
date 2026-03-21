@@ -81,9 +81,11 @@ DEFAULT_CFG = {
     "min_audio_energy": 0.0008,  # Minimum audio energy to prevent hallucinations (0.0001-0.01)
     "recording_indicator_enabled": True,  # Show animated recording indicator
     "recording_indicator_style": "soundwave",  # Style: soundwave, pulse, minimal
-    "recording_indicator_position": "bottom-center",  # Position: bottom-center, top-right, etc.
-    "recording_indicator_size": "normal",  # Size: small, normal, large
+    "recording_indicator_position": "top-center",  # Position: top-center, bottom-center, top-left, etc.
+    "recording_indicator_scale": 1.0,        # 0.1 - 2.0 (1.0 = 160x20 base)
     "recording_indicator_opacity": 0.85,  # Opacity (0.0-1.0)
+    "recording_indicator_x": None,           # Custom X position (for draggable)
+    "recording_indicator_y": None,           # Custom Y position (for draggable)
 }
 
 # Global config instance (loaded from disk + defaults)

@@ -151,9 +151,11 @@ class IndicatorConfig:
 
     recording_indicator_enabled: bool = True
     recording_indicator_style: str = "soundwave"  # "soundwave", "pulse", "minimal"
-    recording_indicator_position: str = "bottom-center"  # "bottom-center", "top-right", etc.
-    recording_indicator_size: str = "normal"  # "small", "normal", "large"
+    recording_indicator_position: str = "top-center"  # "top-center", "bottom-center", etc.
+    recording_indicator_scale: float = 1.0  # 0.1 - 2.0 (1.0 = 160x20 base)
     recording_indicator_opacity: float = 0.85
+    recording_indicator_x: Optional[int] = None
+    recording_indicator_y: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -284,9 +286,11 @@ class AppConfig:
         indicator = IndicatorConfig(
             recording_indicator_enabled=_get("recording_indicator_enabled", True),
             recording_indicator_style=_get("recording_indicator_style", "soundwave"),
-            recording_indicator_position=_get("recording_indicator_position", "bottom-center"),
-            recording_indicator_size=_get("recording_indicator_size", "normal"),
+            recording_indicator_position=_get("recording_indicator_position", "top-center"),
+            recording_indicator_scale=_get("recording_indicator_scale", 1.0),
             recording_indicator_opacity=_get("recording_indicator_opacity", 0.85),
+            recording_indicator_x=_get("recording_indicator_x", None),
+            recording_indicator_y=_get("recording_indicator_y", None),
         )
 
         return cls(
