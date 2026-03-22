@@ -251,6 +251,13 @@ def validate_config() -> None:
         except (ValueError, TypeError):
             cfg["min_drain_timeout_ms"] = DEFAULT_CFG["min_drain_timeout_ms"]
 
+    # Migrate old recording_indicator_size preset to recording_indicator_scale
+    if "recording_indicator_size" in cfg:
+        size_to_scale = {"small": 0.7, "normal": 1.0, "large": 1.4}
+        old_size = cfg.pop("recording_indicator_size")
+        if "recording_indicator_scale" not in cfg or cfg["recording_indicator_scale"] == DEFAULT_CFG.get("recording_indicator_scale"):
+            cfg["recording_indicator_scale"] = size_to_scale.get(old_size, 1.0)
+
     # Clamp audio feedback volume
     if "audio_feedback_volume" in cfg:
         try:
