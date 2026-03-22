@@ -1026,8 +1026,8 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
                 try:
                     from whisprbar.ui.recording_indicator import reset_recording_indicator
                     reset_recording_indicator()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    print(f"[WARN] Failed to reset recording indicator: {exc}", file=sys.stderr)
 
             cfg["live_overlay_enabled"] = overlay_switch.get_active()
             cfg["live_overlay_font_size"] = int(font_scale.get_value())

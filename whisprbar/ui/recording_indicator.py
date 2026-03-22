@@ -176,6 +176,7 @@ class RecordingIndicator:
         window.set_keep_above(True)
         window.set_accept_focus(False)
         window.set_default_size(self._width, self._height)
+        window.resize(self._width, self._height)
         window.set_resizable(False)
 
         # Enable transparency
@@ -187,6 +188,7 @@ class RecordingIndicator:
 
         # Drawing area
         drawing_area = Gtk.DrawingArea()
+        drawing_area.set_size_request(self._width, self._height)
         drawing_area.connect("draw", self._on_draw)
         window.add(drawing_area)
 
