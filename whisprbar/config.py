@@ -82,7 +82,8 @@ DEFAULT_CFG = {
     "recording_indicator_enabled": True,  # Show animated recording indicator
     "recording_indicator_style": "soundwave",  # Currently only soundwave
     "recording_indicator_position": "top-center",  # Position: top-center, bottom-center, top-left, etc.
-    "recording_indicator_scale": 1.0,        # 0.1 - 2.0 (1.0 = 240x30 base)
+    "recording_indicator_width": 240,        # Width in pixels (60-600)
+    "recording_indicator_height": 30,        # Height in pixels (10-100)
     "recording_indicator_opacity": 0.85,  # Opacity (0.0-1.0)
     "recording_indicator_x": None,           # Custom X position (for draggable)
     "recording_indicator_y": None,           # Custom Y position (for draggable)
@@ -251,12 +252,21 @@ def validate_config() -> None:
         except (ValueError, TypeError):
             cfg["min_drain_timeout_ms"] = DEFAULT_CFG["min_drain_timeout_ms"]
 
-    # Migrate old recording_indicator_size preset to recording_indicator_scale
+    # Migrate old recording_indicator_size preset to width/height
     if "recording_indicator_size" in cfg:
         size_to_scale = {"small": 0.7, "normal": 1.0, "large": 1.4}
         old_size = cfg.pop("recording_indicator_size")
-        if "recording_indicator_scale" not in cfg or cfg["recording_indicator_scale"] == DEFAULT_CFG.get("recording_indicator_scale"):
-            cfg["recording_indicator_scale"] = size_to_scale.get(old_size, 1.0)
+        if "recording_indicator_width" not in cfg:
+            scale = size_to_scale.get(old_size, 1.0)
+            cfg["recording_indicator_width"] = int(240 * scale)
+            cfg["recording_indicator_height"] = int(30 * scale)
+
+    # Migrate old recording_indicator_scale to width/height
+    if "recording_indicator_scale" in cfg:
+        scale = float(cfg.pop("recording_indicator_scale"))
+        if "recording_indicator_width" not in cfg:
+            cfg["recording_indicator_width"] = int(240 * scale)
+            cfg["recording_indicator_height"] = int(30 * scale)
 
     # Clamp audio feedback volume
     if "audio_feedback_volume" in cfg:

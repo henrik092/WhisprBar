@@ -152,7 +152,8 @@ class IndicatorConfig:
     recording_indicator_enabled: bool = True
     recording_indicator_style: str = "soundwave"  # Currently only soundwave
     recording_indicator_position: str = "top-center"  # "top-center", "bottom-center", etc.
-    recording_indicator_scale: float = 1.0  # 0.1 - 2.0 (1.0 = 240x30 base)
+    recording_indicator_width: int = 240  # Width in pixels (60-600)
+    recording_indicator_height: int = 30  # Height in pixels (10-100)
     recording_indicator_opacity: float = 0.85
     recording_indicator_x: Optional[int] = None
     recording_indicator_y: Optional[int] = None
@@ -287,7 +288,8 @@ class AppConfig:
             recording_indicator_enabled=_get("recording_indicator_enabled", True),
             recording_indicator_style=_get("recording_indicator_style", "soundwave"),
             recording_indicator_position=_get("recording_indicator_position", "top-center"),
-            recording_indicator_scale=_get("recording_indicator_scale", 1.0),
+            recording_indicator_width=_get("recording_indicator_width", 240),
+            recording_indicator_height=_get("recording_indicator_height", 30),
             recording_indicator_opacity=_get("recording_indicator_opacity", 0.85),
             recording_indicator_x=_get("recording_indicator_x", None),
             recording_indicator_y=_get("recording_indicator_y", None),
