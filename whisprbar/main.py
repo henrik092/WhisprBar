@@ -801,9 +801,6 @@ def on_recording_stop() -> None:
 
                 # Auto-paste if enabled (handles clipboard + paste)
                 if cfg.get("auto_paste_enabled"):
-                    # Brief pasting indicator
-                    import time as _time
-                    _time.sleep(0.6)  # Let "Done!" show briefly
                     show_recording_indicator(PHASE_PASTING, cfg)
                     from whisprbar.paste import perform_auto_paste as auto_paste
                     auto_paste(text)
