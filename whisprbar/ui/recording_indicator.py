@@ -2,11 +2,12 @@
 
 Displays a wide, frameless, transparent popup bar with animated
 visual feedback during recording and transcription:
-- RECORDING: Soundwave bars that react to audio level
-- PROCESSING: Pulsing dots
-- TRANSCRIBING: Bouncing dots (typing animation)
-- COMPLETE: Brief green checkmark, then fade out
-- ERROR: Brief red X, then fade out
+- RECORDING: Soundwave bars + elapsed timer (e.g. "Recording  0:05")
+- PROCESSING: Pulsing dots + "Processing..." label
+- TRANSCRIBING: Bouncing dots + "Transcribing..." label
+- PASTING: Brief clipboard icon + "Pasting..." label
+- COMPLETE: Green checkmark + "Done! (15 words)" label, then fade out
+- ERROR: Red X + error message label, then fade out
 
 Technical: GTK3 DrawingArea + Cairo for custom rendering,
 driven by GLib.timeout_add() at ~20fps.
@@ -32,25 +33,30 @@ PHASE_HIDDEN = "hidden"
 PHASE_RECORDING = "recording"
 PHASE_PROCESSING = "processing"
 PHASE_TRANSCRIBING = "transcribing"
+PHASE_PASTING = "pasting"
 PHASE_COMPLETE = "complete"
 PHASE_ERROR = "error"
 
-# Base dimensions at 100% scale — wide bar (8:1 ratio)
-BASE_WIDTH = 240
-BASE_HEIGHT = 30
+# Base dimensions at 100% scale — wider bar to accommodate text labels
+BASE_WIDTH = 320
+BASE_HEIGHT = 32
 
 # Colors (RGBA)
 COLOR_RECORDING = (0.91, 0.30, 0.24, 1.0)      # Red/orange
 COLOR_RECORDING_BG = (0.15, 0.15, 0.18, 0.85)   # Dark background
 COLOR_PROCESSING = (0.20, 0.60, 0.86, 1.0)       # Blue
 COLOR_TRANSCRIBING = (0.20, 0.60, 0.86, 1.0)     # Blue
+COLOR_PASTING = (0.60, 0.40, 0.90, 1.0)          # Purple
 COLOR_COMPLETE = (0.18, 0.80, 0.44, 1.0)         # Green
 COLOR_ERROR = (0.91, 0.30, 0.24, 1.0)            # Red
+COLOR_TEXT = (0.92, 0.92, 0.95, 1.0)             # Light text
+COLOR_TEXT_DIM = (0.65, 0.65, 0.70, 1.0)         # Dimmer text for secondary info
 
 # Animation timing
 FPS = 20
 FRAME_MS = 1000 // FPS
 COMPLETE_DISPLAY_MS = 1500
+PASTING_DISPLAY_MS = 800
 FADE_DURATION_MS = 400
 
 # Position constants
@@ -64,14 +70,14 @@ POSITION_DRAGGABLE = "draggable"
 
 
 class RecordingIndicator:
-    """Animated recording indicator window.
+    """Animated recording indicator window with text labels.
 
     Usage:
         indicator = RecordingIndicator(config_dict)
         indicator.show(phase="recording")
         indicator.set_audio_level(0.7)  # 0.0 - 1.0
         indicator.show(phase="processing")
-        indicator.show(phase="complete")  # Auto-hides after delay
+        indicator.show(phase="complete", info="15 words")
         indicator.hide()
     """
 
@@ -85,6 +91,12 @@ class RecordingIndicator:
         self._timer_id: Optional[int] = None
         self._hide_timer_id: Optional[int] = None
         self._lock = threading.Lock()
+
+        # Recording timer
+        self._recording_start_time: Optional[float] = None
+
+        # Info text for complete/error phases (e.g. word count or error message)
+        self._info_text = ""
 
         # Dragging state
         self._dragging = False
@@ -107,10 +119,22 @@ class RecordingIndicator:
         self._width = max(16, int(BASE_WIDTH * self._scale))
         self._height = max(4, int(BASE_HEIGHT * self._scale))
 
-    def show(self, phase: str = PHASE_RECORDING) -> None:
-        """Show or update the indicator."""
+    def show(self, phase: str = PHASE_RECORDING, info: str = "") -> None:
+        """Show or update the indicator.
+
+        Args:
+            phase: Animation phase to display.
+            info: Optional info text (e.g. word count for complete, error msg for error).
+        """
         if not self._enabled or not GTK_AVAILABLE:
             return
+        self._info_text = info
+        if phase == PHASE_RECORDING:
+            self._recording_start_time = time.monotonic()
+        elif phase != PHASE_RECORDING and self._phase != phase:
+            # Keep start time if still recording, clear otherwise
+            if self._phase != PHASE_RECORDING:
+                self._recording_start_time = None
         GLib.idle_add(self._show_on_main_thread, phase)
 
     def hide(self) -> None:
@@ -145,10 +169,14 @@ class RecordingIndicator:
             if self._timer_id is None:
                 self._timer_id = GLib.timeout_add(FRAME_MS, self._tick)
 
-            # Auto-hide for complete/error phases
+            # Auto-hide for complete/error/pasting phases
             if phase in (PHASE_COMPLETE, PHASE_ERROR):
                 self._hide_timer_id = GLib.timeout_add(
                     COMPLETE_DISPLAY_MS, self._start_fade_out
+                )
+            elif phase == PHASE_PASTING:
+                self._hide_timer_id = GLib.timeout_add(
+                    PASTING_DISPLAY_MS, self._start_fade_out
                 )
 
         return False  # Don't repeat GLib.idle_add
@@ -157,6 +185,7 @@ class RecordingIndicator:
         """Must be called from GTK main thread."""
         with self._lock:
             self._phase = PHASE_HIDDEN
+            self._recording_start_time = None
             if self._timer_id is not None:
                 GLib.source_remove(self._timer_id)
                 self._timer_id = None
@@ -308,6 +337,10 @@ class RecordingIndicator:
             self._drawing_area.queue_draw()
         return True
 
+    # =========================================================================
+    # Drawing
+    # =========================================================================
+
     def _on_draw(self, widget, cr) -> bool:
         """Cairo draw callback - renders the current animation frame."""
         alloc = widget.get_allocation()
@@ -328,6 +361,8 @@ class RecordingIndicator:
             self._draw_processing(cr, w, h, alpha)
         elif self._phase == PHASE_TRANSCRIBING:
             self._draw_transcribing(cr, w, h, alpha)
+        elif self._phase == PHASE_PASTING:
+            self._draw_pasting(cr, w, h, alpha)
         elif self._phase == PHASE_COMPLETE:
             self._draw_complete(cr, w, h, alpha)
         elif self._phase == PHASE_ERROR:
@@ -344,19 +379,67 @@ class RecordingIndicator:
         cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
         cr.close_path()
 
+    def _draw_text(self, cr, text: str, x: float, y: float, alpha: float,
+                   color: tuple = COLOR_TEXT, font_size: float = 0.0,
+                   bold: bool = False) -> None:
+        """Draw text at position using Cairo.
+
+        Args:
+            cr: Cairo context
+            text: Text to draw
+            x: X position
+            y: Y center position (text is vertically centered)
+            alpha: Opacity multiplier
+            color: RGBA color tuple
+            font_size: Font size in pixels (0 = auto based on bar height)
+            bold: Use bold weight
+        """
+        if not text:
+            return
+        r, g, b, _ = color
+        cr.set_source_rgba(r, g, b, alpha)
+
+        if font_size <= 0:
+            font_size = self._height * 0.38
+
+        weight = 1 if bold else 0  # CAIRO_FONT_WEIGHT_BOLD / NORMAL
+        cr.select_font_face("Sans", 0, weight)
+        cr.set_font_size(font_size)
+
+        # Get text extents for vertical centering
+        extents = cr.text_extents(text)
+        text_y = y + extents.height / 2
+
+        cr.move_to(x, text_y)
+        cr.show_text(text)
+
+    def _get_elapsed_str(self) -> str:
+        """Get elapsed recording time as M:SS string."""
+        if self._recording_start_time is None:
+            return "0:00"
+        elapsed = time.monotonic() - self._recording_start_time
+        minutes = int(elapsed) // 60
+        seconds = int(elapsed) % 60
+        return f"{minutes}:{seconds:02d}"
+
     def _draw_recording(self, cr, w, h, alpha) -> None:
-        """Draw soundwave bars that react to audio level."""
+        """Draw soundwave bars + elapsed time label."""
         r, g, b, _ = COLOR_RECORDING
         t = self._tick_count / FPS  # Time in seconds
         level = self._audio_level
 
-        num_bars = 12
-        usable_w = w * 0.85
+        # Layout: [animation area ~55%] [label area ~45%]
+        anim_w = w * 0.50
+        label_x = anim_w + w * 0.02
+
+        # Draw soundwave bars in the left portion
+        num_bars = 8
+        usable_w = anim_w * 0.80
         bar_width = usable_w / (num_bars * 1.8)
         gap = bar_width * 0.8
-        total_w = num_bars * bar_width + (num_bars - 1) * gap
-        start_x = (w - total_w) / 2
-        max_h = h * 0.75
+        total_bar_w = num_bars * bar_width + (num_bars - 1) * gap
+        start_x = (anim_w - total_bar_w) / 2
+        max_h = h * 0.72
         min_h = h * 0.1
 
         for i in range(num_bars):
@@ -372,15 +455,34 @@ class RecordingIndicator:
             cr.set_source_rgba(r, g, b, alpha * (0.5 + 0.5 * wave))
             cr.fill()
 
+        # Draw text label: "Recording  0:05"
+        elapsed = self._get_elapsed_str()
+        self._draw_text(cr, "Recording", label_x, h / 2, alpha,
+                        color=COLOR_TEXT, bold=True)
+
+        # Timer in dimmer color, right-aligned
+        timer_font_size = self._height * 0.34
+        cr.select_font_face("Sans", 0, 0)
+        cr.set_font_size(timer_font_size)
+        timer_extents = cr.text_extents(elapsed)
+        timer_x = w - timer_extents.width - w * 0.04
+        self._draw_text(cr, elapsed, timer_x, h / 2, alpha,
+                        color=COLOR_TEXT_DIM, font_size=timer_font_size)
+
     def _draw_processing(self, cr, w, h, alpha) -> None:
-        """Draw softly pulsing dots."""
+        """Draw pulsing dots + 'Processing...' label."""
         r, g, b, _ = COLOR_PROCESSING
         t = self._tick_count / FPS
-        num_dots = 5
-        dot_r = min(w, h) * 0.06
-        gap = dot_r * 3.5
+
+        # Layout: [dots ~35%] [label ~65%]
+        anim_w = w * 0.30
+        label_x = anim_w + w * 0.03
+
+        num_dots = 4
+        dot_r = min(anim_w, h) * 0.08
+        gap = dot_r * 3.0
         total_w = (num_dots - 1) * gap
-        start_x = (w - total_w) / 2
+        start_x = (anim_w - total_w) / 2
         cy = h / 2
 
         for i in range(num_dots):
@@ -391,58 +493,149 @@ class RecordingIndicator:
             cr.set_source_rgba(r, g, b, alpha * scale)
             cr.fill()
 
+        # Animated dots in label text
+        dot_count = int(t * 2) % 4
+        label = "Processing" + "." * dot_count
+        self._draw_text(cr, label, label_x, h / 2, alpha, color=COLOR_TEXT)
+
     def _draw_transcribing(self, cr, w, h, alpha) -> None:
-        """Draw running dot indicator (typing animation)."""
+        """Draw bouncing dots + 'Transcribing...' label."""
         r, g, b, _ = COLOR_TRANSCRIBING
         t = self._tick_count / FPS
+
+        # Layout: [dots ~25%] [label ~75%]
+        anim_w = w * 0.22
+        label_x = anim_w + w * 0.03
+
         num_dots = 3
-        dot_r = min(w, h) * 0.07
-        gap = dot_r * 4
+        dot_r = min(anim_w, h) * 0.10
+        gap = dot_r * 3.5
         total_w = (num_dots - 1) * gap
-        start_x = (w - total_w) / 2
+        start_x = (anim_w - total_w) / 2
         cy = h / 2
 
         for i in range(num_dots):
             phase = i * 0.4
-            bounce = abs(math.sin(t * 3 + phase)) * min(w, h) * 0.12
+            bounce = abs(math.sin(t * 3 + phase)) * min(anim_w, h) * 0.15
             x = start_x + i * gap
             y = cy - bounce
             cr.arc(x, y, dot_r, 0, 2 * math.pi)
             cr.set_source_rgba(r, g, b, alpha * 0.9)
             cr.fill()
 
-    def _draw_complete(self, cr, w, h, alpha) -> None:
-        """Draw checkmark."""
-        r, g, b, _ = COLOR_COMPLETE
-        cx, cy = w / 2, h / 2
-        size = min(w, h) * 0.25
+        # Animated dots in label text
+        dot_count = int(t * 2) % 4
+        label = "Transcribing" + "." * dot_count
+        self._draw_text(cr, label, label_x, h / 2, alpha, color=COLOR_TEXT)
 
-        cr.set_line_width(size * 0.25)
+    def _draw_pasting(self, cr, w, h, alpha) -> None:
+        """Draw clipboard icon + 'Pasting...' label."""
+        r, g, b, _ = COLOR_PASTING
+        t = self._tick_count / FPS
+        cy = h / 2
+
+        # Draw a small clipboard icon
+        icon_size = h * 0.45
+        icon_x = w * 0.08
+        icon_y = cy - icon_size / 2
+
+        # Clipboard body
+        cr.set_line_width(icon_size * 0.12)
         cr.set_line_cap(1)  # CAIRO_LINE_CAP_ROUND
         cr.set_source_rgba(r, g, b, alpha)
 
-        cr.move_to(cx - size * 0.5, cy)
-        cr.line_to(cx - size * 0.1, cy + size * 0.4)
-        cr.line_to(cx + size * 0.6, cy - size * 0.35)
+        # Rectangle body
+        bx = icon_x
+        by = icon_y + icon_size * 0.15
+        bw = icon_size * 0.7
+        bh = icon_size * 0.85
+        br = icon_size * 0.1
+        self._draw_rounded_rect(cr, bx, by, bw, bh, br)
         cr.stroke()
+
+        # Clip at top
+        clip_w = icon_size * 0.35
+        clip_x = bx + (bw - clip_w) / 2
+        clip_y = icon_y
+        cr.rectangle(clip_x, clip_y, clip_w, icon_size * 0.2)
+        cr.fill()
+
+        # Lines on clipboard (text representation)
+        line_y1 = by + bh * 0.35
+        line_y2 = by + bh * 0.55
+        cr.set_line_width(icon_size * 0.08)
+        cr.move_to(bx + bw * 0.2, line_y1)
+        cr.line_to(bx + bw * 0.8, line_y1)
+        cr.stroke()
+        cr.move_to(bx + bw * 0.2, line_y2)
+        cr.line_to(bx + bw * 0.6, line_y2)
+        cr.stroke()
+
+        # Label
+        label_x = icon_x + icon_size * 0.9
+        dot_count = int(t * 3) % 4
+        label = "Pasting" + "." * dot_count
+        self._draw_text(cr, label, label_x, h / 2, alpha, color=COLOR_TEXT)
+
+    def _draw_complete(self, cr, w, h, alpha) -> None:
+        """Draw checkmark + 'Done!' label with optional info."""
+        r, g, b, _ = COLOR_COMPLETE
+        cy = h / 2
+
+        # Draw checkmark on the left
+        check_x = w * 0.08
+        size = h * 0.25
+
+        cr.set_line_width(size * 0.28)
+        cr.set_line_cap(1)  # CAIRO_LINE_CAP_ROUND
+        cr.set_source_rgba(r, g, b, alpha)
+
+        cr.move_to(check_x, cy)
+        cr.line_to(check_x + size * 0.4, cy + size * 0.4)
+        cr.line_to(check_x + size * 1.1, cy - size * 0.35)
+        cr.stroke()
+
+        # Label: "Done!"
+        label_x = check_x + size * 1.5
+        self._draw_text(cr, "Done!", label_x, h / 2, alpha,
+                        color=COLOR_COMPLETE, bold=True)
+
+        # Info text (e.g. word count) in dimmer color
+        if self._info_text:
+            # Position info text after "Done!" label
+            cr.select_font_face("Sans", 0, 1)
+            cr.set_font_size(self._height * 0.38)
+            done_extents = cr.text_extents("Done! ")
+            info_x = label_x + done_extents.width + w * 0.01
+            self._draw_text(cr, self._info_text, info_x, h / 2, alpha * 0.8,
+                            color=COLOR_TEXT_DIM, font_size=self._height * 0.32)
 
     def _draw_error(self, cr, w, h, alpha) -> None:
-        """Draw X mark."""
+        """Draw X mark + error label."""
         r, g, b, _ = COLOR_ERROR
-        cx, cy = w / 2, h / 2
-        size = min(w, h) * 0.2
+        cy = h / 2
 
-        cr.set_line_width(size * 0.25)
+        # Draw X on the left
+        x_center = w * 0.08 + h * 0.15
+        size = h * 0.18
+
+        cr.set_line_width(size * 0.28)
         cr.set_line_cap(1)  # CAIRO_LINE_CAP_ROUND
         cr.set_source_rgba(r, g, b, alpha)
 
-        cr.move_to(cx - size, cy - size)
-        cr.line_to(cx + size, cy + size)
+        cr.move_to(x_center - size, cy - size)
+        cr.line_to(x_center + size, cy + size)
         cr.stroke()
 
-        cr.move_to(cx + size, cy - size)
-        cr.line_to(cx - size, cy + size)
+        cr.move_to(x_center + size, cy - size)
+        cr.line_to(x_center - size, cy + size)
         cr.stroke()
+
+        # Label
+        label_x = x_center + size * 2
+        label = self._info_text if self._info_text else "Error"
+        self._draw_text(cr, label, label_x, h / 2, alpha,
+                        color=COLOR_ERROR, bold=True)
 
     def destroy(self) -> None:
         """Clean up the window."""
@@ -472,10 +665,17 @@ def get_recording_indicator(cfg: Optional[dict] = None) -> RecordingIndicator:
         return _indicator
 
 
-def show_recording_indicator(phase: str = PHASE_RECORDING, cfg: Optional[dict] = None) -> None:
-    """Show the recording indicator with the given phase."""
+def show_recording_indicator(phase: str = PHASE_RECORDING, cfg: Optional[dict] = None,
+                             info: str = "") -> None:
+    """Show the recording indicator with the given phase.
+
+    Args:
+        phase: Animation phase to display.
+        cfg: Configuration dict (used on first call to create the indicator).
+        info: Optional info text (e.g. "15 words" for complete, error msg for error).
+    """
     indicator = get_recording_indicator(cfg)
-    indicator.show(phase)
+    indicator.show(phase, info=info)
 
 
 def hide_recording_indicator() -> None:
