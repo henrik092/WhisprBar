@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-03-26
+
+### Added
+- **Settings preview**: "Vorschau anzeigen" button in settings to preview the recording indicator live while adjusting width, height, opacity, and position sliders
+
+### Changed
+- **Premium recording animation**: Replaced simple 8-bar oscillation with layered Siri-style flowing sine curves and 24 center-aligned gradient bars with glow effect
+- **Gradient coloring**: Warm coral → hot red → cool magenta gradient across bars
+- **Smoother animation**: 30 FPS (up from 20), smooth audio level interpolation with fast attack / slow release
+- **Compact recording label**: Removed "Recording" text, kept timer only for cleaner look
+- **Unified phase layout**: All indicator phases (Processing, Transcribing, Pasting, Done, Error) now share consistent icon size, font size, and positioning
+- **Separate width/height sliders**: Recording indicator width (60–600px) and height (10–100px) can be adjusted independently
+
 ## [1.1.0] - 2026-03-17
 
 ### Added
