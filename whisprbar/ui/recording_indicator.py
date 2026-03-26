@@ -107,17 +107,13 @@ class RecordingIndicator:
         cfg = cfg or {}
         self._enabled = cfg.get("recording_indicator_enabled", True)
         self._position = cfg.get("recording_indicator_position", POSITION_TOP_CENTER)
-        self._scale = float(cfg.get("recording_indicator_scale", 1.0))
         self._opacity = cfg.get("recording_indicator_opacity", 0.85)
         self._custom_x = cfg.get("recording_indicator_x")
         self._custom_y = cfg.get("recording_indicator_y")
 
-        # Clamp scale to valid range
-        self._scale = max(0.1, min(2.0, self._scale))
-
-        # Compute actual pixel dimensions
-        self._width = max(16, int(BASE_WIDTH * self._scale))
-        self._height = max(4, int(BASE_HEIGHT * self._scale))
+        # Read width/height directly from config (with clamping)
+        self._width = max(60, min(600, int(cfg.get("recording_indicator_width", BASE_WIDTH))))
+        self._height = max(10, min(100, int(cfg.get("recording_indicator_height", BASE_HEIGHT))))
 
     def show(self, phase: str = PHASE_RECORDING, info: str = "") -> None:
         """Show or update the indicator.

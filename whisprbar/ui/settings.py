@@ -794,19 +794,33 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         ri_rows.append(ri_pos_row)
         adv_page.pack_start(ri_pos_row, False, False, 0)
 
-        # Scale slider (10% - 200%, default 100% = 160x20 base)
-        ri_scale_val = float(cfg.get("recording_indicator_scale", 1.0))
-        ri_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.1, 2.0, 0.1)
-        ri_scale.set_digits(1)
-        ri_scale.set_value(max(0.1, min(2.0, ri_scale_val)))
-        ri_scale.set_draw_value(True)
-        ri_scale.set_value_pos(Gtk.PositionType.RIGHT)
-        ri_scale.set_hexpand(True)
-        ri_scale.clear_marks()
-        ri_scale.connect("format-value", lambda scale, value: f"{int(value * 100)}%")
-        ri_scale_row = make_row("  Groesse", ri_scale, expand=True, defaults_text="(Standard: 100%)")
-        ri_rows.append(ri_scale_row)
-        adv_page.pack_start(ri_scale_row, False, False, 0)
+        # Width slider (60 - 600px, default 240)
+        ri_width_val = int(cfg.get("recording_indicator_width", 240))
+        ri_width = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 60, 600, 10)
+        ri_width.set_digits(0)
+        ri_width.set_value(max(60, min(600, ri_width_val)))
+        ri_width.set_draw_value(True)
+        ri_width.set_value_pos(Gtk.PositionType.RIGHT)
+        ri_width.set_hexpand(True)
+        ri_width.clear_marks()
+        ri_width.connect("format-value", lambda scale, value: f"{int(value)}px")
+        ri_width_row = make_row("  Breite", ri_width, expand=True, defaults_text="(Standard: 240px)")
+        ri_rows.append(ri_width_row)
+        adv_page.pack_start(ri_width_row, False, False, 0)
+
+        # Height slider (10 - 100px, default 30)
+        ri_height_val = int(cfg.get("recording_indicator_height", 30))
+        ri_height = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 10, 100, 2)
+        ri_height.set_digits(0)
+        ri_height.set_value(max(10, min(100, ri_height_val)))
+        ri_height.set_draw_value(True)
+        ri_height.set_value_pos(Gtk.PositionType.RIGHT)
+        ri_height.set_hexpand(True)
+        ri_height.clear_marks()
+        ri_height.connect("format-value", lambda scale, value: f"{int(value)}px")
+        ri_height_row = make_row("  Hoehe", ri_height, expand=True, defaults_text="(Standard: 30px)")
+        ri_rows.append(ri_height_row)
+        adv_page.pack_start(ri_height_row, False, False, 0)
 
         # Opacity slider
         ri_opacity_val = float(cfg.get("recording_indicator_opacity", 0.85))
@@ -1007,19 +1021,22 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             # Recording indicator settings
             old_ri_enabled = cfg.get("recording_indicator_enabled")
             old_ri_position = cfg.get("recording_indicator_position")
-            old_ri_scale = cfg.get("recording_indicator_scale")
+            old_ri_width = cfg.get("recording_indicator_width")
+            old_ri_height = cfg.get("recording_indicator_height")
             old_ri_opacity = cfg.get("recording_indicator_opacity")
 
             cfg["recording_indicator_enabled"] = ri_switch.get_active()
             cfg["recording_indicator_position"] = ri_pos_combo.get_active_id() or "top-center"
-            cfg["recording_indicator_scale"] = round(float(ri_scale.get_value()), 1)
+            cfg["recording_indicator_width"] = int(ri_width.get_value())
+            cfg["recording_indicator_height"] = int(ri_height.get_value())
             cfg["recording_indicator_opacity"] = round(float(ri_opacity.get_value()), 2)
 
             # Reset indicator singleton if any indicator settings changed
             ri_changed = (
                 old_ri_enabled != cfg["recording_indicator_enabled"]
                 or old_ri_position != cfg["recording_indicator_position"]
-                or old_ri_scale != cfg["recording_indicator_scale"]
+                or old_ri_width != cfg["recording_indicator_width"]
+                or old_ri_height != cfg["recording_indicator_height"]
                 or old_ri_opacity != cfg["recording_indicator_opacity"]
             )
             if ri_changed:
