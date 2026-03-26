@@ -24,19 +24,11 @@ class DeepgramTranscriber(Transcriber):
     Uses persistent HTTP connection to avoid TCP+TLS handshake per request.
     """
 
-    # Max idle time before proactively closing connection (seconds).
-    # Deepgram likely closes idle connections after ~60s; we close earlier
-    # to avoid hitting a stale connection that hangs on getresponse().
-    # 55s gives a comfortable margin while allowing reuse across typical
-    # recording gaps (user records, does something for 30-50s, records again).
-    _CONN_MAX_IDLE = 55
-
     def __init__(self):
         """Initialize Deepgram transcriber."""
         self.api_key = None
         self.client_lock = threading.Lock()
         self._conn = None  # Persistent HTTPS connection
-        self._conn_used_at = 0.0  # monotonic time of last successful use
 
     def ensure_client(self) -> bool:
         """Ensure Deepgram API key is available.
@@ -67,33 +59,29 @@ class DeepgramTranscriber(Transcriber):
         """Get or create a persistent HTTPS connection to Deepgram.
 
         Reuses existing connection to avoid TCP+TLS handshake overhead
-        (~200-500ms) on subsequent calls. Proactively closes idle
-        connections to prevent stale-connection hangs.
+        (~200-500ms) on subsequent calls. If the connection goes stale
+        (server closes it after idle period), _send_request() handles
+        automatic reconnection — no proactive idle-timeout needed.
+        This matches how Deepgram's own SDKs handle connections.
         """
         import http.client
-        import time as _time
-
-        # Close idle connections proactively to avoid stale-connection hangs
-        if self._conn is not None:
-            idle = _time.monotonic() - self._conn_used_at
-            if idle > self._CONN_MAX_IDLE:
-                debug(f"Deepgram: closing idle connection ({idle:.0f}s > {self._CONN_MAX_IDLE}s)")
-                with contextlib.suppress(Exception):
-                    self._conn.close()
-                self._conn = None
 
         if self._conn is not None:
             return self._conn
 
         self._conn = http.client.HTTPSConnection("api.deepgram.com", timeout=30)
-        self._conn_used_at = _time.monotonic()
         debug("Deepgram: new HTTPS connection established")
         return self._conn
 
     def _send_request(self, url_path: str, wav_data: bytes) -> str:
-        """Send request with automatic reconnection on stale connections."""
+        """Send request with automatic reconnection on stale connections.
+
+        If the persistent connection was closed by the server (idle timeout,
+        network blip, etc.), we detect it on the first attempt and transparently
+        retry with a fresh connection. This is the same approach Deepgram's
+        own SDKs use — no proactive idle-timeout guessing needed.
+        """
         import http.client
-        import time as _time
         headers = {
             "Authorization": f"Token {self.api_key}",
             "Content-Type": "audio/wav",
@@ -103,9 +91,7 @@ class DeepgramTranscriber(Transcriber):
         try:
             conn.request("POST", url_path, body=wav_data, headers=headers)
             response = conn.getresponse()
-            data = response.read().decode("utf-8")
-            self._conn_used_at = _time.monotonic()
-            return data
+            return response.read().decode("utf-8")
         except (http.client.HTTPException, OSError, ConnectionError):
             # Connection stale/lost, reconnect and retry once
             debug("Deepgram: connection lost, reconnecting...")
@@ -115,9 +101,7 @@ class DeepgramTranscriber(Transcriber):
             conn = self._get_connection()
             conn.request("POST", url_path, body=wav_data, headers=headers)
             response = conn.getresponse()
-            data = response.read().decode("utf-8")
-            self._conn_used_at = _time.monotonic()
-            return data
+            return response.read().decode("utf-8")
 
     def transcribe(self, audio: np.ndarray, language: str = "de") -> Optional[str]:
         """Transcribe audio using Deepgram Nova-3 REST API.
