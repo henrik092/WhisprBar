@@ -747,17 +747,18 @@ def on_recording_stop() -> None:
             MIN_AUDIO_SECONDS = 0.5
             if processed.size == 0 or output_seconds < MIN_AUDIO_SECONDS:
                 # No speech detected or audio too short - notify but don't paste anything
+                from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_ERROR
                 if processed.size == 0:
                     debug("No speech detected after VAD")
                     notify("No speech detected.")
+                    show_recording_indicator(PHASE_ERROR, cfg, info="No speech")
                 else:
                     debug(f"Audio too short after VAD ({output_seconds:.2f}s < {MIN_AUDIO_SECONDS}s)")
                     notify("Recording too short, no speech detected.")
+                    show_recording_indicator(PHASE_ERROR, cfg, info="Too short")
                 state.transcribing = False
                 refresh_tray_indicator(state)
                 hide_live_overlay()
-                from whisprbar.ui.recording_indicator import hide_recording_indicator
-                hide_recording_indicator()
                 return
 
             # Audio energy check (prevent hallucinations on noise-only audio)
@@ -770,11 +771,11 @@ def on_recording_stop() -> None:
             if audio_energy < min_audio_energy:
                 debug(f"Audio energy too low ({audio_energy:.4f} < {min_audio_energy}), likely just noise")
                 notify("No speech detected, only background noise.")
+                from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_ERROR
+                show_recording_indicator(PHASE_ERROR, cfg, info="Only noise")
                 state.transcribing = False
                 refresh_tray_indicator(state)
                 hide_live_overlay()
-                from whisprbar.ui.recording_indicator import hide_recording_indicator
-                hide_recording_indicator()
                 return
 
             # Update overlay and indicator
@@ -788,15 +789,19 @@ def on_recording_stop() -> None:
             if text:
                 debug(f"Transcription: {text}")
                 update_live_overlay(text, "Complete")
-                from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_COMPLETE
-                show_recording_indicator(PHASE_COMPLETE, cfg)
 
                 # Write to history
                 word_count = len(text.split())
                 write_history(text, output_seconds, word_count)
 
+                # Show complete indicator with word count
+                from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_COMPLETE, PHASE_PASTING
+                word_info = f"({word_count} {'word' if word_count == 1 else 'words'})"
+                show_recording_indicator(PHASE_COMPLETE, cfg, info=word_info)
+
                 # Auto-paste if enabled (handles clipboard + paste)
                 if cfg.get("auto_paste_enabled"):
+                    show_recording_indicator(PHASE_PASTING, cfg)
                     from whisprbar.paste import perform_auto_paste as auto_paste
                     auto_paste(text)
                 else:
@@ -822,22 +827,21 @@ def on_recording_stop() -> None:
                 # Empty or failed transcription - notify but don't paste anything
                 debug("Transcription empty or failed")
                 from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_ERROR
-                show_recording_indicator(PHASE_ERROR, cfg)
+                show_recording_indicator(PHASE_ERROR, cfg, info="No result")
                 notify("Transcription failed or empty.")
                 hide_live_overlay()
 
         except Exception as exc:
             debug(f"Transcription error: {exc}")
             from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_ERROR
-            show_recording_indicator(PHASE_ERROR, cfg)
+            error_msg = str(exc)[:30] if str(exc) else "Unknown error"
+            show_recording_indicator(PHASE_ERROR, cfg, info=error_msg)
             notify(f"Transcription error: {exc}")
         finally:
-            # Always cleanup resources, even on exceptions
+            # Always cleanup overlay (indicator auto-hides via its own timers)
             try:
                 from whisprbar.ui import hide_live_overlay
                 hide_live_overlay()
-                from whisprbar.ui.recording_indicator import hide_recording_indicator
-                hide_recording_indicator()
             except Exception as cleanup_exc:
                 debug(f"Error during overlay cleanup: {cleanup_exc}")
 
