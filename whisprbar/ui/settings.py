@@ -836,10 +836,71 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         ri_rows.append(ri_opacity_row)
         adv_page.pack_start(ri_opacity_row, False, False, 0)
 
+        # Preview button for recording indicator
+        preview_state = {"active": False, "indicator": None}
+
+        def _build_preview_cfg() -> dict:
+            """Build a config dict from current slider values for preview."""
+            return {
+                "recording_indicator_enabled": True,
+                "recording_indicator_position": ri_pos_combo.get_active_id() or "top-center",
+                "recording_indicator_width": int(ri_width.get_value()),
+                "recording_indicator_height": int(ri_height.get_value()),
+                "recording_indicator_opacity": round(float(ri_opacity.get_value()), 2),
+            }
+
+        def _stop_preview() -> None:
+            """Stop the preview indicator."""
+            if preview_state["indicator"] is not None:
+                preview_state["indicator"].destroy()
+                preview_state["indicator"] = None
+            preview_state["active"] = False
+            preview_btn.set_label("Vorschau anzeigen")
+
+        def _start_preview() -> None:
+            """Start/restart the preview indicator with current slider values."""
+            from whisprbar.ui.recording_indicator import RecordingIndicator, PHASE_RECORDING
+            # Destroy old preview if exists
+            if preview_state["indicator"] is not None:
+                preview_state["indicator"].destroy()
+            preview_cfg = _build_preview_cfg()
+            indicator = RecordingIndicator(preview_cfg)
+            preview_state["indicator"] = indicator
+            preview_state["active"] = True
+            indicator.show(PHASE_RECORDING)
+            preview_btn.set_label("Vorschau ausblenden")
+
+        def _on_preview_clicked(_button) -> None:
+            if preview_state["active"]:
+                _stop_preview()
+            else:
+                _start_preview()
+
+        def _on_ri_slider_changed(*_args) -> None:
+            """Update preview in real-time when sliders change."""
+            if preview_state["active"]:
+                _start_preview()
+
+        preview_btn = Gtk.Button(label="Vorschau anzeigen")
+        preview_btn.set_tooltip_text("Zeigt den Aufnahme-Indikator mit den aktuellen Einstellungen")
+        preview_btn.connect("clicked", _on_preview_clicked)
+
+        # Connect sliders for live update
+        ri_width.connect("value-changed", _on_ri_slider_changed)
+        ri_height.connect("value-changed", _on_ri_slider_changed)
+        ri_opacity.connect("value-changed", _on_ri_slider_changed)
+        ri_pos_combo.connect("changed", _on_ri_slider_changed)
+
+        preview_row = make_row("  Vorschau", preview_btn)
+        ri_rows.append(preview_row)
+        adv_page.pack_start(preview_row, False, False, 0)
+
         def sync_ri_controls(*_args) -> None:
             active = ri_switch.get_active()
             for row in ri_rows:
                 row.set_visible(active)
+            if not active:
+                _stop_preview()
 
         ri_switch.connect("notify::active", sync_ri_controls)
         sync_ri_controls()
@@ -957,6 +1018,8 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             global _settings_window
             if _settings_window is None:
                 return
+            # Stop recording indicator preview if active
+            _stop_preview()
             window_ref = _settings_window
             _settings_window = None
             window_ref.destroy()

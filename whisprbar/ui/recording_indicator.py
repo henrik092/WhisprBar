@@ -14,9 +14,11 @@ driven by GLib.timeout_add() at ~20fps.
 """
 
 import math
+import random
 import sys
 import threading
 import time
+from collections import deque
 from typing import Optional
 
 try:
@@ -53,7 +55,7 @@ COLOR_TEXT = (0.92, 0.92, 0.95, 1.0)             # Light text
 COLOR_TEXT_DIM = (0.65, 0.65, 0.70, 1.0)         # Dimmer text for secondary info
 
 # Animation timing
-FPS = 20
+FPS = 30
 FRAME_MS = 1000 // FPS
 COMPLETE_DISPLAY_MS = 1500
 PASTING_DISPLAY_MS = 800
@@ -114,6 +116,24 @@ class RecordingIndicator:
         # Read width/height directly from config (with clamping)
         self._width = max(60, min(600, int(cfg.get("recording_indicator_width", BASE_WIDTH))))
         self._height = max(10, min(100, int(cfg.get("recording_indicator_height", BASE_HEIGHT))))
+
+        # Smooth audio level (lerp toward target each frame)
+        self._smooth_level = 0.0
+
+        # Per-bar state for gradient bars (smooth interpolation)
+        self._num_bars = 24
+        self._bar_heights = [0.0] * self._num_bars
+        # Randomized per-bar phase offsets for organic feel
+        self._bar_phases = [random.uniform(0, 2 * math.pi) for _ in range(self._num_bars)]
+
+        # Siri wave parameters (5 overlapping curves)
+        self._wave_curves = [
+            {"amp_mult": 1.0, "freq": 1.5, "phase_speed": 2.2, "opacity": 0.6},
+            {"amp_mult": 0.7, "freq": 2.2, "phase_speed": 1.8, "opacity": 0.35},
+            {"amp_mult": 0.5, "freq": 3.0, "phase_speed": 2.8, "opacity": 0.2},
+            {"amp_mult": 0.85, "freq": 1.8, "phase_speed": -1.5, "opacity": 0.25},
+            {"amp_mult": 0.3, "freq": 3.5, "phase_speed": 3.2, "opacity": 0.12},
+        ]
 
     def show(self, phase: str = PHASE_RECORDING, info: str = "") -> None:
         """Show or update the indicator.
@@ -313,6 +333,12 @@ class RecordingIndicator:
     def _tick(self) -> bool:
         """Animation tick (~20fps). Returns True to keep timer alive."""
         self._tick_count += 1
+        # Smooth audio level interpolation (fast attack, slower release)
+        target = self._audio_level
+        if target > self._smooth_level:
+            self._smooth_level += (target - self._smooth_level) * 0.35  # fast attack
+        else:
+            self._smooth_level += (target - self._smooth_level) * 0.10  # slow release
         if self._drawing_area is not None:
             self._drawing_area.queue_draw()
         return self._phase != PHASE_HIDDEN
@@ -419,219 +445,329 @@ class RecordingIndicator:
         return f"{minutes}:{seconds:02d}"
 
     def _draw_recording(self, cr, w, h, alpha) -> None:
-        """Draw soundwave bars + elapsed time label."""
-        r, g, b, _ = COLOR_RECORDING
+        """Draw premium recording animation: Siri waves + gradient bars + text."""
         t = self._tick_count / FPS  # Time in seconds
-        level = self._audio_level
+        level = self._smooth_level
 
-        # Layout: [animation area ~55%] [label area ~45%]
-        anim_w = w * 0.50
-        label_x = anim_w + w * 0.02
+        # Layout: [animation area ~80%] [timer ~20%]
+        anim_w = w * 0.78
+        cy = h / 2
 
-        # Draw soundwave bars in the left portion
-        num_bars = 8
-        usable_w = anim_w * 0.80
-        bar_width = usable_w / (num_bars * 1.8)
-        gap = bar_width * 0.8
-        total_bar_w = num_bars * bar_width + (num_bars - 1) * gap
-        start_x = (anim_w - total_bar_w) / 2
-        max_h = h * 0.72
-        min_h = h * 0.1
+        # Save state and clip animation area to pill shape
+        cr.save()
+        self._draw_rounded_rect(cr, 0, 0, anim_w, h, min(h // 2, 12))
+        cr.clip()
 
-        for i in range(num_bars):
-            phase = i * 0.7
-            wave = math.sin(t * 3.5 + phase) * 0.5 + 0.5
-            bar_h = min_h + (max_h - min_h) * (0.3 + 0.7 * level) * wave
+        # === Layer 1: Siri-style flowing sine curves (background atmosphere) ===
+        self._draw_siri_waves(cr, anim_w, h, t, level, alpha)
 
-            x = start_x + i * (bar_width + gap)
-            y = (h - bar_h) / 2
+        # === Layer 2: Gradient bars with glow (foreground) ===
+        self._draw_gradient_bars(cr, anim_w, h, t, level, alpha)
 
-            cap_r = bar_width / 2
-            self._draw_rounded_rect(cr, x, y, bar_width, bar_h, cap_r)
-            cr.set_source_rgba(r, g, b, alpha * (0.5 + 0.5 * wave))
-            cr.fill()
+        cr.restore()
 
-        # Draw text label: "Recording  0:05"
+        # === Layer 3: Timer only (compact, right-aligned) ===
         elapsed = self._get_elapsed_str()
-        self._draw_text(cr, "Recording", label_x, h / 2, alpha,
-                        color=COLOR_TEXT, bold=True)
-
-        # Timer in dimmer color, right-aligned
-        timer_font_size = self._height * 0.34
+        timer_font_size = self._height * 0.28
         cr.select_font_face("Sans", 0, 0)
         cr.set_font_size(timer_font_size)
         timer_extents = cr.text_extents(elapsed)
         timer_x = w - timer_extents.width - w * 0.04
-        self._draw_text(cr, elapsed, timer_x, h / 2, alpha,
+        self._draw_text(cr, elapsed, timer_x, cy, alpha,
                         color=COLOR_TEXT_DIM, font_size=timer_font_size)
+
+    def _draw_siri_waves(self, cr, w, h, t, level, alpha) -> None:
+        """Draw overlapping Siri-style sine curves as background atmosphere."""
+        cy = h / 2
+        max_amp = h * 0.35
+
+        for curve in self._wave_curves:
+            amp = max_amp * curve["amp_mult"] * (0.15 + 0.85 * level)
+            freq = curve["freq"]
+            phase = t * curve["phase_speed"]
+            curve_alpha = alpha * curve["opacity"]
+
+            if curve_alpha < 0.01:
+                continue
+
+            # Draw filled sine curve (mirrored around center)
+            cr.new_path()
+            cr.move_to(0, cy)
+
+            steps = int(w)
+            for i in range(steps + 1):
+                x = i
+                # Normalized position (0 to 1)
+                nx = x / w
+                # Attenuation: fade to zero at edges (smooth pill containment)
+                # Using a smooth bell curve: sin^2 creates natural fade
+                edge_fade = math.sin(nx * math.pi) ** 2
+                y_offset = amp * math.sin(freq * nx * 2 * math.pi - phase) * edge_fade
+                cr.line_to(x, cy - y_offset)
+
+            # Mirror back along bottom
+            for i in range(steps, -1, -1):
+                x = i
+                nx = x / w
+                edge_fade = math.sin(nx * math.pi) ** 2
+                y_offset = amp * math.sin(freq * nx * 2 * math.pi - phase) * edge_fade
+                cr.line_to(x, cy + y_offset * 0.6)  # Slightly asymmetric for organic feel
+
+            cr.close_path()
+
+            # Gradient fill: warm coral left → hot red center → cool magenta right
+            try:
+                import cairo as _cairo
+                pat = _cairo.LinearGradient(0, 0, w, 0)
+                pat.add_color_stop_rgba(0.0, 1.0, 0.45, 0.35, curve_alpha)
+                pat.add_color_stop_rgba(0.5, 0.91, 0.30, 0.24, curve_alpha)
+                pat.add_color_stop_rgba(1.0, 0.75, 0.25, 0.55, curve_alpha)
+                cr.set_source(pat)
+            except Exception:
+                cr.set_source_rgba(0.91, 0.30, 0.24, curve_alpha)
+            cr.fill()
+
+    def _draw_gradient_bars(self, cr, w, h, t, level, alpha) -> None:
+        """Draw center-aligned gradient bars with glow effect."""
+        cy = h / 2
+        num_bars = self._num_bars
+        max_bar_h = h * 0.75
+        min_bar_h = h * 0.06
+
+        # Bar geometry
+        total_bar_area = w * 0.92
+        bar_spacing = total_bar_area / num_bars
+        bar_width = bar_spacing * 0.55
+        start_x = (w - total_bar_area) / 2 + bar_spacing * 0.25
+
+        # Update bar heights with smooth interpolation
+        for i in range(num_bars):
+            # Multiple sine waves for organic movement per bar
+            phase = self._bar_phases[i]
+            wave1 = math.sin(t * 3.0 + phase) * 0.5 + 0.5
+            wave2 = math.sin(t * 1.7 + phase * 1.5) * 0.3 + 0.5
+            wave3 = math.sin(t * 5.2 + phase * 0.7) * 0.2 + 0.5
+            combined = (wave1 * 0.5 + wave2 * 0.3 + wave3 * 0.2)
+
+            target_h = min_bar_h + (max_bar_h - min_bar_h) * (0.08 + 0.92 * level) * combined
+            # Smooth lerp toward target
+            self._bar_heights[i] += (target_h - self._bar_heights[i]) * 0.18
+
+        # Draw glow layer first (larger, more transparent)
+        for i in range(num_bars):
+            bar_h = self._bar_heights[i]
+            x = start_x + i * bar_spacing
+            glow_extra = bar_width * 0.5
+            glow_h = bar_h + glow_extra
+            glow_x = x - glow_extra / 2
+            glow_w = bar_width + glow_extra
+            glow_y = cy - glow_h / 2
+
+            # Gradient position (0-1 across all bars)
+            frac = i / max(1, num_bars - 1)
+            r, g, b = self._gradient_color(frac)
+
+            cap_r = glow_w / 2
+            self._draw_rounded_rect(cr, glow_x, glow_y, glow_w, glow_h, cap_r)
+            cr.set_source_rgba(r, g, b, alpha * 0.12)
+            cr.fill()
+
+        # Draw crisp bars on top
+        for i in range(num_bars):
+            bar_h = self._bar_heights[i]
+            x = start_x + i * bar_spacing
+            y = cy - bar_h / 2
+
+            frac = i / max(1, num_bars - 1)
+            r, g, b = self._gradient_color(frac)
+
+            cap_r = bar_width / 2
+            self._draw_rounded_rect(cr, x, y, bar_width, bar_h, cap_r)
+            # Brightness varies slightly with height for depth
+            brightness = 0.7 + 0.3 * (bar_h / max_bar_h)
+            cr.set_source_rgba(r, g, b, alpha * brightness)
+            cr.fill()
+
+    @staticmethod
+    def _gradient_color(frac: float) -> tuple:
+        """Get gradient color for position 0.0-1.0 across the bar.
+
+        Warm coral → hot red → cool magenta/purple
+        """
+        if frac < 0.5:
+            t = frac * 2.0  # 0 to 1 in first half
+            r = 1.0 - t * 0.15
+            g = 0.45 - t * 0.18
+            b = 0.35 + t * 0.05
+        else:
+            t = (frac - 0.5) * 2.0  # 0 to 1 in second half
+            r = 0.85 - t * 0.15
+            g = 0.27 - t * 0.05
+            b = 0.40 + t * 0.20
+        return (r, g, b)
+
+    # =========================================================================
+    # Unified layout constants for all non-recording phases
+    # Icon on the left, label centered, consistent sizing
+    # =========================================================================
+
+    def _phase_layout(self, w, h):
+        """Return consistent layout metrics for icon+label phases."""
+        cy = h / 2
+        icon_x = w * 0.06              # Icon left edge
+        icon_size = h * 0.32           # Icon fits within bar height
+        label_font = self._height * 0.30  # Consistent font size
+        label_x = w * 0.18             # Label starts after icon area
+        return cy, icon_x, icon_size, label_font, label_x
 
     def _draw_processing(self, cr, w, h, alpha) -> None:
         """Draw pulsing dots + 'Processing...' label."""
         r, g, b, _ = COLOR_PROCESSING
         t = self._tick_count / FPS
+        cy, icon_x, icon_size, label_font, label_x = self._phase_layout(w, h)
 
-        # Layout: [dots ~35%] [label ~65%]
-        anim_w = w * 0.30
-        label_x = anim_w + w * 0.03
-
-        num_dots = 4
-        dot_r = min(anim_w, h) * 0.08
-        gap = dot_r * 3.0
+        # 3 pulsing dots as icon
+        num_dots = 3
+        dot_r = icon_size * 0.28
+        gap = dot_r * 2.5
         total_w = (num_dots - 1) * gap
-        start_x = (anim_w - total_w) / 2
-        cy = h / 2
+        sx = icon_x + (icon_size - total_w) / 2
 
         for i in range(num_dots):
-            phase = i * 0.5
+            phase = i * 0.6
             scale = 0.6 + 0.4 * math.sin(t * 2.5 + phase)
-            x = start_x + i * gap
-            cr.arc(x, cy, dot_r * scale, 0, 2 * math.pi)
-            cr.set_source_rgba(r, g, b, alpha * scale)
+            cr.arc(sx + i * gap, cy, dot_r * scale, 0, 2 * math.pi)
+            cr.set_source_rgba(r, g, b, alpha * (0.5 + 0.5 * scale))
             cr.fill()
 
-        # Animated dots in label text
+        # Label with animated dots
         dot_count = int(t * 2) % 4
         label = "Processing" + "." * dot_count
-        self._draw_text(cr, label, label_x, h / 2, alpha, color=COLOR_TEXT)
+        self._draw_text(cr, label, label_x, cy, alpha,
+                        color=COLOR_TEXT, font_size=label_font)
 
     def _draw_transcribing(self, cr, w, h, alpha) -> None:
         """Draw bouncing dots + 'Transcribing...' label."""
         r, g, b, _ = COLOR_TRANSCRIBING
         t = self._tick_count / FPS
+        cy, icon_x, icon_size, label_font, label_x = self._phase_layout(w, h)
 
-        # Layout: [dots ~25%] [label ~75%]
-        anim_w = w * 0.22
-        label_x = anim_w + w * 0.03
-
+        # 3 bouncing dots as icon
         num_dots = 3
-        dot_r = min(anim_w, h) * 0.10
-        gap = dot_r * 3.5
+        dot_r = icon_size * 0.28
+        gap = dot_r * 2.5
         total_w = (num_dots - 1) * gap
-        start_x = (anim_w - total_w) / 2
-        cy = h / 2
+        sx = icon_x + (icon_size - total_w) / 2
 
         for i in range(num_dots):
-            phase = i * 0.4
-            bounce = abs(math.sin(t * 3 + phase)) * min(anim_w, h) * 0.15
-            x = start_x + i * gap
-            y = cy - bounce
-            cr.arc(x, y, dot_r, 0, 2 * math.pi)
+            phase = i * 0.5
+            bounce = abs(math.sin(t * 3 + phase)) * icon_size * 0.4
+            cr.arc(sx + i * gap, cy - bounce, dot_r, 0, 2 * math.pi)
             cr.set_source_rgba(r, g, b, alpha * 0.9)
             cr.fill()
 
-        # Animated dots in label text
+        # Label with animated dots
         dot_count = int(t * 2) % 4
         label = "Transcribing" + "." * dot_count
-        self._draw_text(cr, label, label_x, h / 2, alpha, color=COLOR_TEXT)
+        self._draw_text(cr, label, label_x, cy, alpha,
+                        color=COLOR_TEXT, font_size=label_font)
 
     def _draw_pasting(self, cr, w, h, alpha) -> None:
         """Draw clipboard icon + 'Pasting...' label."""
         r, g, b, _ = COLOR_PASTING
         t = self._tick_count / FPS
-        cy = h / 2
+        cy, icon_x, icon_size, label_font, label_x = self._phase_layout(w, h)
 
-        # Draw a small clipboard icon
-        icon_size = h * 0.45
-        icon_x = w * 0.08
-        icon_y = cy - icon_size / 2
-
-        # Clipboard body
-        cr.set_line_width(icon_size * 0.12)
+        # Simple clipboard icon scaled to icon_size
+        cr.set_line_width(icon_size * 0.10)
         cr.set_line_cap(1)  # CAIRO_LINE_CAP_ROUND
         cr.set_source_rgba(r, g, b, alpha)
 
-        # Rectangle body
+        # Clipboard body
         bx = icon_x
-        by = icon_y + icon_size * 0.15
-        bw = icon_size * 0.7
+        by = cy - icon_size * 0.4
+        bw = icon_size * 0.75
         bh = icon_size * 0.85
         br = icon_size * 0.1
-        self._draw_rounded_rect(cr, bx, by, bw, bh, br)
+        self._draw_rounded_rect(cr, bx, by + icon_size * 0.12, bw, bh, br)
         cr.stroke()
 
         # Clip at top
         clip_w = icon_size * 0.35
         clip_x = bx + (bw - clip_w) / 2
-        clip_y = icon_y
-        cr.rectangle(clip_x, clip_y, clip_w, icon_size * 0.2)
+        cr.rectangle(clip_x, by, clip_w, icon_size * 0.18)
         cr.fill()
 
-        # Lines on clipboard (text representation)
-        line_y1 = by + bh * 0.35
-        line_y2 = by + bh * 0.55
-        cr.set_line_width(icon_size * 0.08)
-        cr.move_to(bx + bw * 0.2, line_y1)
-        cr.line_to(bx + bw * 0.8, line_y1)
+        # Lines on clipboard
+        cr.set_line_width(icon_size * 0.06)
+        line_y1 = by + bh * 0.45
+        line_y2 = by + bh * 0.62
+        cr.move_to(bx + bw * 0.22, line_y1)
+        cr.line_to(bx + bw * 0.78, line_y1)
         cr.stroke()
-        cr.move_to(bx + bw * 0.2, line_y2)
-        cr.line_to(bx + bw * 0.6, line_y2)
+        cr.move_to(bx + bw * 0.22, line_y2)
+        cr.line_to(bx + bw * 0.58, line_y2)
         cr.stroke()
 
-        # Label
-        label_x = icon_x + icon_size * 0.9
+        # Label with animated dots
         dot_count = int(t * 3) % 4
         label = "Pasting" + "." * dot_count
-        self._draw_text(cr, label, label_x, h / 2, alpha, color=COLOR_TEXT)
+        self._draw_text(cr, label, label_x, cy, alpha,
+                        color=COLOR_TEXT, font_size=label_font)
 
     def _draw_complete(self, cr, w, h, alpha) -> None:
-        """Draw checkmark + 'Done!' label with optional info."""
+        """Draw checkmark + 'Done!' label with optional word count."""
         r, g, b, _ = COLOR_COMPLETE
-        cy = h / 2
+        cy, icon_x, icon_size, label_font, label_x = self._phase_layout(w, h)
 
-        # Draw checkmark on the left
-        check_x = w * 0.08
-        size = h * 0.25
-
-        cr.set_line_width(size * 0.28)
+        # Checkmark icon
+        cr.set_line_width(icon_size * 0.22)
         cr.set_line_cap(1)  # CAIRO_LINE_CAP_ROUND
         cr.set_source_rgba(r, g, b, alpha)
 
-        cr.move_to(check_x, cy)
-        cr.line_to(check_x + size * 0.4, cy + size * 0.4)
-        cr.line_to(check_x + size * 1.1, cy - size * 0.35)
+        cx = icon_x + icon_size * 0.35
+        cr.move_to(cx - icon_size * 0.25, cy)
+        cr.line_to(cx, cy + icon_size * 0.25)
+        cr.line_to(cx + icon_size * 0.35, cy - icon_size * 0.25)
         cr.stroke()
 
-        # Label: "Done!"
-        label_x = check_x + size * 1.5
-        self._draw_text(cr, "Done!", label_x, h / 2, alpha,
-                        color=COLOR_COMPLETE, bold=True)
+        # "Done!" label
+        self._draw_text(cr, "Done!", label_x, cy, alpha,
+                        color=COLOR_COMPLETE, bold=True, font_size=label_font)
 
-        # Info text (e.g. word count) in dimmer color
+        # Info text (word count) after label
         if self._info_text:
-            # Position info text after "Done!" label
             cr.select_font_face("Sans", 0, 1)
-            cr.set_font_size(self._height * 0.38)
-            done_extents = cr.text_extents("Done! ")
-            info_x = label_x + done_extents.width + w * 0.01
-            self._draw_text(cr, self._info_text, info_x, h / 2, alpha * 0.8,
-                            color=COLOR_TEXT_DIM, font_size=self._height * 0.32)
+            cr.set_font_size(label_font)
+            done_ext = cr.text_extents("Done! ")
+            info_x = label_x + done_ext.width + w * 0.01
+            info_font = label_font * 0.88
+            self._draw_text(cr, self._info_text, info_x, cy, alpha * 0.7,
+                            color=COLOR_TEXT_DIM, font_size=info_font)
 
     def _draw_error(self, cr, w, h, alpha) -> None:
         """Draw X mark + error label."""
         r, g, b, _ = COLOR_ERROR
-        cy = h / 2
+        cy, icon_x, icon_size, label_font, label_x = self._phase_layout(w, h)
 
-        # Draw X on the left
-        x_center = w * 0.08 + h * 0.15
-        size = h * 0.18
-
-        cr.set_line_width(size * 0.28)
+        # X icon
+        cr.set_line_width(icon_size * 0.22)
         cr.set_line_cap(1)  # CAIRO_LINE_CAP_ROUND
         cr.set_source_rgba(r, g, b, alpha)
 
-        cr.move_to(x_center - size, cy - size)
-        cr.line_to(x_center + size, cy + size)
+        cx = icon_x + icon_size * 0.35
+        s = icon_size * 0.25
+        cr.move_to(cx - s, cy - s)
+        cr.line_to(cx + s, cy + s)
+        cr.stroke()
+        cr.move_to(cx + s, cy - s)
+        cr.line_to(cx - s, cy + s)
         cr.stroke()
 
-        cr.move_to(x_center + size, cy - size)
-        cr.line_to(x_center - size, cy + size)
-        cr.stroke()
-
-        # Label
-        label_x = x_center + size * 2
+        # Error label
         label = self._info_text if self._info_text else "Error"
-        self._draw_text(cr, label, label_x, h / 2, alpha,
-                        color=COLOR_ERROR, bold=True)
+        self._draw_text(cr, label, label_x, cy, alpha,
+                        color=COLOR_ERROR, bold=True, font_size=label_font)
 
     def destroy(self) -> None:
         """Clean up the window."""
