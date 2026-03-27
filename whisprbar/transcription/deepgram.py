@@ -25,12 +25,12 @@ class DeepgramTranscriber(Transcriber):
     """
 
     # Max idle time before proactively closing the connection (seconds).
-    # Deepgram doesn't document a server-side idle timeout, but their
-    # infrastructure (behind Cloudflare) likely closes idle connections
-    # around ~100s. We use 120s as a safe upper bound — still allows
-    # connection reuse for typical usage while avoiding long hangs on
-    # stale connections. _send_request() has retry logic as a fallback.
-    _CONN_MAX_IDLE = 120
+    # Deepgram doesn't document a server-side idle timeout. Testing shows
+    # connections go stale well before 120s, causing long hangs. 55s works
+    # reliably in practice — connection reuse still helps for rapid-fire
+    # recordings, and a fresh handshake (~200-500ms) is acceptable for
+    # longer gaps. _send_request() has retry logic as a fallback.
+    _CONN_MAX_IDLE = 55
 
     def __init__(self):
         """Initialize Deepgram transcriber."""
