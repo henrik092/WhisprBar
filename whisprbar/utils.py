@@ -5,6 +5,8 @@ platform detection, diagnostics, and audio feedback.
 """
 
 import json
+import logging
+import logging.handlers
 import math
 import os
 import shutil
@@ -55,6 +57,33 @@ STATUS_ICON_NAME = {
 # Debug mode
 DEBUG = bool(os.environ.get("WHISPRBAR_DEBUG")) or sys.stdout.isatty()
 
+# ---------------------------------------------------------------------------
+# File logger — always active, rotating (500 KB max, 1 backup ≈ 1 MB total)
+# ---------------------------------------------------------------------------
+_LOG_PATH = DATA_DIR / "whisprbar.log"
+_LOG_MAX_BYTES = 500_000  # 500 KB per file
+_LOG_BACKUP_COUNT = 1     # keep 1 rotated backup
+
+def _init_file_logger() -> logging.Logger:
+    """Create a rotating file logger that is always active."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    logger = logging.getLogger("whisprbar")
+    logger.setLevel(logging.DEBUG)
+    if not logger.handlers:
+        handler = logging.handlers.RotatingFileHandler(
+            _LOG_PATH,
+            maxBytes=_LOG_MAX_BYTES,
+            backupCount=_LOG_BACKUP_COUNT,
+            encoding="utf-8",
+        )
+        handler.setFormatter(logging.Formatter(
+            "%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+        ))
+        logger.addHandler(handler)
+    return logger
+
+_file_logger = _init_file_logger()
+
 
 @dataclass
 class DiagnosticResult:
@@ -76,10 +105,12 @@ class DiagnosticResult:
 
 
 def debug(message: str) -> None:
-    """Print debug message if debug mode is enabled.
+    """Log a debug message to the rotating logfile (always) and stdout (if debug mode).
 
-    Debug mode is enabled when WHISPRBAR_DEBUG=1 or running in a TTY.
+    The logfile at ~/.local/share/whisprbar/whisprbar.log is always written to,
+    regardless of WHISPRBAR_DEBUG. Terminal output only when DEBUG is True.
     """
+    _file_logger.debug(message)
     if DEBUG:
         print(f"[DEBUG] {message}")
 

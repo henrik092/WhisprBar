@@ -101,25 +101,30 @@ class DeepgramTranscriber(Transcriber):
             "Content-Type": "audio/wav",
             "Connection": "keep-alive",
         }
-        conn = self._get_connection()
-        try:
+
+        def _do_request(conn):
             conn.request("POST", url_path, body=wav_data, headers=headers)
             response = conn.getresponse()
             data = response.read().decode("utf-8")
+            if response.status != 200:
+                debug(f"Deepgram: HTTP {response.status} — {data[:200]}")
+                raise http.client.HTTPException(
+                    f"HTTP {response.status}: {data[:200]}"
+                )
             self._conn_used_at = _time.monotonic()
             return data
-        except (http.client.HTTPException, OSError, ConnectionError):
-            # Connection stale/lost, reconnect and retry once
-            debug("Deepgram: connection lost, reconnecting...")
+
+        conn = self._get_connection()
+        try:
+            return _do_request(conn)
+        except (http.client.HTTPException, OSError, ConnectionError) as exc:
+            # Connection stale/lost or HTTP error, reconnect and retry once
+            debug(f"Deepgram: request failed ({exc}), reconnecting...")
             with contextlib.suppress(Exception):
                 self._conn.close()
             self._conn = None
             conn = self._get_connection()
-            conn.request("POST", url_path, body=wav_data, headers=headers)
-            response = conn.getresponse()
-            data = response.read().decode("utf-8")
-            self._conn_used_at = _time.monotonic()
-            return data
+            return _do_request(conn)
 
     def transcribe(self, audio: np.ndarray, language: str = "de") -> Optional[str]:
         """Transcribe audio using Deepgram Nova-3 REST API.
