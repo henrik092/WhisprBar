@@ -208,6 +208,32 @@ ensure_virtualenv() {
 
 configure_env_file() {
   mkdir -p "$CONFIG_DIR"
+
+  # If whisprbar.env exists in project root (e.g. synced via Nextcloud),
+  # symlink it instead of creating a new one.
+  local synced_env="$PROJECT_ROOT/whisprbar.env"
+  if [[ -f "$synced_env" ]]; then
+    local synced_resolved
+    synced_resolved="$(readlink -f "$synced_env")"
+    if [[ -L "$ENV_FILE" && "$(readlink -f "$ENV_FILE")" == "$synced_resolved" ]]; then
+      log "Env file already symlinked to $synced_env"
+      return
+    fi
+    if [[ $DRY_RUN -eq 1 ]]; then
+      warn "Dry run: would symlink $ENV_FILE -> $synced_env"
+      return
+    fi
+    if [[ -L "$ENV_FILE" ]]; then
+      log "Replacing existing symlink $ENV_FILE -> $(readlink "$ENV_FILE")"
+    elif [[ -f "$ENV_FILE" ]]; then
+      log "Backing up existing $ENV_FILE to ${ENV_FILE}.bak"
+      mv "$ENV_FILE" "${ENV_FILE}.bak"
+    fi
+    ln -sf "$synced_env" "$ENV_FILE"
+    log "Symlinked $ENV_FILE -> $synced_env (synced env file detected)"
+    return
+  fi
+
   local existing_key=""
   if [[ -f "$ENV_FILE" ]]; then
     existing_key=$(grep -E '^OPENAI_API_KEY=' "$ENV_FILE" | tail -n1 | cut -d'=' -f2-)

@@ -11,7 +11,7 @@ import numpy as np
 
 from .base import Transcriber
 from whisprbar.config import load_env_file_values
-from whisprbar.utils import debug
+from whisprbar.utils import debug, error
 from whisprbar.audio import SAMPLE_RATE, CHANNELS
 
 
@@ -95,6 +95,7 @@ class DeepgramTranscriber(Transcriber):
     def _send_request(self, url_path: str, wav_data: bytes) -> str:
         """Send request with automatic reconnection on stale connections."""
         import http.client
+        import socket
         import time as _time
         headers = {
             "Authorization": f"Token {self.api_key}",
@@ -103,23 +104,30 @@ class DeepgramTranscriber(Transcriber):
         }
 
         def _do_request(conn):
+            t0 = _time.monotonic()
             conn.request("POST", url_path, body=wav_data, headers=headers)
             response = conn.getresponse()
             data = response.read().decode("utf-8")
+            elapsed_ms = (_time.monotonic() - t0) * 1000
             if response.status != 200:
-                debug(f"Deepgram: HTTP {response.status} — {data[:200]}")
+                error(f"Deepgram: HTTP {response.status} after {elapsed_ms:.0f}ms — {data[:300]}")
                 raise http.client.HTTPException(
                     f"HTTP {response.status}: {data[:200]}"
                 )
+            debug(f"Deepgram: response {response.status} in {elapsed_ms:.0f}ms ({len(data)} bytes)")
             self._conn_used_at = _time.monotonic()
             return data
 
         conn = self._get_connection()
         try:
             return _do_request(conn)
+        except socket.gaierror as exc:
+            # DNS resolution failed — no point retrying immediately
+            error(f"Deepgram: DNS resolution failed for api.deepgram.com ({exc})")
+            raise
         except (http.client.HTTPException, OSError, ConnectionError) as exc:
             # Connection stale/lost or HTTP error, reconnect and retry once
-            debug(f"Deepgram: request failed ({exc}), reconnecting...")
+            debug(f"Deepgram: request failed ({type(exc).__name__}: {exc}), reconnecting...")
             with contextlib.suppress(Exception):
                 self._conn.close()
             self._conn = None
@@ -180,7 +188,15 @@ class DeepgramTranscriber(Transcriber):
                 return None
 
         except Exception as exc:
-            debug(f"Deepgram transcription failed: {exc}")
+            import socket
+            if isinstance(exc, socket.gaierror):
+                error(f"Deepgram: DNS error — cannot resolve api.deepgram.com ({exc}). Check DNS/AdGuard/network.")
+            elif isinstance(exc, (ConnectionError, OSError)):
+                error(f"Deepgram: network error — {type(exc).__name__}: {exc}")
+            elif isinstance(exc, TimeoutError):
+                error(f"Deepgram: request timed out ({exc})")
+            else:
+                error(f"Deepgram transcription failed: {type(exc).__name__}: {exc}")
             return None
 
     def get_name(self) -> str:

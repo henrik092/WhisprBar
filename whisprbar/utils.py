@@ -77,7 +77,7 @@ def _init_file_logger() -> logging.Logger:
             encoding="utf-8",
         )
         handler.setFormatter(logging.Formatter(
-            "%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+            "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
         ))
         logger.addHandler(handler)
     return logger
@@ -113,6 +113,17 @@ def debug(message: str) -> None:
     _file_logger.debug(message)
     if DEBUG:
         print(f"[DEBUG] {message}")
+
+
+def error(message: str) -> None:
+    """Log an error message — always written to logfile and stdout.
+
+    Use for failures the user should know about (API errors, network issues,
+    transcription failures). Unlike debug(), this always prints to stdout
+    even when WHISPRBAR_DEBUG is not set.
+    """
+    _file_logger.error(message)
+    print(f"[ERROR] {message}", file=sys.stderr)
 
 
 def command_exists(name: str) -> bool:

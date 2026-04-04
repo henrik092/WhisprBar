@@ -783,8 +783,36 @@ def on_recording_stop() -> None:
             from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_TRANSCRIBING
             show_recording_indicator(PHASE_TRANSCRIBING, cfg)
 
-            # Transcribe (pass language string, not entire cfg)
-            text = transcribe_audio(processed, cfg.get("language", "de"))
+            # Transcribe with timeout to prevent hanging threads from
+            # permanently blocking the semaphore (e.g. DNS/network hang).
+            import time as _time
+            TRANSCRIBE_TIMEOUT = 45.0  # seconds
+            _t0 = _time.monotonic()
+
+            _result_box = [None]  # mutable container for thread result
+            _exc_box = [None]
+
+            def _do_transcribe():
+                try:
+                    _result_box[0] = transcribe_audio(processed, cfg.get("language", "de"))
+                except Exception as e:
+                    _exc_box[0] = e
+
+            worker = threading.Thread(target=_do_transcribe, daemon=True)
+            worker.start()
+            worker.join(timeout=TRANSCRIBE_TIMEOUT)
+            _transcribe_ms = (_time.monotonic() - _t0) * 1000
+
+            if worker.is_alive():
+                from whisprbar.utils import error as log_error
+                log_error(f"Transcription timed out after {TRANSCRIBE_TIMEOUT:.0f}s (backend: {cfg.get('transcription_backend', '?')})")
+                text = None
+            elif _exc_box[0] is not None:
+                raise _exc_box[0]
+            else:
+                text = _result_box[0]
+
+            debug(f"transcribe_audio() returned in {_transcribe_ms:.0f}ms (text={'yes' if text else 'None'})")
 
             if text:
                 debug(f"Transcription: {text}")
@@ -825,14 +853,16 @@ def on_recording_stop() -> None:
                 threading.Thread(target=delayed_hide, daemon=True).start()
             else:
                 # Empty or failed transcription - notify but don't paste anything
-                debug("Transcription empty or failed")
+                from whisprbar.utils import error as log_error
+                log_error(f"Transcription returned no result after {_transcribe_ms:.0f}ms (backend: {cfg.get('transcription_backend', '?')})")
                 from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_ERROR
                 show_recording_indicator(PHASE_ERROR, cfg, info="No result")
                 notify("Transcription failed or empty.")
                 hide_live_overlay()
 
         except Exception as exc:
-            debug(f"Transcription error: {exc}")
+            from whisprbar.utils import error as log_error
+            log_error(f"Transcription thread exception: {type(exc).__name__}: {exc}")
             from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_ERROR
             error_msg = str(exc)[:30] if str(exc) else "Unknown error"
             show_recording_indicator(PHASE_ERROR, cfg, info=error_msg)

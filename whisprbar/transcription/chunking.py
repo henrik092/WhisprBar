@@ -9,7 +9,7 @@ from .base import Transcriber
 from .factory import get_transcriber
 from .postprocess import postprocess_transcript
 from whisprbar.config import cfg
-from whisprbar.utils import debug, notify
+from whisprbar.utils import debug, error, notify
 from whisprbar.ui import show_live_overlay, update_live_overlay, hide_live_overlay
 from whisprbar.audio import SAMPLE_RATE, split_audio_into_chunks
 
@@ -248,17 +248,19 @@ def transcribe_audio(audio: np.ndarray, language: str = "de") -> Optional[str]:
             transcript = transcriber.transcribe(processed, language)
 
             if transcript is None:
+                error(f"Transcriber {transcriber.get_name()} returned None for {duration:.1f}s audio")
                 hide_live_overlay()
                 return None
 
             debug(f"Received transcript length: {len(transcript)}")
 
     except Exception as exc:
-        debug(f"Transcription failed: {exc}")
+        error(f"Transcription failed: {type(exc).__name__}: {exc}")
         hide_live_overlay()
         return None
 
     if not transcript:
+        error(f"Transcriber returned empty string for {duration:.1f}s audio")
         hide_live_overlay()
         return None
 
