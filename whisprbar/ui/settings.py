@@ -100,20 +100,20 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         print(f"[WARN] Settings window unavailable: {exc}", file=sys.stderr)
         return
 
-    # Thread-safe check
+    # Thread-safe check: toggle – close if already open
     with _settings_window_lock:
         if _settings_window is not None:
             window_ref = _settings_window
-            GLib.idle_add(lambda: window_ref.present() or False)
+            GLib.idle_add(lambda: window_ref.close() or False)
             return
 
     def _present_settings() -> bool:
         global _settings_window
 
-        # Thread-safe double-check
+        # Thread-safe double-check: close if opened between outer check and idle_add
         with _settings_window_lock:
             if _settings_window is not None:
-                _settings_window.present()
+                _settings_window.close()
                 return False
 
         devices = list_input_devices()
