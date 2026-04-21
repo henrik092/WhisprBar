@@ -21,7 +21,12 @@ class DeepgramTranscriber(Transcriber):
     Transcribes audio using Deepgram's Nova-3 model via REST API.
     Requires DEEPGRAM_API_KEY.
     Sub-300ms latency - 6-10x faster than OpenAI Whisper.
-    Uses persistent HTTP connection to avoid TCP+TLS handshake per request.
+    Uses persistent HTTP connection(s) to avoid TCP+TLS handshake per request.
+
+    NOTE:
+    ThreadPool chunking can call this transcriber from multiple threads in
+    parallel. `http.client.HTTPSConnection` is not thread-safe, so we keep
+    one persistent connection per thread.
     """
 
     # Max idle time before proactively closing the connection (seconds).
@@ -36,8 +41,13 @@ class DeepgramTranscriber(Transcriber):
         """Initialize Deepgram transcriber."""
         self.api_key = None
         self.client_lock = threading.Lock()
-        self._conn = None  # Persistent HTTPS connection
-        self._conn_used_at = 0.0  # monotonic time of last successful use
+
+        # One persistent connection per thread for thread-safe reuse.
+        self._thread_local = threading.local()
+
+        # Track all active connections so unload() can close them.
+        self._conn_registry = set()
+        self._conn_registry_lock = threading.Lock()
 
     def ensure_client(self) -> bool:
         """Ensure Deepgram API key is available.
@@ -64,58 +74,89 @@ class DeepgramTranscriber(Transcriber):
             debug("Deepgram API key loaded")
             return True
 
-    def _get_connection(self):
-        """Get or create a persistent HTTPS connection to Deepgram.
+    def _register_connection(self, conn) -> None:
+        with self._conn_registry_lock:
+            self._conn_registry.add(conn)
 
-        Reuses existing connection to avoid TCP+TLS handshake overhead
-        (~200-500ms) on subsequent calls. Proactively closes idle
-        connections to avoid long hangs when the server has already
-        dropped them. _send_request() has retry logic as a fallback.
+    def _unregister_connection(self, conn) -> None:
+        with self._conn_registry_lock:
+            self._conn_registry.discard(conn)
+
+    def _close_thread_connection(self) -> None:
+        conn = getattr(self._thread_local, "conn", None)
+        if conn is not None:
+            with contextlib.suppress(Exception):
+                conn.close()
+            self._unregister_connection(conn)
+        self._thread_local.conn = None
+        self._thread_local.conn_used_at = 0.0
+
+    def _get_connection(self):
+        """Get or create a persistent HTTPS connection for current thread.
+
+        Reuses the calling thread's connection to avoid TCP+TLS handshake
+        overhead (~200-500ms) on subsequent calls. Proactively closes idle
+        connections to avoid long hangs when the server has already dropped
+        them. _send_request() has retry logic as a fallback.
         """
         import http.client
         import time as _time
 
+        conn = getattr(self._thread_local, "conn", None)
+        conn_used_at = float(getattr(self._thread_local, "conn_used_at", 0.0) or 0.0)
+
         # Close idle connections proactively to avoid stale-connection hangs
-        if self._conn is not None:
-            idle = _time.monotonic() - self._conn_used_at
+        if conn is not None:
+            idle = _time.monotonic() - conn_used_at
             if idle > self._CONN_MAX_IDLE:
-                debug(f"Deepgram: closing idle connection ({idle:.0f}s > {self._CONN_MAX_IDLE}s)")
+                debug(
+                    f"Deepgram: closing idle connection "
+                    f"({idle:.0f}s > {self._CONN_MAX_IDLE}s)"
+                )
                 with contextlib.suppress(Exception):
-                    self._conn.close()
-                self._conn = None
+                    conn.close()
+                self._unregister_connection(conn)
+                conn = None
 
-        if self._conn is not None:
-            return self._conn
+        if conn is not None:
+            return conn
 
-        self._conn = http.client.HTTPSConnection("api.deepgram.com", timeout=30)
-        self._conn_used_at = _time.monotonic()
-        debug("Deepgram: new HTTPS connection established")
-        return self._conn
+        conn = http.client.HTTPSConnection("api.deepgram.com", timeout=30)
+        self._thread_local.conn = conn
+        self._thread_local.conn_used_at = _time.monotonic()
+        self._register_connection(conn)
+        debug("Deepgram: new thread-local HTTPS connection established")
+        return conn
 
-    def _send_request(self, url_path: str, wav_data: bytes) -> str:
+    def _send_request(self, url_path: str, payload: bytes, content_type: str) -> str:
         """Send request with automatic reconnection on stale connections."""
         import http.client
         import socket
         import time as _time
+
         headers = {
             "Authorization": f"Token {self.api_key}",
-            "Content-Type": "audio/wav",
+            "Content-Type": content_type,
             "Connection": "keep-alive",
         }
 
         def _do_request(conn):
             t0 = _time.monotonic()
-            conn.request("POST", url_path, body=wav_data, headers=headers)
+            conn.request("POST", url_path, body=payload, headers=headers)
             response = conn.getresponse()
             data = response.read().decode("utf-8")
             elapsed_ms = (_time.monotonic() - t0) * 1000
             if response.status != 200:
-                error(f"Deepgram: HTTP {response.status} after {elapsed_ms:.0f}ms — {data[:300]}")
-                raise http.client.HTTPException(
-                    f"HTTP {response.status}: {data[:200]}"
+                error(
+                    f"Deepgram: HTTP {response.status} after "
+                    f"{elapsed_ms:.0f}ms — {data[:300]}"
                 )
-            debug(f"Deepgram: response {response.status} in {elapsed_ms:.0f}ms ({len(data)} bytes)")
-            self._conn_used_at = _time.monotonic()
+                raise http.client.HTTPException(f"HTTP {response.status}: {data[:200]}")
+            debug(
+                f"Deepgram: response {response.status} in {elapsed_ms:.0f}ms "
+                f"({len(data)} bytes)"
+            )
+            self._thread_local.conn_used_at = _time.monotonic()
             return data
 
         conn = self._get_connection()
@@ -127,12 +168,32 @@ class DeepgramTranscriber(Transcriber):
             raise
         except (http.client.HTTPException, OSError, ConnectionError) as exc:
             # Connection stale/lost or HTTP error, reconnect and retry once
-            debug(f"Deepgram: request failed ({type(exc).__name__}: {exc}), reconnecting...")
-            with contextlib.suppress(Exception):
-                self._conn.close()
-            self._conn = None
+            debug(
+                f"Deepgram: request failed ({type(exc).__name__}: {exc}), reconnecting..."
+            )
+            self._close_thread_connection()
             conn = self._get_connection()
             return _do_request(conn)
+
+    def _build_request_path(self, language: str) -> str:
+        """Build Deepgram API URL path with parameters.
+
+        Uses requested language when provided (e.g. "de", "en") for better
+        punctuation and formatting. Falls back to language=multi to support
+        code-switching when language is missing/auto.
+        """
+        language_code = (language or "").strip().lower()
+        if not language_code or language_code in {"auto", "multi"}:
+            language_param = "multi"
+        else:
+            language_param = language_code
+
+        return (
+            "/v1/listen?model=nova-3"
+            f"&language={language_param}"
+            "&smart_format=true"
+            "&punctuate=true"
+        )
 
     def transcribe(self, audio: np.ndarray, language: str = "de") -> Optional[str]:
         """Transcribe audio using Deepgram Nova-3 REST API.
@@ -156,7 +217,7 @@ class DeepgramTranscriber(Transcriber):
 
             # Write to WAV in memory
             wav_buffer = io.BytesIO()
-            with wave.open(wav_buffer, 'wb') as wf:
+            with wave.open(wav_buffer, "wb") as wf:
                 wf.setnchannels(CHANNELS)
                 wf.setsampwidth(2)  # 16-bit
                 wf.setframerate(SAMPLE_RATE)
@@ -165,13 +226,15 @@ class DeepgramTranscriber(Transcriber):
             wav_data = wav_buffer.getvalue()
 
             # Build Deepgram API URL path with parameters
-            # Nova-3 with language=multi handles code-switching (e.g. German
-            # with English words) natively without dropping foreign words.
-            url_path = "/v1/listen?model=nova-3&language=multi&smart_format=true&punctuate=true"
+            url_path = self._build_request_path(language)
 
-            # Send request via persistent connection
-            debug("Sending audio to Deepgram Nova-3 (language=multi)...")
-            response_data = self._send_request(url_path, wav_data)
+            # Send request via persistent per-thread connection
+            debug(f"Sending audio to Deepgram Nova-3 (language={language})...")
+            response_data = self._send_request(
+                url_path,
+                payload=wav_data,
+                content_type="audio/wav",
+            )
             result = json.loads(response_data)
 
             # Extract transcript from response
@@ -189,8 +252,12 @@ class DeepgramTranscriber(Transcriber):
 
         except Exception as exc:
             import socket
+
             if isinstance(exc, socket.gaierror):
-                error(f"Deepgram: DNS error — cannot resolve api.deepgram.com ({exc}). Check DNS/AdGuard/network.")
+                error(
+                    "Deepgram: DNS error — cannot resolve api.deepgram.com "
+                    f"({exc}). Check DNS/AdGuard/network."
+                )
             elif isinstance(exc, (ConnectionError, OSError)):
                 error(f"Deepgram: network error — {type(exc).__name__}: {exc}")
             elif isinstance(exc, TimeoutError):
@@ -208,12 +275,20 @@ class DeepgramTranscriber(Transcriber):
         return "Deepgram Nova-3 (multilingual)"
 
     def unload(self) -> None:
-        """Unload Deepgram client and close persistent connection."""
+        """Unload Deepgram client and close persistent connections."""
         with self.client_lock:
-            if self._conn is not None:
+            # Close current thread's connection and clear thread-local state.
+            self._close_thread_connection()
+
+            # Close any remaining connections created by worker threads.
+            with self._conn_registry_lock:
+                all_conns = list(self._conn_registry)
+                self._conn_registry.clear()
+
+            for conn in all_conns:
                 with contextlib.suppress(Exception):
-                    self._conn.close()
-                self._conn = None
+                    conn.close()
+
             if self.api_key is not None:
                 self.api_key = None
                 debug("Deepgram client unloaded")
