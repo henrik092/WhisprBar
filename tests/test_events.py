@@ -1,5 +1,6 @@
 """Unit tests for whisprbar.events module."""
 
+import builtins
 import threading
 
 import pytest
@@ -163,12 +164,21 @@ class TestEventBus:
 
         assert errors == []
 
-    def test_emit_on_main_thread_fallback(self):
+    def test_emit_on_main_thread_fallback(self, monkeypatch):
         """emit_on_main_thread falls back to sync emit when GLib unavailable."""
         bus = EventBus()
         received = []
         bus.on("test", lambda: received.append(True))
-        # In test env without GTK, should fall back to direct emit
+
+        real_import = builtins.__import__
+
+        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "gi.repository":
+                raise ImportError("GLib unavailable")
+            return real_import(name, globals, locals, fromlist, level)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+
         bus.emit_on_main_thread("test")
         assert received == [True]
 

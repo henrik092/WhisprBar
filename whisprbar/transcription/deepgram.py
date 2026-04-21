@@ -4,6 +4,7 @@ import contextlib
 import json
 import os
 import threading
+import weakref
 import wave
 from typing import Optional
 
@@ -13,6 +14,10 @@ from .base import Transcriber
 from whisprbar.config import load_env_file_values
 from whisprbar.utils import debug, error
 from whisprbar.audio import SAMPLE_RATE, CHANNELS
+
+
+class DeepgramHTTPError(RuntimeError):
+    """Non-retryable HTTP response from Deepgram."""
 
 
 class DeepgramTranscriber(Transcriber):
@@ -45,8 +50,8 @@ class DeepgramTranscriber(Transcriber):
         # One persistent connection per thread for thread-safe reuse.
         self._thread_local = threading.local()
 
-        # Track all active connections so unload() can close them.
-        self._conn_registry = set()
+        # Track live connections without keeping dead worker-thread connections alive.
+        self._conn_registry = weakref.WeakSet()
         self._conn_registry_lock = threading.Lock()
 
     def ensure_client(self) -> bool:
@@ -151,7 +156,7 @@ class DeepgramTranscriber(Transcriber):
                     f"Deepgram: HTTP {response.status} after "
                     f"{elapsed_ms:.0f}ms — {data[:300]}"
                 )
-                raise http.client.HTTPException(f"HTTP {response.status}: {data[:200]}")
+                raise DeepgramHTTPError(f"HTTP {response.status}: {data[:200]}")
             debug(
                 f"Deepgram: response {response.status} in {elapsed_ms:.0f}ms "
                 f"({len(data)} bytes)"
@@ -165,6 +170,8 @@ class DeepgramTranscriber(Transcriber):
         except socket.gaierror as exc:
             # DNS resolution failed — no point retrying immediately
             error(f"Deepgram: DNS resolution failed for api.deepgram.com ({exc})")
+            raise
+        except DeepgramHTTPError:
             raise
         except (http.client.HTTPException, OSError, ConnectionError) as exc:
             # Connection stale/lost or HTTP error, reconnect and retry once
@@ -258,6 +265,8 @@ class DeepgramTranscriber(Transcriber):
                     "Deepgram: DNS error — cannot resolve api.deepgram.com "
                     f"({exc}). Check DNS/AdGuard/network."
                 )
+            elif isinstance(exc, DeepgramHTTPError):
+                pass
             elif isinstance(exc, (ConnectionError, OSError)):
                 error(f"Deepgram: network error — {type(exc).__name__}: {exc}")
             elif isinstance(exc, TimeoutError):
