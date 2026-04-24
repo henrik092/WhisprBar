@@ -11,6 +11,7 @@ import signal
 import argparse
 import threading
 import contextlib
+import time
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -663,6 +664,14 @@ def on_recording_start() -> None:
     play_audio_feedback("start")
 
 
+def _transcribe_processed_audio(processed, language: str) -> tuple[Optional[str], float]:
+    """Run transcription directly and return result text plus elapsed milliseconds."""
+    started_at = time.monotonic()
+    text = transcribe_audio(processed, language)
+    elapsed_ms = (time.monotonic() - started_at) * 1000
+    return text, elapsed_ms
+
+
 def on_recording_stop() -> None:
     """Handler called when recording stops."""
     state.recording = False
@@ -783,34 +792,10 @@ def on_recording_stop() -> None:
             from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_TRANSCRIBING
             show_recording_indicator(PHASE_TRANSCRIBING, cfg)
 
-            # Transcribe with timeout to prevent hanging threads from
-            # permanently blocking the semaphore (e.g. DNS/network hang).
-            import time as _time
-            TRANSCRIBE_TIMEOUT = 45.0  # seconds
-            _t0 = _time.monotonic()
-
-            _result_box = [None]  # mutable container for thread result
-            _exc_box = [None]
-
-            def _do_transcribe():
-                try:
-                    _result_box[0] = transcribe_audio(processed, cfg.get("language", "de"))
-                except Exception as e:
-                    _exc_box[0] = e
-
-            worker = threading.Thread(target=_do_transcribe, daemon=True)
-            worker.start()
-            worker.join(timeout=TRANSCRIBE_TIMEOUT)
-            _transcribe_ms = (_time.monotonic() - _t0) * 1000
-
-            if worker.is_alive():
-                from whisprbar.utils import error as log_error
-                log_error(f"Transcription timed out after {TRANSCRIBE_TIMEOUT:.0f}s (backend: {cfg.get('transcription_backend', '?')})")
-                text = None
-            elif _exc_box[0] is not None:
-                raise _exc_box[0]
-            else:
-                text = _result_box[0]
+            text, _transcribe_ms = _transcribe_processed_audio(
+                processed,
+                cfg.get("language", "de"),
+            )
 
             debug(f"transcribe_audio() returned in {_transcribe_ms:.0f}ms (text={'yes' if text else 'None'})")
 

@@ -363,8 +363,15 @@ install_launcher_assets() {
 
   if prompt_yes "Install launcher to $LAUNCHER_PATH? [y/N]: "; then
     mkdir -p "$(dirname "$LAUNCHER_PATH")"
-    install -m 755 "$PROJECT_ROOT/whisprbar-launcher.sh" "$LAUNCHER_PATH"
-    log "Launcher installed to $LAUNCHER_PATH"
+    # Write a thin wrapper that execs the real launcher from the repo.
+    # This way SCRIPT_DIR inside whisprbar-launcher.sh resolves to the
+    # actual repo directory, no matter where Nextcloud syncs it.
+    cat > "$LAUNCHER_PATH" <<WRAPPER
+#!/usr/bin/env bash
+exec "$PROJECT_ROOT/whisprbar-launcher.sh" "\$@"
+WRAPPER
+    chmod 755 "$LAUNCHER_PATH"
+    log "Launcher installed to $LAUNCHER_PATH (wrapper -> $PROJECT_ROOT)"
   fi
 
   if prompt_yes "Install desktop entry to $DESKTOP_ENTRY_PATH? [y/N]: "; then

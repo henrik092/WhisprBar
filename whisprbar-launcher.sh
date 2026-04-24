@@ -35,6 +35,8 @@ fi
 # PYTHONPATH removed - venv should be isolated
 # export PYTHONPATH="/usr/lib/python3/dist-packages:/usr/lib/python3.12/dist-packages:${PYTHONPATH:-}"
 
+# SCRIPT_DIR is the repo root (resolved via wrapper in ~/.local/bin/).
+# WHISPRBAR_HOME kept as override, but normally not needed.
 APP_DIR="${WHISPRBAR_HOME:-$SCRIPT_DIR}"
 VENV_DIR="$APP_DIR/.venv"
 PYTHON="$VENV_DIR/bin/python"
