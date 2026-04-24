@@ -1,6 +1,7 @@
 """Unit tests for the Deepgram transcription backend."""
 
 import gc
+import socket
 import pytest
 
 from whisprbar.transcription.deepgram import DeepgramTranscriber
@@ -44,6 +45,18 @@ class FakeConnection:
         self.closed = True
 
 
+class FailingRequestConnection(FakeConnection):
+    """Connection test double that fails before an HTTP response exists."""
+
+    def __init__(self, exc):
+        super().__init__([])
+        self.exc = exc
+
+    def request(self, method, path, body=None, headers=None):
+        self.request_count += 1
+        raise self.exc
+
+
 class RegistryConnection:
     """Weakref-able, hashable registry test double."""
 
@@ -64,6 +77,28 @@ def test_deepgram_http_error_is_not_retried(monkeypatch):
         transcriber._send_request("/v1/listen", b"wav-data", "audio/wav")
 
     assert conn.request_count == 1
+
+
+@pytest.mark.unit
+def test_deepgram_retries_transient_dns_resolution_failure(monkeypatch):
+    """A short local DNS outage should not immediately discard the recording."""
+    transcriber = DeepgramTranscriber()
+    transcriber.api_key = "test-key"
+    first_conn = FailingRequestConnection(socket.gaierror(-2, "temporary resolver failure"))
+    second_conn = FakeConnection(
+        [(200, '{"results":{"channels":[{"alternatives":[{"transcript":"ok"}]}]}}')]
+    )
+    connections = iter([first_conn, second_conn])
+
+    monkeypatch.setattr(transcriber, "_get_connection", lambda: next(connections))
+    monkeypatch.setattr(transcriber, "_close_thread_connection", lambda: None)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    result = transcriber._send_request("/v1/listen", b"wav-data", "audio/wav")
+
+    assert '"transcript":"ok"' in result
+    assert first_conn.request_count == 1
+    assert second_conn.request_count == 1
 
 
 @pytest.mark.unit

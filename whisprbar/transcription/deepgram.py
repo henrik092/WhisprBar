@@ -41,6 +41,7 @@ class DeepgramTranscriber(Transcriber):
     # recordings, and a fresh handshake (~200-500ms) is acceptable for
     # longer gaps. _send_request() has retry logic as a fallback.
     _CONN_MAX_IDLE = 55
+    _DNS_RETRY_DELAYS = (0.25, 0.75)
 
     def __init__(self):
         """Initialize Deepgram transcriber."""
@@ -164,14 +165,31 @@ class DeepgramTranscriber(Transcriber):
             self._thread_local.conn_used_at = _time.monotonic()
             return data
 
-        conn = self._get_connection()
+        def _do_request_with_dns_retry():
+            conn = self._get_connection()
+            for dns_attempt in range(len(self._DNS_RETRY_DELAYS) + 1):
+                try:
+                    return _do_request(conn)
+                except socket.gaierror as exc:
+                    if dns_attempt >= len(self._DNS_RETRY_DELAYS):
+                        error(f"Deepgram: DNS resolution failed for api.deepgram.com ({exc})")
+                        raise
+
+                    delay = self._DNS_RETRY_DELAYS[dns_attempt]
+                    debug(
+                        f"Deepgram: DNS resolution failed for api.deepgram.com "
+                        f"({exc}); retrying in {delay:.2f}s"
+                    )
+                    self._close_thread_connection()
+                    _time.sleep(delay)
+                    conn = self._get_connection()
+            raise RuntimeError("unreachable")
+
         try:
-            return _do_request(conn)
-        except socket.gaierror as exc:
-            # DNS resolution failed — no point retrying immediately
-            error(f"Deepgram: DNS resolution failed for api.deepgram.com ({exc})")
-            raise
+            return _do_request_with_dns_retry()
         except DeepgramHTTPError:
+            raise
+        except socket.gaierror:
             raise
         except (http.client.HTTPException, OSError, ConnectionError) as exc:
             # Connection stale/lost or HTTP error, reconnect and retry once
@@ -179,8 +197,7 @@ class DeepgramTranscriber(Transcriber):
                 f"Deepgram: request failed ({type(exc).__name__}: {exc}), reconnecting..."
             )
             self._close_thread_connection()
-            conn = self._get_connection()
-            return _do_request(conn)
+            return _do_request_with_dns_retry()
 
     def _build_request_path(self, language: str) -> str:
         """Build Deepgram API URL path with parameters.
