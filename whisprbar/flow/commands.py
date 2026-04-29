@@ -18,6 +18,8 @@ class CommandSpec:
 COMMAND_SPECS = (
     CommandSpec("professional", "mach das professioneller", "professional"),
     CommandSpec("shorter", "mach das kürzer", "shorter"),
+    CommandSpec("longer", "mach das länger", "longer"),
+    CommandSpec("longer", "mach das ausführlicher", "longer"),
     CommandSpec("list", "formatiere das als liste", "list"),
     CommandSpec("list", "als liste", "list"),
     CommandSpec("list", "als leiste", "list"),
@@ -27,6 +29,8 @@ COMMAND_SPECS = (
     CommandSpec("new_line", "neue zeile", paste_policy=PastePolicy(add_newline=True)),
     CommandSpec("professional", "make this more professional", "professional"),
     CommandSpec("shorter", "make this shorter", "shorter"),
+    CommandSpec("longer", "make this longer", "longer"),
+    CommandSpec("longer", "make this more detailed", "longer"),
     CommandSpec("list", "format this as a list", "list"),
     CommandSpec("translate_english", "translate this to english", "translate_english"),
     CommandSpec("clipboard_only", "clipboard only", paste_policy=PastePolicy(clipboard_only=True)),

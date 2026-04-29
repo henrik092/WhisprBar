@@ -37,6 +37,24 @@ def test_detect_german_command_suffix_with_punctuation():
 
 
 @pytest.mark.unit
+def test_detect_german_longer_command_suffix():
+    detection = detect_command("das braucht mehr details mach das länger", "de", enabled=True)
+
+    assert detection.text == "das braucht mehr details"
+    assert detection.command_id == "longer"
+    assert detection.rewrite_mode == "longer"
+
+
+@pytest.mark.unit
+def test_detect_english_longer_command_suffix():
+    detection = detect_command("add a bit of context make this more detailed", "en", enabled=True)
+
+    assert detection.text == "add a bit of context"
+    assert detection.command_id == "longer"
+    assert detection.rewrite_mode == "longer"
+
+
+@pytest.mark.unit
 def test_detect_german_list_alias_from_misheard_phrase():
     detection = detect_command("eins äpfel zwei birnen als leiste.", "de", enabled=True)
 
