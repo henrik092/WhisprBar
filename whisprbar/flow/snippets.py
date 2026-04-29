@@ -37,6 +37,24 @@ def load_snippets(path: Optional[Path] = None) -> List[Snippet]:
     return list(validate_snippets(snippets))
 
 
+def save_snippets(snippets: Sequence[Snippet], path: Optional[Path] = None) -> None:
+    """Persist snippets as JSON, skipping incomplete rows."""
+    snippets_path = path or SNIPPETS_PATH
+    snippets_path.parent.mkdir(parents=True, exist_ok=True)
+
+    data = []
+    for snippet in snippets:
+        trigger = str(snippet.trigger).strip()
+        text = str(snippet.text).strip()
+        if trigger and text:
+            data.append({"trigger": trigger, "text": text})
+
+    snippets_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def validate_snippets(snippets: Sequence[Snippet]) -> Tuple[Snippet, ...]:
     """Validate snippet triggers and return a normalized tuple."""
     seen = set()

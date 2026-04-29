@@ -5,7 +5,7 @@ import json
 import pytest
 
 from whisprbar.flow.models import Snippet
-from whisprbar.flow.snippets import apply_snippets, load_snippets, validate_snippets
+from whisprbar.flow.snippets import apply_snippets, load_snippets, save_snippets, validate_snippets
 
 
 @pytest.mark.unit
@@ -30,6 +30,27 @@ def test_load_snippets_reads_entries(tmp_path):
     )
 
     assert load_snippets(path) == [Snippet(trigger="my signature", text="Best regards")]
+
+
+@pytest.mark.unit
+def test_save_snippets_persists_non_empty_entries(tmp_path):
+    path = tmp_path / "snippets.json"
+
+    save_snippets(
+        [
+            Snippet(trigger=" meeting link ", text=" https://example.test/meeting "),
+            Snippet(trigger="", text="ignored"),
+            Snippet(trigger="ignored", text=""),
+        ],
+        path,
+    )
+
+    assert json.loads(path.read_text(encoding="utf-8")) == [
+        {"trigger": "meeting link", "text": "https://example.test/meeting"}
+    ]
+    assert load_snippets(path) == [
+        Snippet(trigger="meeting link", text="https://example.test/meeting")
+    ]
 
 
 @pytest.mark.unit

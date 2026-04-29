@@ -52,7 +52,8 @@ from whisprbar.ui_hotkeys import (
 )
 from whisprbar.paste import PASTE_OPTIONS, is_wayland_session
 from whisprbar.flow.dictionary import DICTIONARY_PATH, load_dictionary, save_dictionary
-from whisprbar.flow.models import DictionaryEntry
+from whisprbar.flow.models import DictionaryEntry, Snippet
+from whisprbar.flow.snippets import SNIPPETS_PATH, load_snippets, save_snippets
 
 # Module state - window references
 _overlay_window = None
@@ -127,14 +128,99 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         window = Gtk.Window(title=f"{APP_NAME} Settings")
         window.set_position(Gtk.WindowPosition.CENTER)
         window.set_resizable(True)
-        window.set_default_size(550, 600)
+        window.set_default_size(820, 680)
 
         # Apply theme
         theme = get_effective_theme(cfg)
         apply_theme_css(window, theme)
 
+        def apply_settings_redesign_css() -> None:
+            css = b"""
+            .settings-root {
+                background: #0d1218;
+            }
+            .settings-header {
+                min-height: 46px;
+                padding: 0 14px;
+                background: #111820;
+                border-bottom: 1px solid rgba(255,255,255,0.08);
+            }
+            .settings-brand {
+                margin: 0;
+            }
+            .settings-brand-badge {
+                min-width: 26px;
+                min-height: 26px;
+                border-radius: 7px;
+                background: #63c7f4;
+                color: #071118;
+                font-weight: 800;
+                font-size: 10px;
+            }
+            .settings-brand-title {
+                color: #eef5fb;
+                font-weight: 700;
+                font-size: 14px;
+            }
+            .settings-shell {
+                background: #0d1218;
+            }
+            .settings-sidebar {
+                min-width: 176px;
+                background: #101720;
+                border-right: 1px solid rgba(255,255,255,0.08);
+                padding: 10px 6px;
+            }
+            .settings-sidebar row {
+                min-height: 34px;
+                border-radius: 8px;
+                margin: 2px 4px;
+                color: #b5c0cc;
+            }
+            .settings-sidebar row:selected {
+                background: #223347;
+                color: #f6fbff;
+            }
+            .settings-page-scroll {
+                background: #0d1218;
+            }
+            .settings-page {
+                background: #0d1218;
+            }
+            .settings-row {
+                min-height: 38px;
+                padding: 6px 10px;
+                border-radius: 8px;
+                background: rgba(255,255,255,0.035);
+                border: 1px solid rgba(255,255,255,0.06);
+            }
+            .settings-section-label {
+                color: #eef5fb;
+                font-size: 13px;
+                font-weight: 700;
+                margin-top: 4px;
+            }
+            .settings-bottom-bar {
+                padding: 10px 12px;
+                background: #111820;
+                border-top: 1px solid rgba(255,255,255,0.08);
+            }
+            """
+            provider = Gtk.CssProvider()
+            provider.load_from_data(css)
+            screen = Gdk.Screen.get_default() if Gdk is not None else None
+            if screen is not None:
+                Gtk.StyleContext.add_provider_for_screen(
+                    screen,
+                    provider,
+                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+                )
+
+        apply_settings_redesign_css()
+
         # Main vertical container
         main_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        main_vbox.get_style_context().add_class("settings-root")
         window.add(main_vbox)
 
         # Helper functions for creating rows
@@ -146,6 +232,7 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             defaults_text: Optional[str] = None,
         ) -> Gtk.Box:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            row.get_style_context().add_class("settings-row")
             label_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
             lbl = Gtk.Label(label=label_text)
             lbl.set_xalign(0.0)
@@ -174,17 +261,52 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             row = make_row(label_text, switch, tooltip=tooltip)
             return row, switch
 
-        # Create Notebook (tabbed interface)
-        notebook = Gtk.Notebook()
-        notebook.set_tab_pos(Gtk.PositionType.TOP)
-        main_vbox.pack_start(notebook, True, True, 0)
+        def create_settings_page() -> tuple:
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scroll.get_style_context().add_class("settings-page-scroll")
+            page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            page.set_border_width(18)
+            page.get_style_context().add_class("settings-page")
+            scroll.add(page)
+            return scroll, page
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        header.get_style_context().add_class("settings-header")
+        main_vbox.pack_start(header, False, False, 0)
+
+        brand = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        brand.get_style_context().add_class("settings-brand")
+        header.pack_start(brand, True, True, 0)
+
+        brand_badge = Gtk.Label(label="WB")
+        brand_badge.get_style_context().add_class("settings-brand-badge")
+        brand.pack_start(brand_badge, False, False, 0)
+
+        brand_text = Gtk.Label(label="WhisprBar Settings")
+        brand_text.set_xalign(0.0)
+        brand_text.get_style_context().add_class("settings-brand-title")
+        brand.pack_start(brand_text, False, False, 0)
+
+        content_shell = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        content_shell.get_style_context().add_class("settings-shell")
+        main_vbox.pack_start(content_shell, True, True, 0)
+
+        stack = Gtk.Stack()
+        stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        stack.set_transition_duration(140)
+
+        sidebar = Gtk.StackSidebar()
+        sidebar.set_stack(stack)
+        sidebar.get_style_context().add_class("settings-sidebar")
+        content_shell.pack_start(sidebar, False, False, 0)
+        content_shell.pack_start(stack, True, True, 0)
 
         # =====================================================================
         # TAB 1: Basis (Basic Settings)
         # =====================================================================
-        basis_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        basis_page.set_border_width(12)
-        notebook.append_page(basis_page, Gtk.Label(label="Basis"))
+        basis_scroll, basis_page = create_settings_page()
+        stack.add_titled(basis_scroll, "general", "General")
 
         # Theme selection
         theme_combo = Gtk.ComboBoxText()
@@ -380,9 +502,8 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         # =====================================================================
         # TAB 2: Audio
         # =====================================================================
-        audio_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        audio_page.set_border_width(12)
-        notebook.append_page(audio_page, Gtk.Label(label="Audio"))
+        audio_scroll, audio_page = create_settings_page()
+        stack.add_titled(audio_scroll, "recording", "Recording")
 
         # Input device
         device_combo = Gtk.ComboBoxText()
@@ -461,9 +582,8 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         # =====================================================================
         # TAB 3: Transcription
         # =====================================================================
-        trans_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        trans_page.set_border_width(12)
-        notebook.append_page(trans_page, Gtk.Label(label="Transkription"))
+        trans_scroll, trans_page = create_settings_page()
+        stack.add_titled(trans_scroll, "transcription", "Transcription")
 
         # Backend selection with speed indicators
         backend_combo = Gtk.ComboBoxText()
@@ -620,14 +740,8 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         # =====================================================================
         # TAB 4: Erweitert (Advanced)
         # =====================================================================
-        adv_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        adv_page.set_border_width(12)
-
-        # Wrap in ScrolledWindow for long content
-        adv_scroll = Gtk.ScrolledWindow()
-        adv_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        adv_scroll.add(adv_page)
-        notebook.append_page(adv_scroll, Gtk.Label(label="Erweitert"))
+        adv_scroll, adv_page = create_settings_page()
+        stack.add_titled(adv_scroll, "advanced", "Advanced")
 
         # VAD Section
         vad_section = Gtk.Label()
@@ -997,12 +1111,8 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         # =====================================================================
         # TAB 5: Flow
         # =====================================================================
-        flow_scroll = Gtk.ScrolledWindow()
-        flow_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        flow_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        flow_page.set_border_width(12)
-        flow_scroll.add(flow_page)
-        notebook.append_page(flow_scroll, Gtk.Label(label="Flow"))
+        flow_scroll, flow_page = create_settings_page()
+        stack.add_titled(flow_scroll, "flow", "Flow")
 
         flow_section = Gtk.Label()
         flow_section.set_markup("<b>Flow Mode</b>")
@@ -1149,6 +1259,62 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         add_dictionary_button.connect("clicked", on_add_dictionary_entry)
         remove_dictionary_button.connect("clicked", on_remove_dictionary_entry)
 
+        flow_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
+
+        snippets_section = Gtk.Label()
+        snippets_section.set_markup("<b>Snippets</b>")
+        snippets_section.set_xalign(0.0)
+        flow_page.pack_start(snippets_section, False, False, 6)
+
+        snippets_store = Gtk.ListStore(str, str)
+        for snippet in load_snippets():
+            snippets_store.append([snippet.trigger, snippet.text])
+
+        snippets_view = Gtk.TreeView(model=snippets_store)
+        snippets_view.set_headers_visible(True)
+        snippets_view.get_selection().set_mode(Gtk.SelectionMode.SINGLE)
+
+        def add_snippets_column(title: str, column_index: int) -> None:
+            renderer = Gtk.CellRendererText()
+            renderer.set_property("editable", True)
+
+            def on_snippets_cell_edited(_renderer, path, new_text) -> None:
+                snippets_store[path][column_index] = new_text.strip()
+
+            renderer.connect("edited", on_snippets_cell_edited)
+            column = Gtk.TreeViewColumn(title, renderer, text=column_index)
+            column.set_resizable(True)
+            column.set_expand(True)
+            snippets_view.append_column(column)
+
+        add_snippets_column("Trigger", 0)
+        add_snippets_column("Text", 1)
+
+        snippets_scroll = Gtk.ScrolledWindow()
+        snippets_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        snippets_scroll.set_min_content_height(120)
+        snippets_scroll.add(snippets_view)
+        flow_page.pack_start(snippets_scroll, False, False, 0)
+
+        snippets_controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        add_snippet_button = Gtk.Button(label="Add")
+        remove_snippet_button = Gtk.Button(label="Remove")
+        snippets_controls.pack_start(add_snippet_button, False, False, 0)
+        snippets_controls.pack_start(remove_snippet_button, False, False, 0)
+        flow_page.pack_start(snippets_controls, False, False, 0)
+
+        def on_add_snippet(_button) -> None:
+            new_iter = snippets_store.append(["", ""])
+            snippets_view.get_selection().select_iter(new_iter)
+
+        def on_remove_snippet(_button) -> None:
+            model, selected_iter = snippets_view.get_selection().get_selected()
+            if selected_iter is not None:
+                model.remove(selected_iter)
+
+        add_snippet_button.connect("clicked", on_add_snippet)
+        remove_snippet_button.connect("clicked", on_remove_snippet)
+
         def ensure_json_file(path: Path, default_data) -> None:
             path.parent.mkdir(parents=True, exist_ok=True)
             if not path.exists():
@@ -1176,7 +1342,7 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         snippets_button.connect(
             "clicked",
             lambda _button: ensure_json_file(
-                Path.home() / ".config" / "whisprbar" / "snippets.json",
+                SNIPPETS_PATH,
                 [{"trigger": "my signature", "text": "Best regards,\nRik"}],
             ),
         )
@@ -1188,6 +1354,7 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
 
         button_container = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         button_container.set_border_width(12)
+        button_container.get_style_context().add_class("settings-bottom-bar")
         main_vbox.pack_end(button_container, False, False, 0)
 
         shortcuts_label = Gtk.Label()
@@ -1335,10 +1502,15 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
                 DictionaryEntry(spoken=row[0], written=row[1])
                 for row in dictionary_store
             ]
+            snippet_entries = [
+                Snippet(trigger=row[0], text=row[1])
+                for row in snippets_store
+            ]
             try:
                 save_dictionary(dictionary_entries)
-            except OSError as exc:
-                notify(f"Dictionary konnte nicht gespeichert werden: {exc}")
+                save_snippets(snippet_entries)
+            except (OSError, ValueError) as exc:
+                notify(f"Flow-Dateien konnten nicht gespeichert werden: {exc}")
                 return
 
             if cfg.get("auto_paste_enabled"):
