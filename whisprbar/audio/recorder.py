@@ -25,6 +25,7 @@ recording_state = {
     "stream": None,
     "device_idx": None,
     "audio_data": None,
+    "generation": 0,
 }
 
 # Callbacks for recording events
@@ -130,6 +131,36 @@ def update_device_index() -> None:
         recording_state["device_idx"] = idx
 
 
+def _max_recording_monitor(generation: int, max_seconds: float) -> None:
+    """Stop a Flow recording once its configured maximum duration is reached."""
+    time.sleep(max_seconds)
+    with _recording_state_lock:
+        should_stop = (
+            recording_state.get("recording")
+            and recording_state.get("generation") == generation
+        )
+    if should_stop:
+        debug(f"Flow max recording duration reached after {max_seconds:.0f}s")
+        stop_recording()
+
+
+def _start_max_recording_monitor(generation: int) -> None:
+    """Start the max recording timer when Flow Mode is active."""
+    if not cfg.get("flow_mode_enabled"):
+        return
+    try:
+        max_minutes = int(cfg.get("flow_max_recording_minutes", 20))
+    except (TypeError, ValueError):
+        max_minutes = 20
+    max_minutes = max(1, min(60, max_minutes))
+    threading.Thread(
+        target=_max_recording_monitor,
+        args=(generation, max_minutes * 60.0),
+        name="whisprbar-flow-max-recording",
+        daemon=True,
+    ).start()
+
+
 def recording_callback(indata, frames, time_info, status):
     """Sounddevice callback for audio recording.
 
@@ -232,8 +263,11 @@ def start_recording() -> None:
             recording_state["stream"] = stream
             recording_state["recording"] = True
             recording_state["audio_data"] = None
+            recording_state["generation"] = int(recording_state.get("generation", 0)) + 1
+            generation = recording_state["generation"]
 
         debug("Recording started")
+        _start_max_recording_monitor(generation)
 
         # Call on_start callback if set
         if _recording_callbacks.get("on_start"):

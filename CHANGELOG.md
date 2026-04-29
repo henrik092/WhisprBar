@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Auto-paste pipeline**: Dictation output now passes through the Flow pipeline when enabled, including per-output paste policy metadata.
 - **History window**: History entries can show Flow metadata and aggregate dictation stats.
+- **Flow privacy controls**: Auto-delete history mode prunes old entries by age, and Flow recordings can stop automatically at the configured maximum duration.
 
 ## [1.1.1] - 2026-03-26
 

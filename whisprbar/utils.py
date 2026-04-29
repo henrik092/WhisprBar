@@ -17,7 +17,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -343,11 +343,19 @@ def write_history(
         with HIST_FILE.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
-        # Cleanup old entries periodically (every 10 writes) instead of every write
-        _history_write_count += 1
-        if _history_write_count >= _HISTORY_CLEANUP_INTERVAL:
-            cleanup_history(max_entries=30)
-            _history_write_count = 0
+        # Cleanup old entries periodically, except auto-delete mode where age
+        # retention is the explicit privacy contract and must run immediately.
+        storage_mode = cfg.get("flow_history_storage")
+        if storage_mode == "auto_delete":
+            cleanup_history(
+                max_entries=30,
+                max_age_hours=int(cfg.get("flow_history_auto_delete_hours", 24)),
+            )
+        else:
+            _history_write_count += 1
+            if _history_write_count >= _HISTORY_CLEANUP_INTERVAL:
+                cleanup_history(max_entries=30)
+                _history_write_count = 0
     except Exception as exc:
         print(f"[WARN] Failed to write history: {exc}", file=sys.stderr)
 
@@ -610,13 +618,15 @@ def clear_history() -> None:
         debug(f"Failed to clear history: {exc}")
 
 
-def cleanup_history(max_entries: int = 30) -> None:
-    """Limit history to maximum number of entries.
+def cleanup_history(max_entries: int = 30, max_age_hours: Optional[int] = None) -> None:
+    """Limit history to maximum number of entries and optional age.
 
-    Keeps only the most recent entries, removing older ones.
+    Keeps only the most recent entries, removing older ones. When max_age_hours
+    is set, entries older than that age are also removed.
 
     Args:
         max_entries: Maximum number of entries to keep (default: 30)
+        max_age_hours: Optional maximum age in hours for retained entries
     """
     if not HIST_FILE.exists():
         return
@@ -635,12 +645,31 @@ def cleanup_history(max_entries: int = 30) -> None:
                 except json.JSONDecodeError:
                     continue
 
+        changed = False
+        if max_age_hours is not None:
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=max(1, int(max_age_hours)))
+            retained = []
+            for entry in entries:
+                timestamp = entry.get("timestamp")
+                try:
+                    entry_time = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+                    if entry_time.tzinfo is None:
+                        entry_time = entry_time.replace(tzinfo=timezone.utc)
+                except (TypeError, ValueError):
+                    retained.append(entry)
+                    continue
+                if entry_time >= cutoff:
+                    retained.append(entry)
+            changed = len(retained) != len(entries)
+            entries = retained
+
         # If we have more than max_entries, keep only the last ones
         if len(entries) > max_entries:
             entries = entries[-max_entries:]
             debug(f"History cleanup: keeping last {max_entries} entries")
+            changed = True
 
-            # Rewrite the file with limited entries
+        if changed:
             with HIST_FILE.open("w", encoding="utf-8") as handle:
                 for entry in entries:
                     handle.write(json.dumps(entry, ensure_ascii=False) + "\n")

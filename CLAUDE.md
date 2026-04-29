@@ -182,7 +182,7 @@ WhisperBar/                           # Repository root
     "flow_snippets_enabled": True,         # Spoken snippet expansion
     "flow_command_mode_enabled": True,     # Spoken command detection
     "flow_rewrite_enabled": False,         # Optional cloud rewrite pass
-    "flow_history_storage": "full",        # full/final_only/never
+    "flow_history_storage": "normal",      # normal/auto_delete/never
     ...
 }
 ```
