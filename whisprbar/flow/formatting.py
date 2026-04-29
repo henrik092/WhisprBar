@@ -25,6 +25,11 @@ PUNCTUATION_WORDS = {
     },
 }
 
+LINE_BREAK_WORDS = {
+    "en": ("new line",),
+    "de": ("neue zeile",),
+}
+
 LIST_MARKERS = {
     "en": ("one", "two", "three", "four", "five"),
     "de": ("eins", "zwei", "drei", "vier", "fünf"),
@@ -59,6 +64,30 @@ def _replace_punctuation_words(text: str, language: str) -> Tuple[str, bool]:
     return result.strip(), changed
 
 
+def _replace_line_break_words(text: str, language: str) -> Tuple[str, bool]:
+    phrases = LINE_BREAK_WORDS.get(language, LINE_BREAK_WORDS["en"])
+    result = text
+    changed = False
+    for phrase in sorted(phrases, key=len, reverse=True):
+        pattern = re.compile(rf"\s*\b{re.escape(phrase)}\b[\s,.;:!?]*", re.IGNORECASE)
+        result, count = pattern.subn("\n", result)
+        changed = changed or bool(count)
+    result = re.sub(r"\n{3,}", "\n\n", result)
+    result = re.sub(r" *\n *", "\n", result)
+    return result.strip(), changed
+
+
+def _clean_list_item(item: str, language: str) -> str:
+    punctuation_words = "|".join(
+        re.escape(word)
+        for word in PUNCTUATION_WORDS.get(language, PUNCTUATION_WORDS["en"]).keys()
+    )
+    item = item.strip(" ,.;:!?")
+    item = re.sub(rf"^(?:{punctuation_words})\b[\s,.;:!?]*", "", item, flags=re.IGNORECASE)
+    item = re.sub(rf"[\s,.;:!?]*(?:{punctuation_words})\b$", "", item, flags=re.IGNORECASE)
+    return item.strip(" ,.;:!?")
+
+
 def _format_numbered_list(text: str, language: str) -> Tuple[str, bool]:
     markers = LIST_MARKERS.get(language, LIST_MARKERS["en"])
     marker_pattern = "|".join(re.escape(marker) for marker in markers)
@@ -71,7 +100,7 @@ def _format_numbered_list(text: str, language: str) -> Tuple[str, bool]:
     for index, match in enumerate(matches):
         start = match.end()
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        item = text[start:end].strip(" ,.;")
+        item = _clean_list_item(text[start:end], language)
         if item:
             lines.append(f"{index + 1}. {item}")
     if len(lines) < 2:
@@ -94,6 +123,10 @@ def apply_smart_formatting(
     result, punctuation_changed = _replace_punctuation_words(result, language)
     if punctuation_changed:
         metadata["punctuation_words"] = True
+
+    result, line_breaks_changed = _replace_line_break_words(result, language)
+    if line_breaks_changed:
+        metadata["line_breaks"] = True
 
     if profile.style == "casual" and result.endswith("."):
         result = result[:-1]

@@ -19,6 +19,8 @@ COMMAND_SPECS = (
     CommandSpec("professional", "mach das professioneller", "professional"),
     CommandSpec("shorter", "mach das kürzer", "shorter"),
     CommandSpec("list", "formatiere das als liste", "list"),
+    CommandSpec("list", "als liste", "list"),
+    CommandSpec("list", "als leiste", "list"),
     CommandSpec("translate_english", "übersetze das ins englische", "translate_english"),
     CommandSpec("clipboard_only", "nur in die zwischenablage", paste_policy=PastePolicy(clipboard_only=True)),
     CommandSpec("press_enter", "drücke enter", paste_policy=PastePolicy(press_enter_after_paste=True)),
@@ -34,7 +36,10 @@ COMMAND_SPECS = (
 
 
 def _normalize(text: str) -> str:
-    return re.sub(r"\s+", " ", text.strip().casefold())
+    normalized = text.strip().casefold()
+    normalized = re.sub(r"[\s,.;:!?]+$", "", normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized
 
 
 def _strip_suffix(text: str, phrase: str) -> Optional[str]:
@@ -44,7 +49,13 @@ def _strip_suffix(text: str, phrase: str) -> Optional[str]:
         return ""
     suffix = " " + normalized_phrase
     if normalized_text.endswith(suffix):
-        return text[: -len(suffix)].strip()
+        cleaned = re.sub(
+            rf"[\s,.;:!?]*{re.escape(phrase)}[\s,.;:!?]*$",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        return cleaned.rstrip(" ,.;:!?").strip()
     return None
 
 

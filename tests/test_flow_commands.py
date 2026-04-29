@@ -28,6 +28,24 @@ def test_detect_command_suffix_strips_command_and_sets_rewrite():
 
 
 @pytest.mark.unit
+def test_detect_german_command_suffix_with_punctuation():
+    detection = detect_command("das ist viel zu lang, mach das kürzer.", "de", enabled=True)
+
+    assert detection.text == "das ist viel zu lang"
+    assert detection.command_id == "shorter"
+    assert detection.rewrite_mode == "shorter"
+
+
+@pytest.mark.unit
+def test_detect_german_list_alias_from_misheard_phrase():
+    detection = detect_command("eins äpfel zwei birnen als leiste.", "de", enabled=True)
+
+    assert detection.text == "eins äpfel zwei birnen"
+    assert detection.command_id == "list"
+    assert detection.rewrite_mode == "list"
+
+
+@pytest.mark.unit
 def test_non_command_text_is_left_unchanged():
     detection = detect_command("this is normal text", "en", enabled=True)
 

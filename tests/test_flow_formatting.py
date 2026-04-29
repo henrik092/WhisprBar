@@ -57,6 +57,32 @@ def test_apply_smart_formatting_converts_numbered_list_markers():
 
 
 @pytest.mark.unit
+def test_apply_smart_formatting_converts_spoken_new_line():
+    text, metadata = apply_smart_formatting(
+        "whisperbar punkt neue zeile das ist ein test",
+        "de",
+        FlowProfile("default", "Default"),
+        {"flow_smart_formatting_enabled": True},
+    )
+
+    assert text == "whisperbar.\ndas ist ein test"
+    assert metadata["line_breaks"] is True
+
+
+@pytest.mark.unit
+def test_apply_smart_formatting_formats_list_with_punctuation_noise():
+    text, metadata = apply_smart_formatting(
+        "eins Punkt, erster Punkt, zwei Punkt, zweiter Punkt",
+        "de",
+        FlowProfile("notes", "Notes", style="structured"),
+        {"flow_smart_formatting_enabled": True},
+    )
+
+    assert text == "1. erster\n2. zweiter"
+    assert metadata["list_format"] == "numbered"
+
+
+@pytest.mark.unit
 def test_apply_smart_formatting_chat_removes_final_period():
     text, metadata = apply_smart_formatting(
         "see you soon.",
