@@ -35,6 +35,7 @@ PHASE_HIDDEN = "hidden"
 PHASE_RECORDING = "recording"
 PHASE_PROCESSING = "processing"
 PHASE_TRANSCRIBING = "transcribing"
+PHASE_REWRITING = "rewriting"
 PHASE_PASTING = "pasting"
 PHASE_COMPLETE = "complete"
 PHASE_ERROR = "error"
@@ -69,6 +70,36 @@ POSITION_BOTTOM_CENTER = "bottom-center"
 POSITION_BOTTOM_LEFT = "bottom-left"
 POSITION_BOTTOM_RIGHT = "bottom-right"
 POSITION_DRAGGABLE = "draggable"
+
+
+def _is_flow_indicator_enabled(cfg: Optional[dict]) -> bool:
+    """Return whether Flow Mode should use the Flow-Bar renderer."""
+    return bool((cfg or {}).get("flow_mode_enabled", False))
+
+
+def _flow_phase_label(phase: str) -> str:
+    """Map internal indicator phases to compact Flow-Bar labels."""
+    return {
+        PHASE_RECORDING: "Listening",
+        PHASE_PROCESSING: "Processing",
+        PHASE_TRANSCRIBING: "Transcribing",
+        PHASE_REWRITING: "Rewriting",
+        PHASE_PASTING: "Pasting",
+        PHASE_COMPLETE: "Done",
+        PHASE_ERROR: "Error",
+    }.get(phase, "Working")
+
+
+def _flow_hotkey_label(cfg: Optional[dict]) -> str:
+    """Resolve the active recording hotkey label for the Flow-Bar hint."""
+    try:
+        from whisprbar.hotkeys import hotkey_to_label
+        config = cfg or {}
+        hotkeys = config.get("hotkeys") or {}
+        binding = hotkeys.get("toggle_recording") or config.get("hotkey")
+        return hotkey_to_label(binding) if binding else ""
+    except Exception:
+        return ""
 
 
 class RecordingIndicator:
@@ -107,6 +138,9 @@ class RecordingIndicator:
 
         # Config
         cfg = cfg or {}
+        self._cfg = cfg
+        self._flow_mode = _is_flow_indicator_enabled(cfg)
+        self._flow_hotkey = _flow_hotkey_label(cfg)
         self._enabled = cfg.get("recording_indicator_enabled", True)
         self._position = cfg.get("recording_indicator_position", POSITION_TOP_CENTER)
         self._opacity = cfg.get("recording_indicator_opacity", 0.85)
@@ -116,6 +150,9 @@ class RecordingIndicator:
         # Read width/height directly from config (with clamping)
         self._width = max(60, min(600, int(cfg.get("recording_indicator_width", BASE_WIDTH))))
         self._height = max(10, min(100, int(cfg.get("recording_indicator_height", BASE_HEIGHT))))
+        if self._flow_mode:
+            self._width = max(372, self._width)
+            self._height = max(46, self._height)
 
         # Smooth audio level (lerp toward target each frame)
         self._smooth_level = 0.0
@@ -369,6 +406,10 @@ class RecordingIndicator:
         w, h = alloc.width, alloc.height
         alpha = self._fade_alpha * self._opacity
 
+        if self._flow_mode:
+            self._draw_flow_bar(cr, w, h, alpha)
+            return False
+
         # Background with rounded corners (proportional to height)
         radius = min(h // 2, 12)
         self._draw_rounded_rect(cr, 0, 0, w, h, radius)
@@ -382,6 +423,8 @@ class RecordingIndicator:
         elif self._phase == PHASE_PROCESSING:
             self._draw_processing(cr, w, h, alpha)
         elif self._phase == PHASE_TRANSCRIBING:
+            self._draw_transcribing(cr, w, h, alpha)
+        elif self._phase == PHASE_REWRITING:
             self._draw_transcribing(cr, w, h, alpha)
         elif self._phase == PHASE_PASTING:
             self._draw_pasting(cr, w, h, alpha)
@@ -605,6 +648,191 @@ class RecordingIndicator:
             g = 0.27 - t * 0.05
             b = 0.40 + t * 0.20
         return (r, g, b)
+
+    # =========================================================================
+    # Flow-Bar renderer (A2.1 Soft Dark)
+    # =========================================================================
+
+    def _flow_accent_color(self) -> tuple:
+        """Return accent color for the current Flow-Bar phase."""
+        if self._phase == PHASE_COMPLETE:
+            return (0.20, 0.82, 0.48, 1.0)
+        if self._phase == PHASE_ERROR:
+            return (0.95, 0.35, 0.32, 1.0)
+        if self._phase == PHASE_PASTING:
+            return (0.67, 0.56, 0.96, 1.0)
+        if self._phase in (PHASE_TRANSCRIBING, PHASE_REWRITING):
+            return (0.38, 0.68, 1.0, 1.0)
+        return (0.24, 0.82, 0.66, 1.0)
+
+    def _draw_flow_bar(self, cr, w, h, alpha) -> None:
+        """Draw the compact Soft Dark Flow-Bar."""
+        radius = h / 2
+        self._draw_rounded_rect(cr, 0, 0, w, h, radius)
+        cr.set_source_rgba(0.09, 0.11, 0.14, alpha * 0.97)
+        cr.fill()
+
+        # Soft inner border keeps the dark pill readable on dark windows.
+        self._draw_rounded_rect(cr, 0.6, 0.6, w - 1.2, h - 1.2, radius - 0.6)
+        cr.set_line_width(1.0)
+        cr.set_source_rgba(1.0, 1.0, 1.0, alpha * 0.08)
+        cr.stroke()
+
+        badge_w = min(34, h * 0.70)
+        badge_h = min(26, h * 0.56)
+        badge_x = h * 0.26
+        badge_y = (h - badge_h) / 2
+        self._draw_flow_badge(cr, badge_x, badge_y, badge_w, badge_h, alpha)
+
+        label = _flow_phase_label(self._phase)
+        label_x = badge_x + badge_w + h * 0.28
+        center_y = h / 2
+        label_font = max(12.0, min(14.0, h * 0.28))
+        label_color = COLOR_COMPLETE if self._phase == PHASE_COMPLETE else COLOR_TEXT
+        if self._phase == PHASE_ERROR:
+            label_color = COLOR_ERROR
+        self._draw_text(cr, label, label_x, center_y, alpha, color=label_color,
+                        font_size=label_font, bold=True)
+
+        if self._phase == PHASE_RECORDING:
+            self._draw_flow_recording(cr, w, h, alpha, label_x)
+        else:
+            self._draw_flow_status(cr, w, h, alpha)
+
+    def _draw_flow_badge(self, cr, x, y, w, h, alpha) -> None:
+        """Draw the small WB Flow accent badge."""
+        self._draw_rounded_rect(cr, x, y, w, h, h / 2)
+        try:
+            import cairo as _cairo
+            pat = _cairo.LinearGradient(x, y, x + w, y + h)
+            pat.add_color_stop_rgba(0.0, 0.22, 0.54, 0.95, alpha)
+            pat.add_color_stop_rgba(1.0, 0.14, 0.76, 0.52, alpha)
+            cr.set_source(pat)
+        except Exception:
+            cr.set_source_rgba(0.22, 0.54, 0.95, alpha)
+        cr.fill()
+
+        cr.select_font_face("Sans", 0, 1)
+        cr.set_font_size(max(8.0, h * 0.42))
+        text = "WB"
+        extents = cr.text_extents(text)
+        cr.set_source_rgba(1.0, 1.0, 1.0, alpha * 0.95)
+        cr.move_to(x + (w - extents.width) / 2 - extents.x_bearing,
+                   y + (h - extents.height) / 2 - extents.y_bearing)
+        cr.show_text(text)
+
+    def _draw_flow_recording(self, cr, w, h, alpha, label_x) -> None:
+        """Draw the listening animation, timer, and hotkey hint."""
+        right_pad = h * 0.34
+        timer_text = self._get_elapsed_str()
+        hint = self._flow_hotkey
+        timer_font = max(11.0, h * 0.24)
+        hint_font = max(9.0, h * 0.20)
+
+        cr.select_font_face("Sans", 0, 1)
+        cr.set_font_size(timer_font)
+        timer_ext = cr.text_extents(timer_text)
+        timer_x = w - right_pad - timer_ext.width
+
+        hint_x = timer_x
+        if hint:
+            cr.select_font_face("Sans", 0, 0)
+            cr.set_font_size(hint_font)
+            hint_ext = cr.text_extents(hint)
+            hint_x = w - right_pad - max(timer_ext.width, hint_ext.width)
+
+        wave_x = min(label_x + h * 2.45, w * 0.43)
+        wave_w = max(72.0, hint_x - wave_x - h * 0.28)
+        wave_h = min(24.0, h * 0.52)
+        wave_y = (h - wave_h) / 2
+        self._draw_flow_wave(cr, wave_x, wave_y, wave_w, wave_h, alpha)
+
+        cr.select_font_face("Sans", 0, 1)
+        cr.set_font_size(timer_font)
+        cr.set_source_rgba(0.92, 0.95, 0.98, alpha * 0.90)
+        cr.move_to(timer_x, h * 0.46)
+        cr.show_text(timer_text)
+
+        if hint:
+            cr.select_font_face("Sans", 0, 0)
+            cr.set_font_size(hint_font)
+            cr.set_source_rgba(0.62, 0.67, 0.75, alpha * 0.90)
+            cr.move_to(hint_x, h * 0.72)
+            cr.show_text(hint)
+
+    def _draw_flow_wave(self, cr, x, y, w, h, alpha) -> None:
+        """Draw a restrained blue/green waveform strip."""
+        self._draw_rounded_rect(cr, x, y, w, h, h / 2)
+        cr.set_source_rgba(0.13, 0.16, 0.21, alpha * 0.92)
+        cr.fill()
+
+        t = self._tick_count / FPS
+        level = max(0.10, self._smooth_level)
+        center_y = y + h / 2
+        steps = max(16, int(w / 3))
+        cr.set_line_width(2.0)
+        cr.set_line_cap(1)
+        try:
+            import cairo as _cairo
+            pat = _cairo.LinearGradient(x, 0, x + w, 0)
+            pat.add_color_stop_rgba(0.0, 0.48, 0.83, 1.0, alpha * 0.75)
+            pat.add_color_stop_rgba(0.5, 0.21, 0.82, 0.65, alpha * 0.92)
+            pat.add_color_stop_rgba(1.0, 0.72, 0.64, 1.0, alpha * 0.75)
+            cr.set_source(pat)
+        except Exception:
+            cr.set_source_rgba(0.21, 0.82, 0.65, alpha * 0.90)
+
+        cr.new_path()
+        for i in range(steps + 1):
+            nx = i / steps
+            px = x + nx * w
+            amp = h * 0.30 * level * (math.sin(nx * math.pi) ** 0.75)
+            py = center_y + math.sin(nx * math.pi * 4.0 - t * 4.0) * amp
+            if i == 0:
+                cr.move_to(px, py)
+            else:
+                cr.line_to(px, py)
+        cr.stroke()
+
+    def _draw_flow_status(self, cr, w, h, alpha) -> None:
+        """Draw compact non-listening progress or result state."""
+        accent = self._flow_accent_color()
+        r, g, b, _ = accent
+        center_y = h / 2
+        right_pad = h * 0.34
+        t = self._tick_count / FPS
+
+        if self._phase == PHASE_COMPLETE:
+            info = self._info_text or ""
+            if info:
+                info_font = max(10.0, h * 0.22)
+                cr.select_font_face("Sans", 0, 0)
+                cr.set_font_size(info_font)
+                ext = cr.text_extents(info)
+                self._draw_text(cr, info, w - right_pad - ext.width, center_y, alpha * 0.78,
+                                color=COLOR_TEXT_DIM, font_size=info_font)
+            return
+
+        if self._phase == PHASE_ERROR:
+            info = self._info_text or ""
+            if info:
+                info_font = max(10.0, h * 0.22)
+                cr.select_font_face("Sans", 0, 0)
+                cr.set_font_size(info_font)
+                clipped = info[:28]
+                ext = cr.text_extents(clipped)
+                self._draw_text(cr, clipped, w - right_pad - ext.width, center_y, alpha * 0.85,
+                                color=COLOR_TEXT_DIM, font_size=info_font)
+            return
+
+        dot_r = max(2.4, h * 0.055)
+        gap = dot_r * 3.2
+        start_x = w - right_pad - gap * 2
+        for i in range(3):
+            scale = 0.65 + 0.35 * math.sin(t * 3.4 + i * 0.75)
+            cr.arc(start_x + i * gap, center_y, dot_r * scale, 0, 2 * math.pi)
+            cr.set_source_rgba(r, g, b, alpha * (0.45 + 0.45 * scale))
+            cr.fill()
 
     # =========================================================================
     # Unified layout constants for all non-recording phases

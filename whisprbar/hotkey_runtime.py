@@ -33,6 +33,11 @@ def build_runtime_hotkey_config(
         "stop_recording": hotkeys_config.get("stop_recording"),
         "open_settings": hotkeys_config.get("open_settings"),
         "show_history": hotkeys_config.get("show_history"),
+        "hands_free_recording": hotkeys_config.get("hands_free_recording"),
+        "command_mode": hotkeys_config.get("command_mode"),
+        "paste_last_transcript": hotkeys_config.get("paste_last_transcript"),
+        "copy_last_transcript": hotkeys_config.get("copy_last_transcript"),
+        "open_scratchpad": hotkeys_config.get("open_scratchpad"),
     }
 
 
@@ -71,4 +76,3 @@ def resolve_runtime_hotkeys(
         skipped_duplicates=skipped_duplicates,
         parse_errors=parse_errors,
     )
-

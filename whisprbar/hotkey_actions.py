@@ -11,6 +11,11 @@ HOTKEY_ACTION_ORDER: Tuple[str, ...] = (
     "stop_recording",
     "open_settings",
     "show_history",
+    "hands_free_recording",
+    "command_mode",
+    "paste_last_transcript",
+    "copy_last_transcript",
+    "open_scratchpad",
 )
 
 # Labels used in the settings window.
@@ -19,5 +24,10 @@ HOTKEY_SETTINGS_LABELS: Dict[str, str] = {
     "start_recording": "Aufnahme starten",
     "stop_recording": "Aufnahme stoppen",
     "open_settings": "Einstellungen öffnen",
+    "show_history": "Verlauf anzeigen",
+    "hands_free_recording": "Hands-free Aufnahme",
+    "command_mode": "Command Mode",
+    "paste_last_transcript": "Letztes Transkript einfügen",
+    "copy_last_transcript": "Letztes Transkript kopieren",
+    "open_scratchpad": "Scratchpad öffnen",
 }
-

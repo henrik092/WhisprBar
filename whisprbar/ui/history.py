@@ -18,6 +18,7 @@ from whisprbar.utils import (
     copy_to_clipboard,
 )
 from whisprbar.ui.theme import get_effective_theme, apply_theme_css
+from whisprbar.flow.stats import compute_dictation_stats
 
 # Module state
 _history_window = None
@@ -124,7 +125,12 @@ def open_history_window(cfg: dict) -> None:
                 results_box.show_all()
                 return
 
-            summary_label.set_text(f"Showing {len(history_entries)} most recent transcript(s).")
+            stats = compute_dictation_stats(history_entries)
+            summary_label.set_text(
+                f"Showing {len(history_entries)} transcript(s). "
+                f"{stats['word_count']} words, {stats['duration_seconds']:.1f}s, "
+                f"{stats['words_per_minute']:.1f} wpm."
+            )
             for entry in history_entries:
                 row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
                 row.set_hexpand(True)
@@ -158,6 +164,24 @@ def open_history_window(cfg: dict) -> None:
                 transcript.set_selectable(True)
                 transcript.set_max_width_chars(100)
                 row.pack_start(transcript, False, False, 0)
+
+                flow_metadata = entry.get("metadata") or {}
+                if flow_metadata:
+                    flow_parts = []
+                    if flow_metadata.get("profile_id"):
+                        flow_parts.append(f"Flow: {flow_metadata['profile_id']}")
+                    if flow_metadata.get("rewrite_status"):
+                        flow_parts.append(f"rewrite: {flow_metadata['rewrite_status']}")
+                    if flow_metadata.get("command"):
+                        flow_parts.append(f"command: {flow_metadata['command']}")
+                    if flow_parts:
+                        flow_label = Gtk.Label(label=" | ".join(flow_parts))
+                        flow_label.set_xalign(0.0)
+                        try:
+                            flow_label.get_style_context().add_class("dim-label")
+                        except Exception:
+                            pass
+                        row.pack_start(flow_label, False, False, 0)
 
                 action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
                 action_row.set_halign(Gtk.Align.START)

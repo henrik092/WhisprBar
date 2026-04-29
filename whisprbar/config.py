@@ -27,6 +27,11 @@ DEFAULT_CFG = {
         "open_settings": "F10",
         "show_history": None,  # Not assigned by default
         "cancel_recording": None,  # Not assigned (ESC is hardcoded)
+        "hands_free_recording": None,
+        "command_mode": None,
+        "paste_last_transcript": None,
+        "copy_last_transcript": None,
+        "open_scratchpad": None,
     },
     # Legacy single hotkey (for backwards compatibility)
     "hotkey": "F9",
@@ -87,6 +92,27 @@ DEFAULT_CFG = {
     "recording_indicator_opacity": 0.85,  # Opacity (0.0-1.0)
     "recording_indicator_x": None,           # Custom X position (for draggable)
     "recording_indicator_y": None,           # Custom Y position (for draggable)
+    # Flow Mode (Wispr Flow-like local dictation workflow)
+    "flow_mode_enabled": False,
+    "flow_rewrite_enabled": False,
+    "flow_rewrite_provider": "none",  # none, openai_compatible
+    "flow_rewrite_model": "",
+    "flow_rewrite_timeout_seconds": 12.0,
+    "flow_context_awareness_enabled": True,
+    "flow_command_mode_enabled": True,
+    "flow_dictionary_enabled": True,
+    "flow_snippets_enabled": True,
+    "flow_smart_formatting_enabled": True,
+    "flow_backtrack_enabled": True,
+    "flow_press_enter_enabled": False,
+    "flow_history_storage": "normal",  # normal, auto_delete, never
+    "flow_history_auto_delete_hours": 24,
+    "flow_max_recording_minutes": 20,
+    "flow_recent_copy_seconds": 5,
+    "flow_preferred_languages": ["de", "en"],
+    "flow_language_auto_detect": False,
+    "flow_default_profile": "default",
+    "flow_profiles": {},
 }
 
 # Global config instance (loaded from disk + defaults)
@@ -275,6 +301,43 @@ def validate_config() -> None:
             cfg["audio_feedback_volume"] = max(0.0, min(1.0, volume))
         except (ValueError, TypeError):
             cfg["audio_feedback_volume"] = DEFAULT_CFG["audio_feedback_volume"]
+
+    if cfg.get("flow_rewrite_provider") not in {"none", "openai_compatible"}:
+        cfg["flow_rewrite_provider"] = DEFAULT_CFG["flow_rewrite_provider"]
+
+    if cfg.get("flow_history_storage") not in {"normal", "auto_delete", "never"}:
+        cfg["flow_history_storage"] = DEFAULT_CFG["flow_history_storage"]
+
+    if "flow_rewrite_timeout_seconds" in cfg:
+        try:
+            timeout = float(cfg["flow_rewrite_timeout_seconds"])
+            cfg["flow_rewrite_timeout_seconds"] = max(1.0, min(60.0, timeout))
+        except (ValueError, TypeError):
+            cfg["flow_rewrite_timeout_seconds"] = DEFAULT_CFG["flow_rewrite_timeout_seconds"]
+
+    if "flow_history_auto_delete_hours" in cfg:
+        try:
+            hours = int(cfg["flow_history_auto_delete_hours"])
+            cfg["flow_history_auto_delete_hours"] = max(1, min(720, hours))
+        except (ValueError, TypeError):
+            cfg["flow_history_auto_delete_hours"] = DEFAULT_CFG["flow_history_auto_delete_hours"]
+
+    if "flow_max_recording_minutes" in cfg:
+        try:
+            minutes = int(cfg["flow_max_recording_minutes"])
+            cfg["flow_max_recording_minutes"] = max(1, min(60, minutes))
+        except (ValueError, TypeError):
+            cfg["flow_max_recording_minutes"] = DEFAULT_CFG["flow_max_recording_minutes"]
+
+    if "flow_recent_copy_seconds" in cfg:
+        try:
+            seconds = int(cfg["flow_recent_copy_seconds"])
+            cfg["flow_recent_copy_seconds"] = max(1, min(30, seconds))
+        except (ValueError, TypeError):
+            cfg["flow_recent_copy_seconds"] = DEFAULT_CFG["flow_recent_copy_seconds"]
+
+    if not isinstance(cfg.get("flow_preferred_languages"), list):
+        cfg["flow_preferred_languages"] = DEFAULT_CFG["flow_preferred_languages"].copy()
 
 
 def load_config() -> dict:

@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import threading
 import time
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 try:
     from pynput import keyboard
@@ -23,6 +23,7 @@ except Exception as exc:
 
 from .config import cfg
 from .utils import debug, detect_session_type, notify, copy_to_clipboard
+from whisprbar.flow.models import PastePolicy
 
 # Paste sequence options
 PASTE_OPTIONS = {
@@ -265,7 +266,32 @@ def simulate_typing(text: str, delay_ms: float = 10.0) -> None:
             time.sleep(delay_seconds)
 
 
-def perform_auto_paste(text: str) -> None:
+def _policy_value(policy: Optional[PastePolicy], attr: str, fallback):
+    if policy is not None:
+        value = getattr(policy, attr)
+        if value is not None:
+            return value
+    return fallback
+
+
+def _send_enter_if_requested(policy: Optional[PastePolicy]) -> None:
+    if policy is None or not policy.press_enter_after_paste:
+        return
+    if not cfg.get("flow_press_enter_enabled", False):
+        debug("Press-enter paste policy ignored because flow_press_enter_enabled is false")
+        return
+    xdotool = shutil.which("xdotool")
+    if xdotool:
+        try:
+            subprocess.run([xdotool, "key", "Return"], check=True, timeout=2.0)
+            return
+        except (subprocess.SubprocessError, OSError, subprocess.TimeoutExpired) as exc:
+            debug(f"xdotool Return failed: {exc}")
+    if _controller is not None and PYNPUT_AVAILABLE:
+        press_key(keyboard.Key.enter)
+
+
+def perform_auto_paste(text: str, policy: Optional[PastePolicy] = None) -> None:
     """Perform auto-paste of transcribed text.
 
     Chooses paste method based on configuration and environment:
@@ -277,9 +303,11 @@ def perform_auto_paste(text: str) -> None:
     Args:
         text: Text to paste
     """
-    # Add space after text if configured (for continuous text flow)
-    if cfg.get("auto_paste_add_space", True):
+    # Add trailing spacing if configured (for continuous text flow)
+    if _policy_value(policy, "add_space", cfg.get("auto_paste_add_space", True)):
         text = text + " "
+    if _policy_value(policy, "add_newline", False):
+        text = text + "\n"
 
     # Copy text to clipboard first
     success = copy_to_clipboard(text, silent=False)
@@ -288,7 +316,7 @@ def perform_auto_paste(text: str) -> None:
         return
 
     # Get configured paste sequence
-    sequence = cfg.get("paste_sequence", "auto")
+    sequence = _policy_value(policy, "sequence", cfg.get("paste_sequence", "auto"))
     if sequence == "auto":
         sequence = detect_auto_paste_sequence()
 
@@ -300,6 +328,9 @@ def perform_auto_paste(text: str) -> None:
     debug(f"Auto paste sequence: {sequence}")
 
     # Handle clipboard-only mode
+    if policy is not None and policy.clipboard_only:
+        sequence = "clipboard"
+
     if sequence == "clipboard":
         if wayland_session:
             notify("Text copied to clipboard. Press Ctrl+V to paste.", force=True)
@@ -312,6 +343,7 @@ def perform_auto_paste(text: str) -> None:
         if delay:
             time.sleep(delay)
         simulate_typing(text)
+        _send_enter_if_requested(policy)
         return
 
     # Apply configured delay before pasting
@@ -333,6 +365,7 @@ def perform_auto_paste(text: str) -> None:
             try:
                 subprocess.run([xdotool, "key", target], check=True, timeout=2.0)
                 debug(f"xdotool sent: {target}")
+                _send_enter_if_requested(policy)
                 return
             except (subprocess.SubprocessError, OSError, subprocess.TimeoutExpired) as exc:
                 debug(f"xdotool failed ({exc}), falling back to pynput")
@@ -354,6 +387,7 @@ def perform_auto_paste(text: str) -> None:
         with _controller.pressed(keyboard.Key.ctrl):
             press_key("v")
 
+    _send_enter_if_requested(policy)
     debug("Paste complete")
 
 

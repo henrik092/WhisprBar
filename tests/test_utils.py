@@ -1,6 +1,7 @@
 """Unit tests for whisprbar.utils module."""
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -151,6 +152,81 @@ def test_write_history_creates_jsonl(monkeypatch_home, tmp_path, monkeypatch):
     assert entry2["text"] == "Test transcript 2"
     assert entry2["duration_seconds"] == 5.0
     assert entry2["word_count"] == 5
+
+
+@pytest.mark.unit
+def test_write_history_preserves_metadata(tmp_path, monkeypatch):
+    """Flow metadata is stored with history entries."""
+    from whisprbar import config
+
+    hist_file = tmp_path / "history.jsonl"
+    monkeypatch.setattr(utils, "HIST_FILE", hist_file)
+    monkeypatch.setattr(utils, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "cfg", {"language": "en", "flow_history_storage": "normal"})
+
+    utils.write_history(
+        "Final text",
+        1.25,
+        2,
+        metadata={"raw_text": "raw text", "profile_id": "email"},
+    )
+
+    entry = json.loads(hist_file.read_text(encoding="utf-8").strip())
+    assert entry["text"] == "Final text"
+    assert entry["metadata"]["raw_text"] == "raw text"
+    assert entry["metadata"]["profile_id"] == "email"
+
+
+@pytest.mark.unit
+def test_write_history_respects_never_store(tmp_path, monkeypatch):
+    """Flow privacy mode can disable local history writes."""
+    from whisprbar import config
+
+    hist_file = tmp_path / "history.jsonl"
+    monkeypatch.setattr(utils, "HIST_FILE", hist_file)
+    monkeypatch.setattr(utils, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "cfg", {"language": "en", "flow_history_storage": "never"})
+
+    utils.write_history("Private", 1.0, 1)
+
+    assert not hist_file.exists()
+
+
+@pytest.mark.unit
+def test_write_history_auto_delete_prunes_old_entries(tmp_path, monkeypatch):
+    """Auto-delete history mode prunes entries older than the configured age."""
+    from whisprbar import config
+
+    hist_file = tmp_path / "history.jsonl"
+    monkeypatch.setattr(utils, "HIST_FILE", hist_file)
+    monkeypatch.setattr(utils, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(
+        config,
+        "cfg",
+        {
+            "language": "en",
+            "flow_history_storage": "auto_delete",
+            "flow_history_auto_delete_hours": 24,
+        },
+    )
+
+    old_entry = {
+        "timestamp": (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat(),
+        "text": "old",
+    }
+    recent_entry = {
+        "timestamp": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
+        "text": "recent",
+    }
+    hist_file.write_text(
+        json.dumps(old_entry) + "\n" + json.dumps(recent_entry) + "\n",
+        encoding="utf-8",
+    )
+
+    utils.write_history("new", 1.0, 1)
+
+    entries = [json.loads(line) for line in hist_file.read_text(encoding="utf-8").splitlines()]
+    assert [entry["text"] for entry in entries] == ["recent", "new"]
 
 
 @pytest.mark.unit

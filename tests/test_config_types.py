@@ -6,6 +6,7 @@ from whisprbar.config_types import (
     AppConfig,
     AudioConfig,
     ChunkingConfig,
+    FlowConfig,
     HotkeyConfig,
     IndicatorConfig,
     OverlayConfig,
@@ -102,9 +103,67 @@ class TestHotkeyConfig:
 
     def test_hotkeys_dict_has_expected_keys(self):
         cfg = HotkeyConfig()
-        expected_keys = {"toggle_recording", "start_recording", "stop_recording",
-                         "open_settings", "show_history", "cancel_recording"}
+        expected_keys = {
+            "toggle_recording",
+            "start_recording",
+            "stop_recording",
+            "open_settings",
+            "show_history",
+            "cancel_recording",
+            "hands_free_recording",
+            "command_mode",
+            "paste_last_transcript",
+            "copy_last_transcript",
+            "open_scratchpad",
+        }
         assert set(cfg.hotkeys.keys()) == expected_keys
+
+
+@pytest.mark.unit
+class TestFlowConfig:
+    """Tests for FlowConfig dataclass."""
+
+    def test_defaults(self):
+        cfg = FlowConfig()
+        assert cfg.flow_mode_enabled is False
+        assert cfg.flow_rewrite_enabled is False
+        assert cfg.flow_rewrite_provider == "none"
+        assert cfg.flow_rewrite_model == ""
+        assert cfg.flow_rewrite_timeout_seconds == 12.0
+        assert cfg.flow_context_awareness_enabled is True
+        assert cfg.flow_command_mode_enabled is True
+        assert cfg.flow_dictionary_enabled is True
+        assert cfg.flow_snippets_enabled is True
+        assert cfg.flow_smart_formatting_enabled is True
+        assert cfg.flow_backtrack_enabled is True
+        assert cfg.flow_press_enter_enabled is False
+        assert cfg.flow_history_storage == "normal"
+        assert cfg.flow_history_auto_delete_hours == 24
+        assert cfg.flow_max_recording_minutes == 20
+        assert cfg.flow_recent_copy_seconds == 5
+        assert cfg.flow_preferred_languages == ["de", "en"]
+        assert cfg.flow_language_auto_detect is False
+        assert cfg.flow_default_profile == "default"
+        assert cfg.flow_profiles == {}
+
+    def test_validated_clamps_values(self):
+        cfg = FlowConfig(
+            flow_rewrite_provider="bad",
+            flow_rewrite_timeout_seconds=999,
+            flow_history_storage="bad",
+            flow_history_auto_delete_hours=9999,
+            flow_max_recording_minutes=0,
+            flow_recent_copy_seconds=999,
+        )
+
+        validated = cfg.validated()
+
+        assert validated.flow_rewrite_provider == "none"
+        assert validated.flow_rewrite_timeout_seconds == 60.0
+        assert validated.flow_history_storage == "normal"
+        assert validated.flow_history_auto_delete_hours == 720
+        assert validated.flow_max_recording_minutes == 1
+        assert validated.flow_recent_copy_seconds == 30
 
 
 @pytest.mark.unit
@@ -144,6 +203,7 @@ class TestAppConfig:
         assert isinstance(cfg.audio, AudioConfig)
         assert isinstance(cfg.transcription, TranscriptionConfig)
         assert isinstance(cfg.paste, PasteConfig)
+        assert isinstance(cfg.flow, FlowConfig)
         assert cfg.notifications_enabled is False
         assert cfg.first_run_complete is False
 
@@ -157,10 +217,12 @@ class TestAppConfig:
         cfg = AppConfig(
             audio=AudioConfig(vad_energy_ratio=999.0),
             paste=PasteConfig(paste_delay_ms=99999),
+            flow=FlowConfig(flow_rewrite_timeout_seconds=999),
         )
         validated = cfg.validated()
         assert validated.audio.vad_energy_ratio == 0.3
         assert validated.paste.paste_delay_ms == 5000
+        assert validated.flow.flow_rewrite_timeout_seconds == 60.0
 
     def test_from_dict_empty(self):
         """from_dict with empty dict returns defaults."""
@@ -168,6 +230,7 @@ class TestAppConfig:
         assert cfg.audio.use_vad is True
         assert cfg.transcription.language == "de"
         assert cfg.paste.auto_paste_enabled is True
+        assert cfg.flow.flow_default_profile == "default"
 
     def test_from_dict_with_values(self):
         """from_dict maps flat keys to sub-configs."""
@@ -177,6 +240,9 @@ class TestAppConfig:
             "paste_delay_ms": 500,
             "notifications_enabled": True,
             "transcription_backend": "deepgram",
+            "flow_mode_enabled": True,
+            "flow_rewrite_provider": "openai_compatible",
+            "flow_preferred_languages": ["de", "en", "fr"],
         }
         cfg = AppConfig.from_dict(d)
         assert cfg.transcription.language == "en"
@@ -184,6 +250,9 @@ class TestAppConfig:
         assert cfg.paste.paste_delay_ms == 500
         assert cfg.notifications_enabled is True
         assert cfg.transcription.transcription_backend == "deepgram"
+        assert cfg.flow.flow_mode_enabled is True
+        assert cfg.flow.flow_rewrite_provider == "openai_compatible"
+        assert cfg.flow.flow_preferred_languages == ["de", "en", "fr"]
 
     def test_from_dict_ignores_unknown_keys(self):
         """from_dict silently ignores unknown keys."""
@@ -209,6 +278,8 @@ class TestAppConfig:
         assert "notifications_enabled" in d
         assert "hotkeys" in d
         assert "hotkey" in d
+        assert "flow_mode_enabled" in d
+        assert "flow_rewrite_provider" in d
 
     def test_roundtrip(self):
         """from_dict(to_dict()) preserves values."""
@@ -216,6 +287,7 @@ class TestAppConfig:
             audio=AudioConfig(use_vad=False, device_name="test-mic"),
             transcription=TranscriptionConfig(language="en", transcription_backend="deepgram"),
             paste=PasteConfig(paste_delay_ms=100),
+            flow=FlowConfig(flow_mode_enabled=True, flow_default_profile="email"),
             notifications_enabled=True,
         )
         d = original.to_dict()
@@ -225,6 +297,8 @@ class TestAppConfig:
         assert restored.transcription.language == original.transcription.language
         assert restored.transcription.transcription_backend == original.transcription.transcription_backend
         assert restored.paste.paste_delay_ms == original.paste.paste_delay_ms
+        assert restored.flow.flow_mode_enabled == original.flow.flow_mode_enabled
+        assert restored.flow.flow_default_profile == original.flow.flow_default_profile
         assert restored.notifications_enabled == original.notifications_enabled
 
     def test_roundtrip_all_defaults(self):

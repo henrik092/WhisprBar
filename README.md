@@ -14,6 +14,8 @@ A Linux system tray app for voice-to-text transcription. Press a hotkey, speak, 
 - **Auto-paste**: Pastes directly into the active window (X11) or clipboard (Wayland)
 - **Audio processing**: Voice activity detection, noise reduction, chunked parallel processing for long recordings
 - **Live overlay**: Real-time transcription preview
+- **Flow Mode**: Context-aware cleanup, spoken commands, snippets, dictionary replacements, and optional rewrite assistance before paste
+- **Scratchpad**: Local note window for collecting, editing, and copying dictated text
 - **System tray**: AppIndicator (GNOME/Ubuntu) with PyStray fallback
 - **Multi-language**: 90+ languages supported (backend-dependent)
 - **Privacy-friendly**: Use faster-whisper for fully offline, local transcription
@@ -59,6 +61,38 @@ For **offline use**, no API key needed -- just install faster-whisper and select
 
 Right-click the tray icon for **Settings** (language, hotkey, backend, VAD, noise reduction, etc.).
 
+### Flow Mode
+
+Flow Mode turns the raw transcript into paste-ready text before insertion. It can:
+
+- detect the active app and apply a matching profile for terminal, editor, chat, email, or notes
+- replace custom phrases from `~/.config/whisprbar/dictionary.json`
+- expand spoken snippets from `~/.config/whisprbar/snippets.json`
+- react to spoken commands such as "make this professional", "make this shorter", "as list", "clipboard only", "press enter", or "new line"
+- apply deterministic formatting, including punctuation words, simple lists, and backtrack phrases
+- optionally call a rewrite provider for stronger style cleanup when `OPENAI_API_KEY` is configured
+
+Flow Mode is available from the **Flow** tab in Settings. The local formatting, dictionary,
+snippets, command detection, and scratchpad features work offline. Optional cloud rewriting is
+disabled by default and only runs when enabled explicitly.
+
+Example dictionary file:
+
+```json
+[
+  {"phrase": "whisper bar", "replacement": "WhisprBar"},
+  {"phrase": "pull request", "replacement": "PR"}
+]
+```
+
+Example snippets file:
+
+```json
+[
+  {"trigger": "my email signature", "text": "Best regards,\nRik"}
+]
+```
+
 ## Platform Support
 
 | | X11 | Wayland |
@@ -66,6 +100,7 @@ Right-click the tray icon for **Settings** (language, hotkey, backend, VAD, nois
 | Tray icon | Full | Full |
 | Auto-paste | Full (xdotool) | Clipboard only |
 | Hotkeys | Full | Full |
+| Flow context awareness | Active-window profile detection | Safe default profile |
 
 Tested on Ubuntu, Debian, Fedora, Arch with GNOME, KDE, Cinnamon, XFCE, MATE.
 

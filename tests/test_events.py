@@ -1,6 +1,7 @@
 """Unit tests for whisprbar.events module."""
 
 import builtins
+import types
 import threading
 
 import pytest
@@ -166,20 +167,47 @@ class TestEventBus:
 
     def test_emit_on_main_thread_fallback(self, monkeypatch):
         """emit_on_main_thread falls back to sync emit when GLib unavailable."""
-        bus = EventBus()
-        received = []
-        bus.on("test", lambda: received.append(True))
-
-        real_import = builtins.__import__
+        original_import = builtins.__import__
 
         def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-            if name == "gi.repository":
+            if name == "gi.repository" and "GLib" in fromlist:
                 raise ImportError("GLib unavailable")
-            return real_import(name, globals, locals, fromlist, level)
+            return original_import(name, globals, locals, fromlist, level)
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
 
+        bus = EventBus()
+        received = []
+        bus.on("test", lambda: received.append(True))
         bus.emit_on_main_thread("test")
+        assert received == [True]
+
+    def test_emit_on_main_thread_schedules_with_glib(self, monkeypatch):
+        """emit_on_main_thread uses GLib.idle_add when GLib is available."""
+        original_import = builtins.__import__
+        callbacks = []
+
+        class FakeGLib:
+            @staticmethod
+            def idle_add(callback):
+                callbacks.append(callback)
+                return callback()
+
+        fake_repository = types.SimpleNamespace(GLib=FakeGLib)
+
+        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "gi.repository" and "GLib" in fromlist:
+                return fake_repository
+            return original_import(name, globals, locals, fromlist, level)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+
+        bus = EventBus()
+        received = []
+        bus.on("test", lambda: received.append(True))
+        bus.emit_on_main_thread("test")
+
+        assert len(callbacks) == 1
         assert received == [True]
 
     def test_event_name_constants_are_strings(self):

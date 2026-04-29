@@ -50,6 +50,31 @@ def test_load_config_with_defaults(monkeypatch_home, monkeypatch):
     assert "stop_recording" in config.cfg["hotkeys"]
     assert config.cfg["use_vad"] is True
     assert config.cfg["transcription_backend"] == "openai"
+    assert config.cfg["flow_mode_enabled"] is False
+    assert config.cfg["flow_rewrite_enabled"] is False
+    assert config.cfg["flow_rewrite_provider"] == "none"
+    assert config.cfg["flow_rewrite_model"] == ""
+    assert config.cfg["flow_rewrite_timeout_seconds"] == 12.0
+    assert config.cfg["flow_context_awareness_enabled"] is True
+    assert config.cfg["flow_command_mode_enabled"] is True
+    assert config.cfg["flow_dictionary_enabled"] is True
+    assert config.cfg["flow_snippets_enabled"] is True
+    assert config.cfg["flow_smart_formatting_enabled"] is True
+    assert config.cfg["flow_backtrack_enabled"] is True
+    assert config.cfg["flow_press_enter_enabled"] is False
+    assert config.cfg["flow_history_storage"] == "normal"
+    assert config.cfg["flow_history_auto_delete_hours"] == 24
+    assert config.cfg["flow_max_recording_minutes"] == 20
+    assert config.cfg["flow_recent_copy_seconds"] == 5
+    assert config.cfg["flow_preferred_languages"] == ["de", "en"]
+    assert config.cfg["flow_language_auto_detect"] is False
+    assert config.cfg["flow_default_profile"] == "default"
+    assert config.cfg["flow_profiles"] == {}
+    assert "hands_free_recording" in config.cfg["hotkeys"]
+    assert "command_mode" in config.cfg["hotkeys"]
+    assert "paste_last_transcript" in config.cfg["hotkeys"]
+    assert "copy_last_transcript" in config.cfg["hotkeys"]
+    assert "open_scratchpad" in config.cfg["hotkeys"]
 
 
 @pytest.mark.unit
@@ -143,6 +168,26 @@ def test_validate_config_clamps_audio_feedback_volume():
     config.cfg["audio_feedback_volume"] = "invalid"
     config.validate_config()
     assert config.cfg["audio_feedback_volume"] == config.DEFAULT_CFG["audio_feedback_volume"]
+
+
+@pytest.mark.unit
+def test_validate_config_clamps_flow_values():
+    """Flow config values are validated to safe ranges and known enum values."""
+    config.cfg["flow_rewrite_timeout_seconds"] = 999
+    config.cfg["flow_rewrite_provider"] = "unknown"
+    config.cfg["flow_history_storage"] = "bad"
+    config.cfg["flow_history_auto_delete_hours"] = 9999
+    config.cfg["flow_max_recording_minutes"] = 0
+    config.cfg["flow_recent_copy_seconds"] = 999
+
+    config.validate_config()
+
+    assert config.cfg["flow_rewrite_timeout_seconds"] == 60.0
+    assert config.cfg["flow_rewrite_provider"] == "none"
+    assert config.cfg["flow_history_storage"] == "normal"
+    assert config.cfg["flow_history_auto_delete_hours"] == 720
+    assert config.cfg["flow_max_recording_minutes"] == 1
+    assert config.cfg["flow_recent_copy_seconds"] == 30
 
 
 @pytest.mark.unit

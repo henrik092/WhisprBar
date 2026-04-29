@@ -241,3 +241,37 @@ def test_set_recording_callbacks():
     # Callbacks should be stored
     assert audio._recording_callbacks["on_start"] is on_start
     assert audio._recording_callbacks["on_stop"] is on_stop
+
+
+@pytest.mark.unit
+def test_max_recording_monitor_stops_active_matching_generation(monkeypatch):
+    """Flow max-duration monitor stops the active recording for the same generation."""
+    from whisprbar.audio import recorder
+
+    called = []
+    monkeypatch.setattr(recorder, "stop_recording", lambda: called.append(True))
+
+    with recorder._recording_state_lock:
+        recorder.recording_state["recording"] = True
+        recorder.recording_state["generation"] = 42
+
+    recorder._max_recording_monitor(42, 0)
+
+    assert called == [True]
+
+
+@pytest.mark.unit
+def test_max_recording_monitor_ignores_stale_generation(monkeypatch):
+    """A stale max-duration monitor must not stop a newer recording."""
+    from whisprbar.audio import recorder
+
+    called = []
+    monkeypatch.setattr(recorder, "stop_recording", lambda: called.append(True))
+
+    with recorder._recording_state_lock:
+        recorder.recording_state["recording"] = True
+        recorder.recording_state["generation"] = 43
+
+    recorder._max_recording_monitor(42, 0)
+
+    assert called == []
