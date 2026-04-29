@@ -351,15 +351,19 @@ def generate_settings_html(
 <style>
   :root {{
     color-scheme: dark;
+    --window-min-width: 1080px;
     --bg: #0d1218;
-    --panel: #111820;
-    --panel-2: #101720;
-    --card: rgba(255,255,255,0.045);
-    --border: rgba(255,255,255,0.10);
+    --panel: #121a23;
+    --panel-2: #101821;
+    --card: rgba(255,255,255,0.052);
+    --card-strong: rgba(255,255,255,0.068);
+    --border: rgba(255,255,255,0.105);
     --muted: #8f9dad;
     --text: #e8f0f7;
     --accent: #67d6ff;
     --accent-2: #7d8cff;
+    --hairline: inset 0 0 0 1px rgba(255,255,255,0.075);
+    --soft-shadow: 0 18px 60px rgba(0,0,0,0.24);
   }}
   * {{ box-sizing: border-box; }}
   body {{
@@ -368,20 +372,23 @@ def generate_settings_html(
     background: var(--bg);
     color: var(--text);
     font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 13px;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }}
   button, input, select {{ font: inherit; }}
   .wb-frame {{
+    min-width: var(--window-min-width);
     min-height: 100vh;
     background: var(--bg);
     overflow: hidden;
   }}
   .wb-windowbar {{
-    height: 46px;
+    height: 52px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 16px;
+    padding: 0 20px;
     border-bottom: 1px solid rgba(255,255,255,0.08);
     background: var(--panel);
   }}
@@ -392,37 +399,43 @@ def generate_settings_html(
     font-weight: 700;
   }}
   .wb-logo {{
-    width: 26px;
-    height: 26px;
-    border-radius: 7px;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
     background: linear-gradient(135deg, var(--accent), var(--accent-2));
     color: #061016;
     display: grid;
     place-items: center;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 800;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.22) inset;
   }}
   .wb-actions {{ display: flex; gap: 8px; }}
   .wb-button {{
-    height: 28px;
+    height: 32px;
     border: 0;
-    border-radius: 7px;
-    padding: 0 12px;
+    border-radius: 8px;
+    padding: 0 14px;
     background: rgba(255,255,255,0.08);
     color: #c8d3de;
+    box-shadow: var(--hairline);
+    cursor: pointer;
   }}
   .wb-button.primary {{
     background: var(--accent);
     color: #071118;
     font-weight: 700;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.30) inset, 0 8px 22px rgba(103,214,255,0.16);
   }}
+  .wb-button:hover {{ background: rgba(255,255,255,0.115); }}
+  .wb-button.primary:hover {{ background: #7adeff; }}
   .wb-shell {{
     display: grid;
-    grid-template-columns: 190px minmax(0, 1fr);
-    min-height: calc(100vh - 46px);
+    grid-template-columns: 218px minmax(0, 1fr);
+    min-height: calc(100vh - 52px);
   }}
   .wb-sidebar {{
-    padding: 14px 10px;
+    padding: 18px 12px;
     background: var(--panel-2);
     border-right: 1px solid rgba(255,255,255,0.08);
   }}
@@ -436,57 +449,59 @@ def generate_settings_html(
   .wb-nav {{ display: grid; gap: 4px; }}
   .wb-nav-item {{
     display: grid;
-    grid-template-columns: 18px 1fr auto;
+    grid-template-columns: 20px 1fr auto;
     align-items: center;
-    gap: 8px;
-    min-height: 36px;
+    gap: 10px;
+    min-height: 40px;
     border: 0;
-    border-radius: 8px;
-    padding: 0 10px;
+    border-radius: 9px;
+    padding: 0 12px;
     color: #b5c0cc;
     background: transparent;
     text-align: left;
     cursor: pointer;
   }}
+  .wb-nav-item:hover {{ background: rgba(255,255,255,0.055); }}
   .wb-nav-item.active {{
-    background: #223347;
+    background: linear-gradient(135deg, #223347, #1a2938);
     color: #f6fbff;
+    box-shadow: var(--hairline);
   }}
   .wb-icon {{
-    width: 9px;
-    height: 9px;
+    width: 10px;
+    height: 10px;
     border-radius: 99px;
     background: #536170;
   }}
   .wb-nav-item.active .wb-icon {{ background: var(--accent); }}
   .wb-count {{ font-size: 10px; color: #8fa0af; }}
   .wb-main {{
-    padding: 20px 22px 24px;
+    padding: 26px 30px 30px;
     background: #0d1218;
     overflow: auto;
   }}
-  .wb-page {{ display: none; max-width: 980px; }}
+  .wb-page {{ display: none; max-width: 1180px; }}
   .wb-page.active {{ display: block; }}
   .wb-page-head {{
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 14px;
+    gap: 16px;
     align-items: start;
-    margin-bottom: 18px;
+    margin-bottom: 22px;
   }}
-  .wb-page-head h2 {{ margin: 0 0 5px; font-size: 23px; letter-spacing: 0; }}
+  .wb-page-head h2 {{ margin: 0 0 6px; font-size: 26px; letter-spacing: 0; }}
   .wb-page-head p {{ margin: 0; color: #9aa8b6; line-height: 1.45; }}
   .wb-status-pill {{
-    height: 30px;
+    height: 32px;
     display: flex;
     align-items: center;
     gap: 7px;
     border-radius: 999px;
-    padding: 0 11px;
+    padding: 0 12px;
     background: rgba(103, 214, 255, 0.12);
-    border: 1px solid rgba(103, 214, 255, 0.24);
+    box-shadow: 0 0 0 1px rgba(103, 214, 255, 0.24) inset;
     color: #bdefff;
-    font-size: 11px;
+    font-size: 12px;
   }}
   .wb-dot {{
     width: 7px;
@@ -497,58 +512,61 @@ def generate_settings_html(
   .wb-layout {{
     display: grid;
     grid-template-columns: minmax(0, 1.2fr) minmax(270px, 0.8fr);
-    gap: 14px;
+    gap: 18px;
   }}
-  .wb-stack {{ display: grid; gap: 12px; }}
+  .wb-stack {{ display: grid; gap: 16px; }}
   .wb-section {{
-    border: 1px solid var(--border);
-    border-radius: 10px;
+    border: 0;
+    border-radius: 12px;
     background: var(--card);
+    box-shadow: var(--hairline), var(--soft-shadow);
     overflow: hidden;
   }}
   .wb-hero {{
-    background: linear-gradient(135deg, rgba(83,170,220,0.16), rgba(255,255,255,0.035));
-    border-color: rgba(103,214,255,0.24);
+    background: linear-gradient(135deg, rgba(83,170,220,0.18), rgba(255,255,255,0.04));
+    box-shadow: inset 0 0 0 1px rgba(103,214,255,0.22), var(--soft-shadow);
   }}
   .wb-section-head {{
-    padding: 12px 13px;
+    padding: 15px 16px;
     border-bottom: 1px solid rgba(255,255,255,0.07);
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
   }}
-  .wb-section-head h3 {{ margin: 0; font-size: 13px; }}
-  .wb-section-head span {{ color: #8d9cac; font-size: 11px; }}
+  .wb-section-head h3 {{ margin: 0; font-size: 14px; }}
+  .wb-section-head span {{ color: #8d9cac; font-size: 12px; }}
   .wb-row {{
-    min-height: 46px;
+    min-height: 54px;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    gap: 14px;
-    padding: 7px 13px;
+    gap: 18px;
+    padding: 9px 16px;
     border-top: 1px solid rgba(255,255,255,0.055);
   }}
+  .wb-row:hover {{ background: rgba(255,255,255,0.026); }}
   .wb-row:first-of-type {{ border-top: 0; }}
-  .wb-row-label {{ display: grid; gap: 2px; min-width: 0; }}
-  .wb-row-label b {{ font-size: 12px; font-weight: 650; color: #dce5ee; }}
-  .wb-row-label span {{ font-size: 10px; color: #8998a7; line-height: 1.35; }}
+  .wb-row-label {{ display: grid; gap: 3px; min-width: 0; }}
+  .wb-row-label b {{ font-size: 13px; font-weight: 650; color: #dce5ee; }}
+  .wb-row-label span {{ font-size: 11px; color: #8998a7; line-height: 1.38; }}
   input, select {{
-    height: 29px;
-    min-width: 118px;
-    border-radius: 7px;
+    height: 34px;
+    min-width: 138px;
+    border-radius: 8px;
     background: #18232e;
-    border: 1px solid rgba(255,255,255,0.10);
+    border: 0;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.105);
     color: #d5e0ea;
-    padding: 0 9px;
+    padding: 0 11px;
     outline: none;
   }}
-  input:focus, select:focus {{ border-color: rgba(103,214,255,0.55); }}
+  input:focus, select:focus {{ box-shadow: inset 0 0 0 1px rgba(103,214,255,0.62), 0 0 0 3px rgba(103,214,255,0.10); }}
   .wb-switch-input {{
     appearance: none;
-    width: 36px;
-    height: 20px;
-    min-width: 36px;
+    width: 42px;
+    height: 24px;
+    min-width: 42px;
     padding: 0;
     border: 0;
     border-radius: 99px;
@@ -560,38 +578,39 @@ def generate_settings_html(
     position: absolute;
     left: 2px;
     top: 2px;
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
     border-radius: 99px;
     background: #8fa0af;
     transition: left 120ms ease, background 120ms ease;
   }}
   .wb-switch-input:checked::after {{
-    left: 18px;
+    left: 20px;
     background: var(--accent);
   }}
-  .wb-table {{ padding: 11px 13px 13px; display: grid; gap: 6px; }}
+  .wb-table {{ padding: 13px 16px 16px; display: grid; gap: 8px; }}
   .wb-table-head, .wb-table-row {{
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 38px;
-    gap: 6px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 42px;
+    gap: 8px;
   }}
   .wb-table-head {{
     color: #7f8d9b;
-    font-size: 10px;
+    font-size: 11px;
     padding: 0 4px 2px;
   }}
   .wb-table-row input {{ width: 100%; min-width: 0; }}
   .wb-table-row button {{
     border: 0;
-    border-radius: 7px;
+    border-radius: 8px;
     background: rgba(255,255,255,0.08);
     color: #cbd7e3;
+    cursor: pointer;
   }}
   .wb-note {{
-    padding: 12px 13px;
+    padding: 14px 16px;
     color: #91a1b1;
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.45;
   }}
   @media (max-width: 760px) {{
@@ -603,7 +622,7 @@ def generate_settings_html(
 </style>
 </head>
 <body>
-<form class="wb-frame">
+<form class="wb-frame wb-polished">
   <header class="wb-windowbar">
     <div class="wb-title"><span class="wb-logo">WB</span><span>WhisprBar Settings</span></div>
     <div class="wb-actions">
@@ -735,7 +754,7 @@ def open_settings_webview_window(
 
     window = Gtk.Window(title=f"{APP_NAME} Settings Preview")
     window.set_position(Gtk.WindowPosition.CENTER)
-    window.set_default_size(960, 720)
+    window.set_default_size(1120, 760)
     window.set_resizable(True)
 
     webview = WebKit2.WebView()

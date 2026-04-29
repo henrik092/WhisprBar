@@ -40,3 +40,16 @@ def test_generate_settings_html_escapes_dictionary_and_snippet_values():
     assert "sig &lt;x&gt;" in html
     assert "Best &amp; regards" in html
     assert "<Vispaba>" not in html
+
+
+def test_generate_settings_html_uses_monitor_polished_density_tokens():
+    html = generate_settings_html(
+        {"flow_mode_enabled": True},
+        dictionary_entries=[],
+        snippets=[],
+    )
+
+    assert 'class="wb-frame wb-polished"' in html
+    assert "--window-min-width: 1080px" in html
+    assert "font-size: 14px" in html
+    assert "grid-template-columns: 218px minmax(0, 1fr)" in html
