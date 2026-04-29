@@ -7,16 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-04-29
+
 ### Added
 - **Flow Mode**: Context-aware dictation cleanup pipeline with app profiles, smart formatting, backtrack handling, dictionary replacements, snippets, spoken commands, and optional rewrite assistance.
 - **Flow settings tab**: Controls for Flow Mode, context awareness, dictionary/snippets, command mode, rewrite provider/model/timeout, history storage, language preferences, and max recording duration.
 - **Scratchpad**: Local note window for collecting, editing, copying, and reusing dictated text.
 - **Expanded hotkey actions**: Added configurable actions for hands-free recording, command mode, paste/copy last transcript, and opening the scratchpad.
+- **WebKit settings UI**: Replaced the old GTK settings menu with a modern WebKit-based settings window while keeping GTK as fallback.
 
 ### Changed
 - **Auto-paste pipeline**: Dictation output now passes through the Flow pipeline when enabled, including per-output paste policy metadata.
 - **History window**: History entries can show Flow metadata and aggregate dictation stats.
 - **Flow privacy controls**: Auto-delete history mode prunes old entries by age, and Flow recordings can stop automatically at the configured maximum duration.
+- **Settings organization**: Grouped daily settings, recording, transcription, Flow, privacy, and advanced controls into clearer sections.
 
 ## [1.1.1] - 2026-03-26
 

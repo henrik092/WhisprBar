@@ -3,7 +3,7 @@
 V6 Modular Architecture
 """
 
-__version__ = "1.1.1"
+__version__ = "1.2.0"
 __app_name__ = "WhisprBar"
 __author__ = "henrik092"
 __license__ = "MIT"
