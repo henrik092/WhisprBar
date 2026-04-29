@@ -1,0 +1,443 @@
+<style>
+  .wb-frame {
+    margin-top: 18px;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 14px;
+    background: #0b0f14;
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.36);
+    color: #e7eef5;
+    font-family: Inter, system-ui, sans-serif;
+  }
+  .wb-windowbar {
+    height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    background: #111820;
+  }
+  .wb-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .wb-logo {
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    background: linear-gradient(135deg, #5fd5ff, #7d8cff);
+    color: #061016;
+    display: grid;
+    place-items: center;
+    font-size: 10px;
+    font-weight: 800;
+  }
+  .wb-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .wb-button {
+    height: 26px;
+    border-radius: 7px;
+    padding: 0 11px;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    background: rgba(255,255,255,0.07);
+    color: #c5d0dc;
+  }
+  .wb-button.primary {
+    background: #63c7f4;
+    color: #071118;
+    font-weight: 700;
+  }
+  .wb-shell {
+    display: grid;
+    grid-template-columns: 190px 1fr;
+    min-height: 610px;
+  }
+  .wb-sidebar {
+    padding: 14px 10px;
+    background: #101720;
+    border-right: 1px solid rgba(255,255,255,0.08);
+  }
+  .wb-nav-label {
+    padding: 8px 10px 10px;
+    color: #71808e;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .wb-nav {
+    display: grid;
+    gap: 4px;
+  }
+  .wb-nav-item {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+    border-radius: 8px;
+    padding: 0 10px;
+    color: #b5c0cc;
+    font-size: 12px;
+  }
+  .wb-nav-item.active {
+    background: #223347;
+    color: #f6fbff;
+  }
+  .wb-nav-item.active .wb-icon {
+    background: #67d6ff;
+  }
+  .wb-icon {
+    width: 9px;
+    height: 9px;
+    border-radius: 99px;
+    background: #536170;
+  }
+  .wb-count {
+    font-size: 10px;
+    color: #8fa0af;
+  }
+  .wb-main {
+    padding: 20px 22px;
+    background:
+      radial-gradient(circle at top right, rgba(74, 140, 180, 0.14), transparent 320px),
+      #0d1218;
+  }
+  .wb-page-head {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 14px;
+    align-items: start;
+    margin-bottom: 18px;
+  }
+  .wb-page-head h2 {
+    margin: 0 0 5px;
+    font-size: 23px;
+    letter-spacing: 0;
+  }
+  .wb-page-head p {
+    margin: 0;
+    color: #9aa8b6;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .wb-status-pill {
+    height: 30px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    border-radius: 999px;
+    padding: 0 11px;
+    background: rgba(103, 214, 255, 0.12);
+    border: 1px solid rgba(103, 214, 255, 0.24);
+    color: #bdefff;
+    font-size: 11px;
+  }
+  .wb-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 99px;
+    background: #67d6ff;
+  }
+  .wb-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(270px, 0.75fr);
+    gap: 14px;
+  }
+  .wb-stack {
+    display: grid;
+    gap: 12px;
+  }
+  .wb-section {
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.045);
+    overflow: hidden;
+  }
+  .wb-section-head {
+    padding: 12px 13px;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .wb-section-head h3 {
+    margin: 0;
+    font-size: 13px;
+  }
+  .wb-section-head span {
+    color: #8d9cac;
+    font-size: 11px;
+  }
+  .wb-row {
+    min-height: 43px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 14px;
+    padding: 0 13px;
+    border-top: 1px solid rgba(255,255,255,0.055);
+  }
+  .wb-row:first-of-type {
+    border-top: 0;
+  }
+  .wb-row-label {
+    display: grid;
+    gap: 2px;
+  }
+  .wb-row-label b {
+    font-size: 12px;
+    font-weight: 650;
+    color: #dce5ee;
+  }
+  .wb-row-label span {
+    font-size: 10px;
+    color: #8998a7;
+  }
+  .wb-toggle {
+    width: 34px;
+    height: 19px;
+    border-radius: 99px;
+    background: #2c4052;
+    position: relative;
+  }
+  .wb-toggle::after {
+    content: "";
+    position: absolute;
+    right: 2px;
+    top: 2px;
+    width: 15px;
+    height: 15px;
+    border-radius: 99px;
+    background: #69d6ff;
+  }
+  .wb-select,
+  .wb-field {
+    height: 27px;
+    min-width: 104px;
+    border-radius: 7px;
+    background: #18232e;
+    border: 1px solid rgba(255,255,255,0.10);
+    color: #cbd7e3;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 9px;
+  }
+  .wb-hero {
+    background: linear-gradient(135deg, rgba(83, 170, 220, 0.18), rgba(255,255,255,0.035));
+    border-color: rgba(103,214,255,0.24);
+  }
+  .wb-table {
+    padding: 11px 13px 13px;
+    display: grid;
+    gap: 6px;
+  }
+  .wb-table-head,
+  .wb-table-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 38px;
+    gap: 6px;
+  }
+  .wb-table-head {
+    color: #7f8d9b;
+    font-size: 10px;
+    padding: 0 4px 2px;
+  }
+  .wb-cell {
+    min-height: 28px;
+    border-radius: 7px;
+    background: #151e28;
+    border: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    align-items: center;
+    padding: 0 9px;
+    color: #cbd7e3;
+    font-size: 11px;
+  }
+  .wb-mini-btn {
+    min-height: 28px;
+    border-radius: 7px;
+    background: rgba(255,255,255,0.07);
+    display: grid;
+    place-items: center;
+    color: #aebdca;
+    font-size: 12px;
+  }
+  .wb-subtle-add {
+    margin-top: 3px;
+    height: 30px;
+    border-radius: 8px;
+    border: 1px dashed rgba(103,214,255,0.32);
+    color: #9eddf5;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+  }
+  .wb-summary {
+    display: grid;
+    gap: 9px;
+  }
+  .wb-summary-card {
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.09);
+    background: rgba(255,255,255,0.045);
+    padding: 12px;
+  }
+  .wb-summary-card h4 {
+    margin: 0 0 9px;
+    font-size: 12px;
+  }
+  .wb-kv {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    font-size: 11px;
+    padding: 6px 0;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    color: #aebbc7;
+  }
+  .wb-kv:first-of-type {
+    border-top: 0;
+  }
+  .wb-kv strong {
+    color: #e2eaf2;
+    font-weight: 650;
+  }
+  .wb-footer-note {
+    color: #7f8d9b;
+    font-size: 11px;
+    line-height: 1.45;
+  }
+</style>
+
+<h2>Refined Direction: B als Gesamt-System</h2>
+<p class="subtitle">Flow bleibt visuell stark, aber alle Einstellungen folgen demselben Schema: Sidebar, Seitenkopf, klare Gruppen, direkte Controls und lokale Speicherung.</p>
+
+<div class="wb-frame" data-choice="b-refined" onclick="toggleSelect(this)">
+  <div class="wb-windowbar">
+    <div class="wb-title"><div class="wb-logo">WB</div>WhisprBar Settings</div>
+    <div class="wb-actions">
+      <div class="wb-button">Cancel</div>
+      <div class="wb-button primary">Save Changes</div>
+    </div>
+  </div>
+  <div class="wb-shell">
+    <div class="wb-sidebar">
+      <div class="wb-nav-label">Settings</div>
+      <div class="wb-nav">
+        <div class="wb-nav-item"><span class="wb-icon"></span><span>General</span></div>
+        <div class="wb-nav-item"><span class="wb-icon"></span><span>Recording</span></div>
+        <div class="wb-nav-item"><span class="wb-icon"></span><span>Transcription</span></div>
+        <div class="wb-nav-item active"><span class="wb-icon"></span><span>Flow</span><span class="wb-count">4</span></div>
+        <div class="wb-nav-item"><span class="wb-icon"></span><span>Privacy</span></div>
+        <div class="wb-nav-item"><span class="wb-icon"></span><span>Advanced</span></div>
+      </div>
+    </div>
+    <div class="wb-main">
+      <div class="wb-page-head">
+        <div>
+          <h2>Flow Control</h2>
+          <p>Configure dictation cleanup, app-aware behavior, personal vocabulary, commands and rewrite behavior.</p>
+        </div>
+        <div class="wb-status-pill"><span class="wb-dot"></span> Flow enabled</div>
+      </div>
+
+      <div class="wb-layout">
+        <div class="wb-stack">
+          <div class="wb-section wb-hero">
+            <div class="wb-section-head">
+              <h3>Core Flow Behavior</h3>
+              <span>Primary controls</span>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-label"><b>Flow Mode</b><span>Use Flow processing before paste.</span></div>
+              <div class="wb-toggle"></div>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-label"><b>Smart Formatting</b><span>Spoken punctuation, line breaks and list cleanup.</span></div>
+              <div class="wb-toggle"></div>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-label"><b>Command Mode</b><span>Detect phrases like “mach das kürzer”.</span></div>
+              <div class="wb-toggle"></div>
+            </div>
+          </div>
+
+          <div class="wb-section">
+            <div class="wb-section-head">
+              <h3>Dictionary</h3>
+              <span>Personal corrections</span>
+            </div>
+            <div class="wb-table">
+              <div class="wb-table-head"><span>Recognized</span><span>Replace with</span><span></span></div>
+              <div class="wb-table-row">
+                <div class="wb-cell">Vispaba</div>
+                <div class="wb-cell">WhisprBar</div>
+                <div class="wb-mini-btn">−</div>
+              </div>
+              <div class="wb-table-row">
+                <div class="wb-cell">Whisper Bar</div>
+                <div class="wb-cell">WhisprBar</div>
+                <div class="wb-mini-btn">−</div>
+              </div>
+              <div class="wb-table-row">
+                <div class="wb-cell">Codex Desktop</div>
+                <div class="wb-cell">Codex</div>
+                <div class="wb-mini-btn">−</div>
+              </div>
+              <div class="wb-subtle-add">+ Add dictionary entry</div>
+            </div>
+          </div>
+
+          <div class="wb-section">
+            <div class="wb-section-head">
+              <h3>Rewrite</h3>
+              <span>Optional AI cleanup</span>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-label"><b>AI Rewrite</b><span>Rewrite only when enabled and configured.</span></div>
+              <div class="wb-toggle"></div>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-label"><b>Provider</b><span>OpenAI-compatible endpoint.</span></div>
+              <div class="wb-select">None</div>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-label"><b>Timeout</b><span>Fallback to original text if rewrite is slow.</span></div>
+              <div class="wb-field">12 s</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="wb-summary">
+          <div class="wb-summary-card">
+            <h4>Current Profile</h4>
+            <div class="wb-kv"><span>Detected app</span><strong>Editor</strong></div>
+            <div class="wb-kv"><span>Paste mode</span><strong>Auto</strong></div>
+            <div class="wb-kv"><span>Hotkey</span><strong>Right Ctrl</strong></div>
+          </div>
+          <div class="wb-summary-card">
+            <h4>Language & History</h4>
+            <div class="wb-kv"><span>Languages</span><strong>de, en</strong></div>
+            <div class="wb-kv"><span>History</span><strong>Normal</strong></div>
+            <div class="wb-kv"><span>Privacy</span><strong>Local</strong></div>
+          </div>
+          <div class="wb-summary-card">
+            <h4>What changes globally</h4>
+            <p class="wb-footer-note">General, Recording, Transcription, Privacy and Advanced use the same section-row pattern. Flow is richer only where it needs tables and contextual status.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

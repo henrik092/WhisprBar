@@ -1,0 +1,76 @@
+<h2>WhisprBar Flow UX Richtung</h2>
+<p class="subtitle">Drei mögliche Richtungen für das Aufnahmegefühl. Bitte öffne die Seite, vergleiche die Mockups und klick die Richtung an, die sich am ehesten nach "Flow" anfühlt.</p>
+
+<div class="cards">
+  <div class="card" data-choice="a-compact" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:170px;display:flex;align-items:center;justify-content:center;background:#f5f7fb;border-radius:10px;">
+        <div style="width:330px;height:46px;border-radius:23px;background:#101217;box-shadow:0 18px 50px rgba(15,17,23,.28);display:flex;align-items:center;padding:0 16px;gap:12px;">
+          <div style="width:10px;height:10px;border-radius:50%;background:#ff4d55;box-shadow:0 0 0 6px rgba(255,77,85,.18);"></div>
+          <div style="height:22px;flex:1;display:flex;align-items:center;gap:4px;">
+            <span style="height:8px;width:4px;background:#ff7a5f;border-radius:3px;"></span>
+            <span style="height:18px;width:4px;background:#ff4d55;border-radius:3px;"></span>
+            <span style="height:13px;width:4px;background:#ff9b5c;border-radius:3px;"></span>
+            <span style="height:21px;width:4px;background:#ff4d88;border-radius:3px;"></span>
+            <span style="height:10px;width:4px;background:#ff7a5f;border-radius:3px;"></span>
+            <span style="height:17px;width:4px;background:#ff4d55;border-radius:3px;"></span>
+            <span style="height:7px;width:4px;background:#ff9b5c;border-radius:3px;"></span>
+            <span style="height:19px;width:4px;background:#ff4d88;border-radius:3px;"></span>
+          </div>
+          <div style="color:#d7dbe6;font:600 12px system-ui;">0:08</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. Compact Floating Bar</h3>
+      <p>Sehr klein, ruhig, über dem aktuellen Fenster. Fokus auf Recording, Timer, Processing und Done. Minimaler Umbau, schnell testbar.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b-command" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:170px;display:flex;align-items:center;justify-content:center;background:#f4f6f9;border-radius:10px;">
+        <div style="width:430px;border-radius:18px;background:#111418;box-shadow:0 22px 60px rgba(12,15,20,.32);padding:14px 16px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:12px;height:12px;border-radius:50%;background:#30d17c;"></div>
+            <div style="color:#f3f5f8;font:600 13px system-ui;flex:1;">Listening</div>
+            <div style="color:#8d96a8;font:12px system-ui;">Right Ctrl</div>
+          </div>
+          <div style="margin-top:10px;color:#cfd5df;font:13px system-ui;">Das ist viel zu lang...</div>
+          <div style="margin-top:10px;display:flex;gap:8px;">
+            <span style="padding:4px 8px;border-radius:10px;background:#202631;color:#cfd5df;font:11px system-ui;">Stop</span>
+            <span style="padding:4px 8px;border-radius:10px;background:#202631;color:#cfd5df;font:11px system-ui;">Cancel</span>
+            <span style="padding:4px 8px;border-radius:10px;background:#202631;color:#cfd5df;font:11px system-ui;">Copy</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. Command Palette Bar</h3>
+      <p>Mehr "App-Gefühl": Live-Text, sichtbare Aktionen und Hotkey-Hinweis. Hilft beim Verstehen, ist aber größer und riskanter im Overlay.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c-mode" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:170px;display:flex;align-items:center;justify-content:center;background:#f5f7fb;border-radius:10px;">
+        <div style="width:360px;border-radius:20px;background:#12151a;box-shadow:0 22px 60px rgba(12,15,20,.3);padding:12px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div style="border-radius:14px;background:#232936;color:#fff;font:600 12px system-ui;padding:10px;text-align:center;">Push to Talk</div>
+            <div style="border-radius:14px;background:#171b22;color:#9aa4b5;font:600 12px system-ui;padding:10px;text-align:center;">Hands-free</div>
+          </div>
+          <div style="margin-top:12px;height:34px;border-radius:17px;background:#1a1f27;display:flex;align-items:center;justify-content:center;color:#d7dbe6;font:12px system-ui;">Ready · Right Ctrl to dictate</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. Mode Switcher</h3>
+      <p>Stärkerer Produkt-Umbau: Push-to-talk und Hands-free werden sichtbar getrennt. Gute Langfrist-Richtung, aber mehr Logik und Settings-Arbeit.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Meine Empfehlung</h3>
+  <p>Für den nächsten implementierbaren Schritt würde ich A nehmen: eine klar andere, kompakte Flow-Bar mit besseren Zuständen und Hotkey-Hinweis. Danach kann B/C schrittweise ergänzt werden, ohne das aktuelle Recording zu destabilisieren.</p>
+</div>

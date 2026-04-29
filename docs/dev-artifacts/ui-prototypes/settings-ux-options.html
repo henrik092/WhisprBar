@@ -1,0 +1,322 @@
+<style>
+  .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    margin-top: 18px;
+  }
+  .settings-card {
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 12px;
+    overflow: hidden;
+    background: #101316;
+    cursor: pointer;
+  }
+  .settings-card:hover {
+    border-color: rgba(99, 179, 237, 0.65);
+  }
+  .settings-preview {
+    height: 390px;
+    background: #161a1f;
+    padding: 14px;
+    box-sizing: border-box;
+    font-family: Inter, system-ui, sans-serif;
+    color: #e6edf3;
+  }
+  .app-shell {
+    height: 100%;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: 112px 1fr;
+    background: #0d1116;
+  }
+  .side {
+    background: #121821;
+    border-right: 1px solid rgba(255,255,255,0.08);
+    padding: 12px 8px;
+  }
+  .brand {
+    font-size: 13px;
+    font-weight: 700;
+    margin: 2px 6px 14px;
+    color: #f2f6fa;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 8px;
+    margin-bottom: 4px;
+    border-radius: 7px;
+    font-size: 11px;
+    color: #aeb8c3;
+  }
+  .nav-item.active {
+    background: #243447;
+    color: #f6fbff;
+  }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 99px;
+    background: #71d3ff;
+  }
+  .main {
+    padding: 14px;
+    overflow: hidden;
+  }
+  .topline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .title {
+    font-size: 17px;
+    font-weight: 730;
+  }
+  .pill {
+    font-size: 10px;
+    color: #aab8c5;
+    background: rgba(255,255,255,0.07);
+    padding: 4px 7px;
+    border-radius: 999px;
+  }
+  .group {
+    border: 1px solid rgba(255,255,255,0.09);
+    background: rgba(255,255,255,0.035);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 9px;
+  }
+  .group h4 {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: #f4f8fb;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: center;
+    min-height: 25px;
+    font-size: 11px;
+    color: #c5ced8;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    padding-top: 7px;
+    margin-top: 7px;
+  }
+  .row:first-of-type {
+    border-top: 0;
+    padding-top: 0;
+    margin-top: 0;
+  }
+  .toggle {
+    width: 28px;
+    height: 16px;
+    border-radius: 99px;
+    background: #2a3d50;
+    position: relative;
+  }
+  .toggle::after {
+    content: "";
+    position: absolute;
+    right: 2px;
+    top: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 99px;
+    background: #7ce0ff;
+  }
+  .field {
+    min-width: 64px;
+    height: 20px;
+    border-radius: 5px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.07);
+  }
+  .mini-table {
+    display: grid;
+    gap: 5px;
+  }
+  .mini-line {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+  }
+  .mini-cell {
+    height: 18px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.08);
+    font-size: 9px;
+    color: #becbd7;
+    display: flex;
+    align-items: center;
+    padding: 0 5px;
+    overflow: hidden;
+  }
+  .hero-card {
+    background: linear-gradient(135deg, rgba(85,184,255,0.18), rgba(255,255,255,0.04));
+    border: 1px solid rgba(125,203,255,0.26);
+  }
+  .status-strip {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 7px;
+    margin-bottom: 10px;
+  }
+  .metric {
+    background: rgba(255,255,255,0.06);
+    border-radius: 8px;
+    padding: 8px;
+  }
+  .metric b {
+    display: block;
+    font-size: 15px;
+    margin-bottom: 2px;
+  }
+  .metric span {
+    font-size: 9px;
+    color: #9eadba;
+  }
+  .settings-card-body {
+    padding: 13px 14px 15px;
+  }
+  .settings-card-body h3 {
+    margin: 0 0 6px;
+    font-size: 16px;
+  }
+  .settings-card-body p {
+    margin: 0;
+    color: #9ba7b4;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  @media (max-width: 980px) {
+    .settings-grid { grid-template-columns: 1fr; }
+  }
+</style>
+
+<h2>Settings-Menü: drei mögliche Richtungen</h2>
+<p class="subtitle">Alle drei bleiben grundsätzlich GTK-tauglich. Es geht hier um Struktur, Dichte und visuelle Hierarchie, nicht um finalen Pixel-Feinschliff.</p>
+
+<div class="settings-grid">
+  <div class="settings-card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="settings-preview">
+      <div class="app-shell">
+        <div class="side">
+          <div class="brand">WhisprBar</div>
+          <div class="nav-item active"><span class="dot"></span> General</div>
+          <div class="nav-item">Recording</div>
+          <div class="nav-item">Transcribe</div>
+          <div class="nav-item">Flow</div>
+          <div class="nav-item">Privacy</div>
+          <div class="nav-item">Advanced</div>
+        </div>
+        <div class="main">
+          <div class="topline"><div class="title">General</div><div class="pill">Saved locally</div></div>
+          <div class="group">
+            <h4>Core Behavior</h4>
+            <div class="row"><span>Auto-Paste</span><span class="toggle"></span></div>
+            <div class="row"><span>Notifications</span><span class="toggle"></span></div>
+            <div class="row"><span>Paste delay</span><span class="field"></span></div>
+          </div>
+          <div class="group">
+            <h4>Hotkeys</h4>
+            <div class="row"><span>Toggle recording</span><span class="pill">Right Ctrl</span></div>
+            <div class="row"><span>Open settings</span><span class="pill">&lt;</span></div>
+          </div>
+          <div class="group">
+            <h4>Appearance</h4>
+            <div class="row"><span>Theme</span><span class="pill">Auto</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="settings-card-body">
+      <h3>A. Kompakt-professionell</h3>
+      <p>Ruhiges Desktop-Tool. Gute Übersicht, wenig Spielerei, sehr passend für tägliche Nutzung.</p>
+    </div>
+  </div>
+
+  <div class="settings-card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="settings-preview">
+      <div class="app-shell">
+        <div class="side">
+          <div class="brand">WhisprBar</div>
+          <div class="nav-item">General</div>
+          <div class="nav-item">Recording</div>
+          <div class="nav-item">Transcribe</div>
+          <div class="nav-item active"><span class="dot"></span> Flow</div>
+          <div class="nav-item">Privacy</div>
+          <div class="nav-item">Advanced</div>
+        </div>
+        <div class="main">
+          <div class="topline"><div class="title">Flow Control</div><div class="pill">A2.1 Soft Dark</div></div>
+          <div class="group hero-card">
+            <h4>Flow Mode</h4>
+            <div class="row"><span>Flow enabled</span><span class="toggle"></span></div>
+            <div class="row"><span>Smart formatting</span><span class="toggle"></span></div>
+            <div class="row"><span>Command mode</span><span class="toggle"></span></div>
+          </div>
+          <div class="group">
+            <h4>Dictionary</h4>
+            <div class="mini-table">
+              <div class="mini-line"><div class="mini-cell">Vispaba</div><div class="mini-cell">WhisprBar</div></div>
+              <div class="mini-line"><div class="mini-cell">Whisper Bar</div><div class="mini-cell">WhisprBar</div></div>
+              <div class="mini-line"><div class="mini-cell">Testwort</div><div class="mini-cell">TestWort</div></div>
+            </div>
+          </div>
+          <div class="group">
+            <h4>Rewrite</h4>
+            <div class="row"><span>AI Rewrite</span><span class="toggle"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="settings-card-body">
+      <h3>B. Flow-zentriert</h3>
+      <p>Optimiert auf das neue Hauptfeature. Flow bekommt eine starke, gut bedienbare Kontrollseite.</p>
+    </div>
+  </div>
+
+  <div class="settings-card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="settings-preview">
+      <div class="app-shell">
+        <div class="side">
+          <div class="brand">WhisprBar</div>
+          <div class="nav-item active"><span class="dot"></span> Overview</div>
+          <div class="nav-item">Input</div>
+          <div class="nav-item">Output</div>
+          <div class="nav-item">Automation</div>
+          <div class="nav-item">Data</div>
+          <div class="nav-item">System</div>
+        </div>
+        <div class="main">
+          <div class="topline"><div class="title">Overview</div><div class="pill">Ready</div></div>
+          <div class="status-strip">
+            <div class="metric"><b>Flow</b><span>enabled</span></div>
+            <div class="metric"><b>37</b><span>words/min</span></div>
+            <div class="metric"><b>X11</b><span>paste ok</span></div>
+          </div>
+          <div class="group">
+            <h4>Recommended</h4>
+            <div class="row"><span>Use Flow Bar</span><span class="toggle"></span></div>
+            <div class="row"><span>Dictionary corrections</span><span class="pill">4</span></div>
+          </div>
+          <div class="group">
+            <h4>Quick Controls</h4>
+            <div class="row"><span>Recording profile</span><span class="pill">Editor</span></div>
+            <div class="row"><span>History storage</span><span class="pill">Normal</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="settings-card-body">
+      <h3>C. Dashboard-artig</h3>
+      <p>Moderner und auffälliger. Schön für Status und Empfehlungen, aber weniger direkt für viele Detailoptionen.</p>
+    </div>
+  </div>
+</div>
