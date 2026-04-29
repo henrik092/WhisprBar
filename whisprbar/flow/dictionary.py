@@ -37,6 +37,24 @@ def load_dictionary(path: Optional[Path] = None) -> List[DictionaryEntry]:
     return entries
 
 
+def save_dictionary(entries: Sequence[DictionaryEntry], path: Optional[Path] = None) -> None:
+    """Persist dictionary entries as JSON, skipping incomplete rows."""
+    dictionary_path = path or DICTIONARY_PATH
+    dictionary_path.parent.mkdir(parents=True, exist_ok=True)
+
+    data = []
+    for entry in entries:
+        spoken = str(entry.spoken).strip()
+        written = str(entry.written).strip()
+        if spoken and written:
+            data.append({"spoken": spoken, "written": written})
+
+    dictionary_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def apply_dictionary(
     text: str, entries: Sequence[DictionaryEntry]
 ) -> Tuple[str, Tuple[str, ...]]:

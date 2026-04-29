@@ -51,6 +51,8 @@ from whisprbar.ui_hotkeys import (
     get_hotkey_conflicts_for_actions,
 )
 from whisprbar.paste import PASTE_OPTIONS, is_wayland_session
+from whisprbar.flow.dictionary import DICTIONARY_PATH, load_dictionary, save_dictionary
+from whisprbar.flow.models import DictionaryEntry
 
 # Module state - window references
 _overlay_window = None
@@ -1091,6 +1093,62 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         flow_max_minutes.set_digits(0)
         flow_page.pack_start(make_row("Max Recording Minutes", flow_max_minutes), False, False, 0)
 
+        flow_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
+
+        dictionary_section = Gtk.Label()
+        dictionary_section.set_markup("<b>Dictionary</b>")
+        dictionary_section.set_xalign(0.0)
+        flow_page.pack_start(dictionary_section, False, False, 6)
+
+        dictionary_store = Gtk.ListStore(str, str)
+        for entry in load_dictionary():
+            dictionary_store.append([entry.spoken, entry.written])
+
+        dictionary_view = Gtk.TreeView(model=dictionary_store)
+        dictionary_view.set_headers_visible(True)
+        dictionary_view.get_selection().set_mode(Gtk.SelectionMode.SINGLE)
+
+        def add_dictionary_column(title: str, column_index: int) -> None:
+            renderer = Gtk.CellRendererText()
+            renderer.set_property("editable", True)
+
+            def on_dictionary_cell_edited(_renderer, path, new_text) -> None:
+                dictionary_store[path][column_index] = new_text.strip()
+
+            renderer.connect("edited", on_dictionary_cell_edited)
+            column = Gtk.TreeViewColumn(title, renderer, text=column_index)
+            column.set_resizable(True)
+            column.set_expand(True)
+            dictionary_view.append_column(column)
+
+        add_dictionary_column("Erkannt / gesprochen", 0)
+        add_dictionary_column("Einsetzen als", 1)
+
+        dictionary_scroll = Gtk.ScrolledWindow()
+        dictionary_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        dictionary_scroll.set_min_content_height(140)
+        dictionary_scroll.add(dictionary_view)
+        flow_page.pack_start(dictionary_scroll, False, False, 0)
+
+        dictionary_controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        add_dictionary_button = Gtk.Button(label="Add")
+        remove_dictionary_button = Gtk.Button(label="Remove")
+        dictionary_controls.pack_start(add_dictionary_button, False, False, 0)
+        dictionary_controls.pack_start(remove_dictionary_button, False, False, 0)
+        flow_page.pack_start(dictionary_controls, False, False, 0)
+
+        def on_add_dictionary_entry(_button) -> None:
+            new_iter = dictionary_store.append(["", ""])
+            dictionary_view.get_selection().select_iter(new_iter)
+
+        def on_remove_dictionary_entry(_button) -> None:
+            model, selected_iter = dictionary_view.get_selection().get_selected()
+            if selected_iter is not None:
+                model.remove(selected_iter)
+
+        add_dictionary_button.connect("clicked", on_add_dictionary_entry)
+        remove_dictionary_button.connect("clicked", on_remove_dictionary_entry)
+
         def ensure_json_file(path: Path, default_data) -> None:
             path.parent.mkdir(parents=True, exist_ok=True)
             if not path.exists():
@@ -1111,7 +1169,7 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         dictionary_button.connect(
             "clicked",
             lambda _button: ensure_json_file(
-                Path.home() / ".config" / "whisprbar" / "dictionary.json",
+                DICTIONARY_PATH,
                 [{"spoken": "whisper bar", "written": "WhisprBar"}],
             ),
         )
@@ -1272,6 +1330,16 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             ] or ["de", "en"]
             cfg["flow_language_auto_detect"] = flow_auto_lang_switch.get_active()
             cfg["flow_max_recording_minutes"] = int(flow_max_minutes.get_value())
+
+            dictionary_entries = [
+                DictionaryEntry(spoken=row[0], written=row[1])
+                for row in dictionary_store
+            ]
+            try:
+                save_dictionary(dictionary_entries)
+            except OSError as exc:
+                notify(f"Dictionary konnte nicht gespeichert werden: {exc}")
+                return
 
             if cfg.get("auto_paste_enabled"):
                 state["wayland_notice_shown"] = False

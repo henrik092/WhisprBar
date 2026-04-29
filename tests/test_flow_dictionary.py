@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from whisprbar.flow.dictionary import apply_dictionary, load_dictionary
+from whisprbar.flow.dictionary import apply_dictionary, load_dictionary, save_dictionary
 from whisprbar.flow.models import DictionaryEntry
 
 
@@ -29,6 +29,25 @@ def test_load_dictionary_reads_entries(tmp_path):
         encoding="utf-8",
     )
 
+    assert load_dictionary(path) == [DictionaryEntry(spoken="whisper bar", written="WhisprBar")]
+
+
+@pytest.mark.unit
+def test_save_dictionary_persists_non_empty_entries(tmp_path):
+    path = tmp_path / "dictionary.json"
+
+    save_dictionary(
+        [
+            DictionaryEntry(spoken=" whisper bar ", written=" WhisprBar "),
+            DictionaryEntry(spoken="", written="ignored"),
+            DictionaryEntry(spoken="ignored", written=""),
+        ],
+        path,
+    )
+
+    assert json.loads(path.read_text(encoding="utf-8")) == [
+        {"spoken": "whisper bar", "written": "WhisprBar"}
+    ]
     assert load_dictionary(path) == [DictionaryEntry(spoken="whisper bar", written="WhisprBar")]
 
 
