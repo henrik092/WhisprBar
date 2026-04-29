@@ -35,6 +35,7 @@ PHASE_HIDDEN = "hidden"
 PHASE_RECORDING = "recording"
 PHASE_PROCESSING = "processing"
 PHASE_TRANSCRIBING = "transcribing"
+PHASE_REWRITING = "rewriting"
 PHASE_PASTING = "pasting"
 PHASE_COMPLETE = "complete"
 PHASE_ERROR = "error"
@@ -69,6 +70,36 @@ POSITION_BOTTOM_CENTER = "bottom-center"
 POSITION_BOTTOM_LEFT = "bottom-left"
 POSITION_BOTTOM_RIGHT = "bottom-right"
 POSITION_DRAGGABLE = "draggable"
+
+
+def _is_flow_indicator_enabled(cfg: Optional[dict]) -> bool:
+    """Return whether Flow Mode should use the Flow-Bar renderer."""
+    return bool((cfg or {}).get("flow_mode_enabled", False))
+
+
+def _flow_phase_label(phase: str) -> str:
+    """Map internal indicator phases to compact Flow-Bar labels."""
+    return {
+        PHASE_RECORDING: "Listening",
+        PHASE_PROCESSING: "Processing",
+        PHASE_TRANSCRIBING: "Transcribing",
+        PHASE_REWRITING: "Rewriting",
+        PHASE_PASTING: "Pasting",
+        PHASE_COMPLETE: "Done",
+        PHASE_ERROR: "Error",
+    }.get(phase, "Working")
+
+
+def _flow_hotkey_label(cfg: Optional[dict]) -> str:
+    """Resolve the active recording hotkey label for the Flow-Bar hint."""
+    try:
+        from whisprbar.hotkeys import hotkey_to_label
+        config = cfg or {}
+        hotkeys = config.get("hotkeys") or {}
+        binding = hotkeys.get("toggle_recording") or config.get("hotkey")
+        return hotkey_to_label(binding) if binding else ""
+    except Exception:
+        return ""
 
 
 class RecordingIndicator:
