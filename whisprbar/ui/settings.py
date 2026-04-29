@@ -13,6 +13,9 @@ This module handles all user interface components:
 from typing import Optional, Callable, List
 import sys
 import threading
+import json
+import subprocess
+from pathlib import Path
 
 try:
     import gi
@@ -990,6 +993,137 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         sync_overlay_controls()
 
         # =====================================================================
+        # TAB 5: Flow
+        # =====================================================================
+        flow_scroll = Gtk.ScrolledWindow()
+        flow_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        flow_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        flow_page.set_border_width(12)
+        flow_scroll.add(flow_page)
+        notebook.append_page(flow_scroll, Gtk.Label(label="Flow"))
+
+        flow_section = Gtk.Label()
+        flow_section.set_markup("<b>Flow Mode</b>")
+        flow_section.set_xalign(0.0)
+        flow_page.pack_start(flow_section, False, False, 6)
+
+        flow_mode_row, flow_mode_switch = build_switch("Flow Mode aktivieren", cfg.get("flow_mode_enabled", False))
+        flow_context_row, flow_context_switch = build_switch("Context Awareness", cfg.get("flow_context_awareness_enabled", True))
+        flow_dictionary_row, flow_dictionary_switch = build_switch("Dictionary", cfg.get("flow_dictionary_enabled", True))
+        flow_snippets_row, flow_snippets_switch = build_switch("Snippets", cfg.get("flow_snippets_enabled", True))
+        flow_commands_row, flow_commands_switch = build_switch("Command Mode", cfg.get("flow_command_mode_enabled", True))
+        flow_smart_row, flow_smart_switch = build_switch("Smart Formatting", cfg.get("flow_smart_formatting_enabled", True))
+        flow_backtrack_row, flow_backtrack_switch = build_switch("Backtrack", cfg.get("flow_backtrack_enabled", True))
+        flow_press_enter_row, flow_press_enter_switch = build_switch("Press Enter erlauben", cfg.get("flow_press_enter_enabled", False))
+
+        for row in (
+            flow_mode_row,
+            flow_context_row,
+            flow_dictionary_row,
+            flow_snippets_row,
+            flow_commands_row,
+            flow_smart_row,
+            flow_backtrack_row,
+            flow_press_enter_row,
+        ):
+            flow_page.pack_start(row, False, False, 0)
+
+        flow_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
+
+        flow_rewrite_section = Gtk.Label()
+        flow_rewrite_section.set_markup("<b>AI Rewrite</b>")
+        flow_rewrite_section.set_xalign(0.0)
+        flow_page.pack_start(flow_rewrite_section, False, False, 6)
+
+        flow_rewrite_row, flow_rewrite_switch = build_switch("Rewrite aktivieren", cfg.get("flow_rewrite_enabled", False))
+        flow_page.pack_start(flow_rewrite_row, False, False, 0)
+
+        flow_provider_combo = Gtk.ComboBoxText()
+        flow_provider_combo.append("none", "None")
+        flow_provider_combo.append("openai_compatible", "OpenAI-compatible")
+        flow_provider_combo.set_active_id(cfg.get("flow_rewrite_provider", "none"))
+        flow_page.pack_start(make_row("Rewrite Provider", flow_provider_combo), False, False, 0)
+
+        flow_model_entry = Gtk.Entry()
+        flow_model_entry.set_text(str(cfg.get("flow_rewrite_model", "") or ""))
+        flow_page.pack_start(make_row("Rewrite Model", flow_model_entry, expand=True), False, False, 0)
+
+        flow_timeout = Gtk.SpinButton()
+        flow_timeout.set_adjustment(Gtk.Adjustment(value=float(cfg.get("flow_rewrite_timeout_seconds", 12.0)), lower=1.0, upper=60.0, step_increment=1.0, page_increment=5.0))
+        flow_timeout.set_numeric(True)
+        flow_timeout.set_digits(0)
+        flow_page.pack_start(make_row("Rewrite Timeout (s)", flow_timeout), False, False, 0)
+
+        flow_page.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 6)
+
+        flow_profile_combo = Gtk.ComboBoxText()
+        for profile_id, label in (
+            ("default", "Default"),
+            ("chat", "Chat"),
+            ("email", "Email"),
+            ("notes", "Notes"),
+            ("editor", "Editor"),
+            ("terminal", "Terminal"),
+        ):
+            flow_profile_combo.append(profile_id, label)
+        flow_profile_combo.set_active_id(cfg.get("flow_default_profile", "default"))
+        flow_page.pack_start(make_row("Default Profile", flow_profile_combo), False, False, 0)
+
+        flow_history_combo = Gtk.ComboBoxText()
+        flow_history_combo.append("normal", "Normal")
+        flow_history_combo.append("auto_delete", "Auto-delete after 24h")
+        flow_history_combo.append("never", "Never store")
+        flow_history_combo.set_active_id(cfg.get("flow_history_storage", "normal"))
+        flow_page.pack_start(make_row("History Storage", flow_history_combo), False, False, 0)
+
+        flow_languages_entry = Gtk.Entry()
+        languages_value = cfg.get("flow_preferred_languages", ["de", "en"])
+        if isinstance(languages_value, list):
+            flow_languages_entry.set_text(", ".join(str(item) for item in languages_value))
+        flow_page.pack_start(make_row("Preferred Languages", flow_languages_entry, expand=True), False, False, 0)
+
+        flow_auto_lang_row, flow_auto_lang_switch = build_switch("Language Auto-detect", cfg.get("flow_language_auto_detect", False))
+        flow_page.pack_start(flow_auto_lang_row, False, False, 0)
+
+        flow_max_minutes = Gtk.SpinButton()
+        flow_max_minutes.set_adjustment(Gtk.Adjustment(value=float(cfg.get("flow_max_recording_minutes", 20)), lower=1.0, upper=60.0, step_increment=1.0, page_increment=5.0))
+        flow_max_minutes.set_numeric(True)
+        flow_max_minutes.set_digits(0)
+        flow_page.pack_start(make_row("Max Recording Minutes", flow_max_minutes), False, False, 0)
+
+        def ensure_json_file(path: Path, default_data) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not path.exists():
+                path.write_text(json.dumps(default_data, ensure_ascii=False, indent=2), encoding="utf-8")
+            try:
+                subprocess.Popen(["xdg-open", str(path)])
+            except Exception as exc:
+                notify(f"Datei erstellt: {path}")
+                print(f"[WARN] Could not open {path}: {exc}", file=sys.stderr)
+
+        files_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        dictionary_button = Gtk.Button(label="Open Dictionary File")
+        snippets_button = Gtk.Button(label="Open Snippets File")
+        files_box.pack_start(dictionary_button, False, False, 0)
+        files_box.pack_start(snippets_button, False, False, 0)
+        flow_page.pack_start(make_row("Flow Dateien", files_box), False, False, 0)
+
+        dictionary_button.connect(
+            "clicked",
+            lambda _button: ensure_json_file(
+                Path.home() / ".config" / "whisprbar" / "dictionary.json",
+                [{"spoken": "whisper bar", "written": "WhisprBar"}],
+            ),
+        )
+        snippets_button.connect(
+            "clicked",
+            lambda _button: ensure_json_file(
+                Path.home() / ".config" / "whisprbar" / "snippets.json",
+                [{"trigger": "my signature", "text": "Best regards,\nRik"}],
+            ),
+        )
+
+        # =====================================================================
         # Button bar at bottom
         # =====================================================================
         main_vbox.pack_end(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
@@ -1115,6 +1249,29 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
             cfg["live_overlay_width"] = int(width_scale.get_value())
             cfg["live_overlay_height"] = int(height_scale.get_value())
             cfg["live_overlay_display_duration"] = round(float(duration_scale.get_value()), 1)
+
+            # Tab 5: Flow
+            cfg["flow_mode_enabled"] = flow_mode_switch.get_active()
+            cfg["flow_context_awareness_enabled"] = flow_context_switch.get_active()
+            cfg["flow_dictionary_enabled"] = flow_dictionary_switch.get_active()
+            cfg["flow_snippets_enabled"] = flow_snippets_switch.get_active()
+            cfg["flow_command_mode_enabled"] = flow_commands_switch.get_active()
+            cfg["flow_smart_formatting_enabled"] = flow_smart_switch.get_active()
+            cfg["flow_backtrack_enabled"] = flow_backtrack_switch.get_active()
+            cfg["flow_press_enter_enabled"] = flow_press_enter_switch.get_active()
+            cfg["flow_rewrite_enabled"] = flow_rewrite_switch.get_active()
+            cfg["flow_rewrite_provider"] = flow_provider_combo.get_active_id() or "none"
+            cfg["flow_rewrite_model"] = flow_model_entry.get_text().strip()
+            cfg["flow_rewrite_timeout_seconds"] = round(float(flow_timeout.get_value()), 1)
+            cfg["flow_default_profile"] = flow_profile_combo.get_active_id() or "default"
+            cfg["flow_history_storage"] = flow_history_combo.get_active_id() or "normal"
+            cfg["flow_preferred_languages"] = [
+                item.strip()
+                for item in flow_languages_entry.get_text().split(",")
+                if item.strip()
+            ] or ["de", "en"]
+            cfg["flow_language_auto_detect"] = flow_auto_lang_switch.get_active()
+            cfg["flow_max_recording_minutes"] = int(flow_max_minutes.get_value())
 
             if cfg.get("auto_paste_enabled"):
                 state["wayland_notice_shown"] = False
