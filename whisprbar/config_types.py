@@ -6,7 +6,7 @@ backwards compatibility with the existing cfg dict.
 """
 
 from dataclasses import dataclass, field, asdict, fields
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:
@@ -127,8 +127,76 @@ class HotkeyConfig:
         "open_settings": "F10",
         "show_history": None,
         "cancel_recording": None,
+        "hands_free_recording": None,
+        "command_mode": None,
+        "paste_last_transcript": None,
+        "copy_last_transcript": None,
+        "open_scratchpad": None,
     })
     hotkey: str = "F9"  # Legacy compat
+
+
+@dataclass(frozen=True)
+class FlowConfig:
+    """Wispr Flow-like dictation workflow settings."""
+
+    flow_mode_enabled: bool = False
+    flow_rewrite_enabled: bool = False
+    flow_rewrite_provider: str = "none"
+    flow_rewrite_model: str = ""
+    flow_rewrite_timeout_seconds: float = 12.0
+    flow_context_awareness_enabled: bool = True
+    flow_command_mode_enabled: bool = True
+    flow_dictionary_enabled: bool = True
+    flow_snippets_enabled: bool = True
+    flow_smart_formatting_enabled: bool = True
+    flow_backtrack_enabled: bool = True
+    flow_press_enter_enabled: bool = False
+    flow_history_storage: str = "normal"
+    flow_history_auto_delete_hours: int = 24
+    flow_max_recording_minutes: int = 20
+    flow_recent_copy_seconds: int = 5
+    flow_preferred_languages: List[str] = field(default_factory=lambda: ["de", "en"])
+    flow_language_auto_detect: bool = False
+    flow_default_profile: str = "default"
+    flow_profiles: Dict[str, Any] = field(default_factory=dict)
+
+    def validated(self) -> "FlowConfig":
+        """Return a new FlowConfig with values clamped to safe ranges."""
+        provider = self.flow_rewrite_provider
+        if provider not in {"none", "openai_compatible"}:
+            provider = "none"
+
+        storage = self.flow_history_storage
+        if storage not in {"normal", "auto_delete", "never"}:
+            storage = "normal"
+
+        preferred_languages = self.flow_preferred_languages
+        if not isinstance(preferred_languages, list):
+            preferred_languages = ["de", "en"]
+
+        return FlowConfig(
+            flow_mode_enabled=self.flow_mode_enabled,
+            flow_rewrite_enabled=self.flow_rewrite_enabled,
+            flow_rewrite_provider=provider,
+            flow_rewrite_model=self.flow_rewrite_model,
+            flow_rewrite_timeout_seconds=_clamp(self.flow_rewrite_timeout_seconds, 1.0, 60.0),
+            flow_context_awareness_enabled=self.flow_context_awareness_enabled,
+            flow_command_mode_enabled=self.flow_command_mode_enabled,
+            flow_dictionary_enabled=self.flow_dictionary_enabled,
+            flow_snippets_enabled=self.flow_snippets_enabled,
+            flow_smart_formatting_enabled=self.flow_smart_formatting_enabled,
+            flow_backtrack_enabled=self.flow_backtrack_enabled,
+            flow_press_enter_enabled=self.flow_press_enter_enabled,
+            flow_history_storage=storage,
+            flow_history_auto_delete_hours=int(_clamp(self.flow_history_auto_delete_hours, 1, 720)),
+            flow_max_recording_minutes=int(_clamp(self.flow_max_recording_minutes, 1, 60)),
+            flow_recent_copy_seconds=int(_clamp(self.flow_recent_copy_seconds, 1, 30)),
+            flow_preferred_languages=list(preferred_languages),
+            flow_language_auto_detect=self.flow_language_auto_detect,
+            flow_default_profile=self.flow_default_profile,
+            flow_profiles=dict(self.flow_profiles),
+        )
 
 
 @dataclass(frozen=True)
@@ -169,6 +237,7 @@ class AppConfig:
     postprocess: PostprocessConfig = field(default_factory=PostprocessConfig)
     paste: PasteConfig = field(default_factory=PasteConfig)
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
+    flow: FlowConfig = field(default_factory=FlowConfig)
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
     indicator: IndicatorConfig = field(default_factory=IndicatorConfig)
 
@@ -188,6 +257,7 @@ class AppConfig:
             postprocess=self.postprocess,
             paste=self.paste.validated(),
             hotkey=self.hotkey,
+            flow=self.flow.validated(),
             overlay=self.overlay,
             indicator=self.indicator,
             notifications_enabled=self.notifications_enabled,
@@ -267,10 +337,40 @@ class AppConfig:
             "open_settings": "F10",
             "show_history": None,
             "cancel_recording": None,
+            "hands_free_recording": None,
+            "command_mode": None,
+            "paste_last_transcript": None,
+            "copy_last_transcript": None,
+            "open_scratchpad": None,
         })
+        for action, default_value in HotkeyConfig().hotkeys.items():
+            hotkeys_dict.setdefault(action, default_value)
         hotkey_cfg = HotkeyConfig(
             hotkeys=hotkeys_dict,
             hotkey=_get("hotkey", "F9"),
+        )
+
+        flow = FlowConfig(
+            flow_mode_enabled=_get("flow_mode_enabled", False),
+            flow_rewrite_enabled=_get("flow_rewrite_enabled", False),
+            flow_rewrite_provider=_get("flow_rewrite_provider", "none"),
+            flow_rewrite_model=_get("flow_rewrite_model", ""),
+            flow_rewrite_timeout_seconds=_get("flow_rewrite_timeout_seconds", 12.0),
+            flow_context_awareness_enabled=_get("flow_context_awareness_enabled", True),
+            flow_command_mode_enabled=_get("flow_command_mode_enabled", True),
+            flow_dictionary_enabled=_get("flow_dictionary_enabled", True),
+            flow_snippets_enabled=_get("flow_snippets_enabled", True),
+            flow_smart_formatting_enabled=_get("flow_smart_formatting_enabled", True),
+            flow_backtrack_enabled=_get("flow_backtrack_enabled", True),
+            flow_press_enter_enabled=_get("flow_press_enter_enabled", False),
+            flow_history_storage=_get("flow_history_storage", "normal"),
+            flow_history_auto_delete_hours=_get("flow_history_auto_delete_hours", 24),
+            flow_max_recording_minutes=_get("flow_max_recording_minutes", 20),
+            flow_recent_copy_seconds=_get("flow_recent_copy_seconds", 5),
+            flow_preferred_languages=_get("flow_preferred_languages", ["de", "en"]),
+            flow_language_auto_detect=_get("flow_language_auto_detect", False),
+            flow_default_profile=_get("flow_default_profile", "default"),
+            flow_profiles=_get("flow_profiles", {}),
         )
 
         overlay = OverlayConfig(
@@ -302,6 +402,7 @@ class AppConfig:
             postprocess=postprocess,
             paste=paste,
             hotkey=hotkey_cfg,
+            flow=flow,
             overlay=overlay,
             indicator=indicator,
             notifications_enabled=_get("notifications_enabled", False),
@@ -342,6 +443,10 @@ class AppConfig:
         # Hotkey config
         d["hotkeys"] = dict(self.hotkey.hotkeys)
         d["hotkey"] = self.hotkey.hotkey
+
+        # Flow config
+        for f in fields(self.flow):
+            d[f.name] = getattr(self.flow, f.name)
 
         # Overlay config
         for f in fields(self.overlay):
