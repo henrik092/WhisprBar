@@ -53,3 +53,23 @@ def test_dispatch_transcript_copies_when_auto_paste_disabled(monkeypatch):
 
     mock_copy.assert_called_once_with("Hello")
 
+
+@pytest.mark.unit
+def test_dispatch_transcript_shows_paste_before_done(monkeypatch):
+    from whisprbar import main
+
+    phases = []
+    flow_output = FlowOutput(raw_text="raw", final_text="Final text", profile_id="default")
+    monkeypatch.setattr(main, "process_flow_text", lambda text, language, cfg: flow_output)
+    monkeypatch.setattr(main, "write_history", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "auto_paste", lambda *_args, **_kwargs: None)
+    main.cfg["auto_paste_enabled"] = True
+    main.cfg["language"] = "en"
+
+    main.dispatch_transcript_text(
+        "raw",
+        output_seconds=1.0,
+        show_indicator_func=lambda phase, cfg, info="": phases.append((phase, info)),
+    )
+
+    assert [phase for phase, _info in phases] == ["pasting", "complete"]

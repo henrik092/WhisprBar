@@ -717,19 +717,22 @@ def dispatch_transcript_text(
     history_metadata.setdefault("final_text", flow_output.final_text)
     write_history(final_text, output_seconds, word_count, metadata=history_metadata)
 
-    if show_indicator_func is not None:
-        from whisprbar.ui.recording_indicator import PHASE_COMPLETE, PHASE_PASTING
-        word_info = f"({word_count} {'word' if word_count == 1 else 'words'})"
-        show_indicator_func(PHASE_COMPLETE, cfg, info=word_info)
+    word_info = f"({word_count} {'word' if word_count == 1 else 'words'})"
 
     if cfg.get("auto_paste_enabled"):
         if show_indicator_func is not None:
             from whisprbar.ui.recording_indicator import PHASE_PASTING
             show_indicator_func(PHASE_PASTING, cfg)
         auto_paste(final_text, policy=flow_output.paste_policy)
+        if show_indicator_func is not None:
+            from whisprbar.ui.recording_indicator import PHASE_COMPLETE
+            show_indicator_func(PHASE_COMPLETE, cfg, info=word_info)
     else:
         copy_to_clipboard(final_text)
         notify(f"Transcription: {final_text[:50]}...")
+        if show_indicator_func is not None:
+            from whisprbar.ui.recording_indicator import PHASE_COMPLETE
+            show_indicator_func(PHASE_COMPLETE, cfg, info=word_info)
 
     return flow_output
 
