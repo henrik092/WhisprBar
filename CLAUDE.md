@@ -105,9 +105,10 @@ WhisperBar/                           # Repository root
 │   ├── utils.py                      # Shared utilities
 │   ├── audio.py                      # Audio capture & processing
 │   ├── transcription.py              # Transcription backends
+│   ├── flow/                         # Flow Mode text pipeline
 │   ├── hotkeys.py                    # Global hotkey handling
 │   ├── paste.py                      # Auto-paste logic
-│   ├── ui.py                         # GUI components
+│   ├── ui/                           # GUI components
 │   └── tray.py                       # System tray integration
 │
 ├── whisprbar.py                      # Legacy wrapper (backwards compat)
@@ -175,6 +176,13 @@ WhisperBar/                           # Repository root
     "transcription_backend": "deepgram",   # Backend (deepgram/openai/elevenlabs/faster-whisper/sherpa)
     "faster_whisper_model": "large",       # Model size for faster-whisper
     "live_overlay_enabled": False,         # Show live transcription
+    "flow_mode_enabled": False,            # Flow Mode text pipeline
+    "flow_context_awareness_enabled": True,# Active-app profile detection
+    "flow_dictionary_enabled": True,       # Custom phrase replacements
+    "flow_snippets_enabled": True,         # Spoken snippet expansion
+    "flow_command_mode_enabled": True,     # Spoken command detection
+    "flow_rewrite_enabled": False,         # Optional cloud rewrite pass
+    "flow_history_storage": "full",        # full/final_only/never
     ...
 }
 ```
@@ -310,7 +318,38 @@ class Transcriber(ABC):
 
 ---
 
-### 5. `whisprbar/hotkeys.py` (~300 lines)
+### 5. `whisprbar/flow/`
+
+**Purpose:** Flow Mode text intelligence between transcription and paste.
+
+**Modules:**
+- `models.py` - Dataclasses for app context, profiles, inputs, outputs, snippets, and commands
+- `context.py` - Active-window detection for X11 with safe fallback elsewhere
+- `profiles.py` - Built-in and user-overridden app profiles
+- `dictionary.py` - Custom phrase replacement from `~/.config/whisprbar/dictionary.json`
+- `snippets.py` - Spoken snippet expansion from `~/.config/whisprbar/snippets.json`
+- `commands.py` - Spoken command detection and paste-policy overrides
+- `formatting.py` - Deterministic smart formatting and backtrack cleanup
+- `rewrite.py` - Optional OpenAI-compatible rewrite provider with timeout fallback
+- `pipeline.py` - `process_flow_text()` orchestration
+- `stats.py` - History and dictation activity summaries
+
+**Pipeline Order:**
+1. Detect app context and select a profile
+2. Apply existing basic transcript postprocessing
+3. Apply backtrack and deterministic formatting
+4. Apply dictionary replacements and snippets
+5. Detect spoken commands and paste policy
+6. Optionally rewrite through a provider
+7. Return final text plus metadata for paste/history
+
+**Privacy:**
+- Dictionary, snippets, smart formatting, commands, scratchpad, and context profiles are local.
+- Rewrite is disabled by default and only sends text to a provider when explicitly enabled.
+
+---
+
+### 6. `whisprbar/hotkeys.py` (~300 lines)
 
 **Purpose:** Global hotkey management
 
@@ -341,7 +380,7 @@ class Transcriber(ABC):
 
 ---
 
-### 6. `whisprbar/paste.py` (~350 lines)
+### 7. `whisprbar/paste.py` (~350 lines)
 
 **Purpose:** Auto-paste detection and execution
 
@@ -353,6 +392,7 @@ class Transcriber(ABC):
 
 **Execution:**
 - `auto_paste(text: str, cfg: dict) -> None` - Execute paste with configured method
+- `perform_auto_paste(text: str, policy: Optional[PastePolicy]) -> None` - Paste with Flow policy overrides
 
 **Platform Variants:**
 - **X11:** Uses `xdotool` for keypresses
@@ -376,7 +416,7 @@ class Transcriber(ABC):
 
 ---
 
-### 7. `whisprbar/ui.py` (~700 lines)
+### 8. `whisprbar/ui/` (~700+ lines)
 
 **Purpose:** All GUI components (settings dialog, live overlay, diagnostics)
 
@@ -427,7 +467,7 @@ class Transcriber(ABC):
 
 ---
 
-### 8. `whisprbar/tray.py` (~500 lines)
+### 9. `whisprbar/tray.py` (~500 lines)
 
 **Purpose:** System tray integration (multiple backends)
 
@@ -473,7 +513,7 @@ class Transcriber(ABC):
 
 ---
 
-### 9. `whisprbar/main.py` (~400 lines)
+### 10. `whisprbar/main.py` (~400 lines)
 
 **Purpose:** Application orchestration and lifecycle
 
