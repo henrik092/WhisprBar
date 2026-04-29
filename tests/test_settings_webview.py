@@ -1,5 +1,5 @@
 from whisprbar.flow.models import DictionaryEntry, Snippet
-from whisprbar.ui.settings_webview import generate_settings_html
+from whisprbar.ui.settings_webview import apply_settings_payload, generate_settings_html
 
 
 def test_generate_settings_html_contains_selected_settings_shell():
@@ -53,3 +53,166 @@ def test_generate_settings_html_uses_monitor_polished_density_tokens():
     assert "--window-min-width: 1080px" in html
     assert "font-size: 14px" in html
     assert "grid-template-columns: 218px minmax(0, 1fr)" in html
+
+
+def test_apply_settings_payload_updates_config_env_and_flow_files():
+    config = {
+        "hotkeys": {
+            "toggle_recording": "F9",
+            "open_settings": "F10",
+        },
+        "hotkey": "F9",
+        "recording_indicator_enabled": True,
+        "recording_indicator_position": "top-center",
+        "recording_indicator_width": 240,
+        "recording_indicator_height": 30,
+        "recording_indicator_opacity": 0.85,
+    }
+    state = {"wayland_notice_shown": True}
+    saved_config = []
+    env_values = {}
+    saved_dictionary = []
+    saved_snippets = []
+    updated_devices = []
+
+    result = apply_settings_payload(
+        config,
+        {
+            "settings": {
+                "theme_preference": "dark",
+                "language": "en",
+                "auto_paste_enabled": True,
+                "notifications_enabled": False,
+                "paste_sequence": "ctrl_v",
+                "paste_delay_ms": "125",
+                "device_name": "Studio Mic",
+                "noise_reduction_enabled": False,
+                "noise_reduction_strength": "0.4",
+                "audio_feedback_enabled": True,
+                "audio_feedback_volume": "0.6",
+                "transcription_backend": "deepgram",
+                "faster_whisper_model": "small",
+                "streaming_model": "base",
+                "use_vad": True,
+                "vad_energy_ratio": "0.055",
+                "vad_bridge_ms": "240",
+                "vad_min_energy_frames": "3",
+                "vad_auto_stop_enabled": True,
+                "vad_auto_stop_silence_seconds": "3.5",
+                "stop_tail_grace_ms": "650",
+                "min_audio_energy": "0.0012",
+                "postprocess_enabled": True,
+                "postprocess_fix_spacing": True,
+                "postprocess_fix_capitalization": False,
+                "chunking_enabled": False,
+                "recording_indicator_enabled": False,
+                "recording_indicator_position": "bottom-center",
+                "recording_indicator_width": "320",
+                "recording_indicator_height": "42",
+                "recording_indicator_opacity": "0.7",
+                "live_overlay_enabled": True,
+                "live_overlay_font_size": "18",
+                "live_overlay_opacity": "0.8",
+                "live_overlay_width": "500",
+                "live_overlay_height": "180",
+                "live_overlay_display_duration": "4.5",
+                "flow_mode_enabled": True,
+                "flow_context_awareness_enabled": True,
+                "flow_dictionary_enabled": True,
+                "flow_snippets_enabled": True,
+                "flow_command_mode_enabled": True,
+                "flow_smart_formatting_enabled": True,
+                "flow_backtrack_enabled": True,
+                "flow_press_enter_enabled": True,
+                "flow_rewrite_enabled": True,
+                "flow_rewrite_provider": "openai_compatible",
+                "flow_rewrite_model": "gpt-test",
+                "flow_rewrite_timeout_seconds": "9",
+                "flow_default_profile": "chat",
+                "flow_history_storage": "auto_delete",
+                "flow_preferred_languages": "de, en, fr",
+                "flow_language_auto_detect": True,
+                "flow_max_recording_minutes": "12",
+            },
+            "hotkeys": {
+                "toggle_recording": "CTRL_R",
+                "open_settings": "F10",
+                "show_history": "CTRL+H",
+            },
+            "api_keys": {
+                "DEEPGRAM_API_KEY": "dg-key",
+                "OPENAI_API_KEY": "",
+                "ELEVENLABS_API_KEY": "el-key",
+            },
+            "dictionary": [
+                {"spoken": "Vispaba", "written": "WhisprBar"},
+                {"spoken": "", "written": "ignored"},
+            ],
+            "snippets": [
+                {"trigger": "signatur", "text": "Viele Grüße"},
+                {"trigger": "", "text": "ignored"},
+            ],
+        },
+        state=state,
+        save_config_func=lambda: saved_config.append(True),
+        save_env_func=lambda key, value: env_values.__setitem__(key, value),
+        save_dictionary_func=lambda entries: saved_dictionary.extend(entries),
+        save_snippets_func=lambda entries: saved_snippets.extend(entries),
+        update_device_func=lambda: updated_devices.append(True),
+        reset_indicator_func=lambda: None,
+        vad_available=True,
+        noise_reduction_available=True,
+    )
+
+    assert result.ok is True
+    assert config["theme_preference"] == "dark"
+    assert config["language"] == "en"
+    assert config["hotkeys"]["toggle_recording"] == "CTRL_R"
+    assert config["hotkey"] == "CTRL_R"
+    assert config["device_name"] == "Studio Mic"
+    assert config["flow_preferred_languages"] == ["de", "en", "fr"]
+    assert config["flow_rewrite_model"] == "gpt-test"
+    assert env_values == {
+        "DEEPGRAM_API_KEY": "dg-key",
+        "OPENAI_API_KEY": "",
+        "ELEVENLABS_API_KEY": "el-key",
+    }
+    assert saved_dictionary == [DictionaryEntry(spoken="Vispaba", written="WhisprBar")]
+    assert saved_snippets == [Snippet(trigger="signatur", text="Viele Grüße")]
+    assert saved_config == [True]
+    assert updated_devices == [True]
+    assert state["wayland_notice_shown"] is False
+
+
+def test_apply_settings_payload_rejects_hotkey_conflicts_without_writing():
+    config = {"hotkeys": {"toggle_recording": "F9"}, "hotkey": "F9"}
+    saved_config = []
+
+    result = apply_settings_payload(
+        config,
+        {
+            "settings": {},
+            "hotkeys": {
+                "toggle_recording": "F9",
+                "open_settings": "F9",
+            },
+            "api_keys": {},
+            "dictionary": [],
+            "snippets": [],
+        },
+        save_config_func=lambda: saved_config.append(True),
+        save_env_func=lambda _key, _value: None,
+        save_dictionary_func=lambda _entries: None,
+        save_snippets_func=lambda _entries: None,
+        update_device_func=lambda: None,
+    )
+
+    assert result.ok is False
+    assert "Hotkey-Konflikt" in result.message
+    assert saved_config == []
+
+
+def test_ui_exports_webview_settings_as_default():
+    from whisprbar import ui
+
+    assert ui.open_settings_window.__module__ == "whisprbar.ui.settings_webview"
