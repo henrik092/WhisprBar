@@ -24,6 +24,7 @@ from whisprbar.utils import (
     detect_session_type,
     play_audio_feedback,
     copy_to_clipboard,
+    write_history,
     APP_NAME,
 )
 from whisprbar.audio import (
@@ -33,10 +34,11 @@ from whisprbar.audio import (
     get_recording_state,
 )
 from whisprbar.transcription import transcribe_audio, get_transcriber
+from whisprbar.flow import process_flow_text
 from whisprbar.hotkeys import get_hotkey_manager
 from whisprbar.hotkey_actions import HOTKEY_ACTION_ORDER
 from whisprbar.hotkey_runtime import build_runtime_hotkey_config, resolve_runtime_hotkeys
-from whisprbar.paste import is_wayland_session
+from whisprbar.paste import is_wayland_session, perform_auto_paste as auto_paste
 from whisprbar.ui import (
     maybe_show_first_run_diagnostics,
     open_diagnostics_window,
@@ -434,6 +436,45 @@ def stop_recording_hotkey() -> None:
         refresh_tray_indicator(state)
 
 
+def hands_free_recording_callback() -> None:
+    """Toggle hands-free recording without requiring press-and-hold."""
+    toggle_recording()
+
+
+def paste_last_transcript_callback() -> None:
+    """Paste the last successful final transcript."""
+    if not state.last_transcript:
+        notify("No previous transcript available.")
+        return
+    auto_paste(state.last_transcript)
+
+
+def copy_last_transcript_callback() -> None:
+    """Copy the last successful final transcript."""
+    if not state.last_transcript:
+        notify("No previous transcript available.")
+        return
+    if copy_to_clipboard(state.last_transcript):
+        notify("Copied last transcript")
+    else:
+        notify("Failed to copy last transcript")
+
+
+def command_mode_callback() -> None:
+    """Start a normal recording intended for a command utterance."""
+    start_recording_hotkey()
+
+
+def open_scratchpad_callback() -> None:
+    """Open local Flow scratchpad when available."""
+    try:
+        from whisprbar.ui.scratchpad import open_scratchpad_window
+        open_scratchpad_window(cfg)
+    except Exception as exc:
+        debug(f"Scratchpad unavailable: {exc}")
+        notify("Scratchpad unavailable.")
+
+
 
 def toggle_notifications() -> None:
     """Toggle notifications on/off (menu callback)."""
@@ -541,6 +582,9 @@ def get_callbacks() -> Dict[str, Any]:
         "toggle_auto_paste": toggle_auto_paste,
         "toggle_vad": toggle_vad,
         "copy_to_clipboard": copy_to_clipboard_callback,
+        "paste_last_transcript": paste_last_transcript_callback,
+        "copy_last_transcript": copy_last_transcript_callback,
+        "open_scratchpad": open_scratchpad_callback,
         "clear_history": clear_history_callback,
         "quit": quit_application,
         "session_status_label": session_status_label,
@@ -576,6 +620,11 @@ def register_configured_hotkeys(hotkey_manager, restart_listener: bool = False) 
         "stop_recording": stop_recording_hotkey,
         "open_settings": open_settings_callback,
         "show_history": open_history_callback,
+        "hands_free_recording": hands_free_recording_callback,
+        "command_mode": command_mode_callback,
+        "paste_last_transcript": paste_last_transcript_callback,
+        "copy_last_transcript": copy_last_transcript_callback,
+        "open_scratchpad": open_scratchpad_callback,
     }
 
     state["hotkey_key"] = "F9"
@@ -648,6 +697,43 @@ def prepare_openai_client() -> bool:
 # Recording Handlers
 # =============================================================================
 
+def dispatch_transcript_text(
+    text: str,
+    output_seconds: float,
+    update_overlay_func=None,
+    show_indicator_func=None,
+):
+    """Process, persist, and paste a completed transcript."""
+    flow_output = process_flow_text(text, cfg.get("language", "de"), cfg)
+    final_text = flow_output.final_text
+    state.last_transcript = final_text
+
+    if update_overlay_func is not None:
+        update_overlay_func(final_text, "Complete")
+
+    word_count = len(final_text.split())
+    history_metadata = dict(flow_output.metadata)
+    history_metadata.setdefault("raw_text", flow_output.raw_text)
+    history_metadata.setdefault("final_text", flow_output.final_text)
+    write_history(final_text, output_seconds, word_count, metadata=history_metadata)
+
+    if show_indicator_func is not None:
+        from whisprbar.ui.recording_indicator import PHASE_COMPLETE, PHASE_PASTING
+        word_info = f"({word_count} {'word' if word_count == 1 else 'words'})"
+        show_indicator_func(PHASE_COMPLETE, cfg, info=word_info)
+
+    if cfg.get("auto_paste_enabled"):
+        if show_indicator_func is not None:
+            from whisprbar.ui.recording_indicator import PHASE_PASTING
+            show_indicator_func(PHASE_PASTING, cfg)
+        auto_paste(final_text, policy=flow_output.paste_policy)
+    else:
+        copy_to_clipboard(final_text)
+        notify(f"Transcription: {final_text[:50]}...")
+
+    return flow_output
+
+
 def on_recording_start() -> None:
     """Handler called when recording starts."""
     state.recording = True
@@ -714,8 +800,6 @@ def on_recording_stop() -> None:
 
             # Import here to avoid circular dependencies
             from whisprbar.ui import show_live_overlay, update_live_overlay, hide_live_overlay
-            from whisprbar.paste import perform_auto_paste as auto_paste
-            from whisprbar.utils import write_history
             from whisprbar.audio import apply_vad, apply_noise_reduction, SAMPLE_RATE
 
             # Show live overlay if enabled
@@ -816,26 +900,14 @@ def on_recording_stop() -> None:
 
             if text:
                 debug(f"Transcription: {text}")
-                update_live_overlay(text, "Complete")
-
-                # Write to history
-                word_count = len(text.split())
-                write_history(text, output_seconds, word_count)
-
-                # Show complete indicator with word count
-                from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_COMPLETE, PHASE_PASTING
-                word_info = f"({word_count} {'word' if word_count == 1 else 'words'})"
-                show_recording_indicator(PHASE_COMPLETE, cfg, info=word_info)
-
-                # Auto-paste if enabled (handles clipboard + paste)
-                if cfg.get("auto_paste_enabled"):
-                    show_recording_indicator(PHASE_PASTING, cfg)
-                    from whisprbar.paste import perform_auto_paste as auto_paste
-                    auto_paste(text)
-                else:
-                    # Auto-paste disabled: only copy to clipboard
-                    copy_to_clipboard(text)
-                    notify(f"Transcription: {text[:50]}...")
+                from whisprbar.ui.recording_indicator import show_recording_indicator
+                flow_output = dispatch_transcript_text(
+                    text,
+                    output_seconds,
+                    update_overlay_func=update_live_overlay,
+                    show_indicator_func=show_recording_indicator,
+                )
+                debug(f"Final transcript: {flow_output.final_text}")
 
                 # Play "done" sound to indicate transcription is complete
                 play_audio_feedback("done")

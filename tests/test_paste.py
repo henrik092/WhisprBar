@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from whisprbar import paste
+from whisprbar.flow.models import PastePolicy
 
 
 @pytest.mark.unit
@@ -212,6 +213,65 @@ def test_perform_auto_paste_ctrl_v_with_xdotool(monkeypatch, mock_config):
                 assert "xdotool" in args[0]
                 assert "key" in args
                 assert "ctrl+v" in args
+
+
+@pytest.mark.unit
+def test_perform_auto_paste_policy_overrides_sequence_and_spacing(monkeypatch, mock_config):
+    """PastePolicy can override one paste without mutating global cfg."""
+    monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    mock_config["paste_sequence"] = "ctrl_v"
+    mock_config["auto_paste_add_space"] = True
+    mock_config["paste_delay_ms"] = 0
+    paste.cfg = mock_config
+
+    mock_run = MagicMock(returncode=0)
+    policy = PastePolicy(sequence="ctrl_shift_v", add_space=False)
+
+    with patch("whisprbar.paste.copy_to_clipboard", return_value=True) as mock_copy:
+        with patch("shutil.which", return_value="/usr/bin/xdotool"):
+            with patch("subprocess.run", return_value=mock_run) as mock_subprocess:
+                paste.perform_auto_paste("Test", policy=policy)
+
+    mock_copy.assert_called_once_with("Test", silent=False)
+    args = mock_subprocess.call_args[0][0]
+    assert "ctrl+Shift+v" in args
+    assert paste.cfg["paste_sequence"] == "ctrl_v"
+
+
+@pytest.mark.unit
+def test_perform_auto_paste_policy_clipboard_only(monkeypatch, mock_config):
+    """Clipboard-only policy skips key injection."""
+    monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    mock_config["paste_sequence"] = "ctrl_v"
+    paste.cfg = mock_config
+
+    with patch("whisprbar.paste.copy_to_clipboard", return_value=True):
+        with patch("subprocess.run") as mock_run:
+            paste.perform_auto_paste("Test", policy=PastePolicy(clipboard_only=True))
+
+    mock_run.assert_not_called()
+
+
+@pytest.mark.unit
+def test_perform_auto_paste_policy_press_enter(monkeypatch, mock_config):
+    """Press-enter policy sends Return after paste when enabled."""
+    monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    mock_config["paste_sequence"] = "ctrl_v"
+    mock_config["paste_delay_ms"] = 0
+    mock_config["flow_press_enter_enabled"] = True
+    paste.cfg = mock_config
+
+    with patch("whisprbar.paste.copy_to_clipboard", return_value=True):
+        with patch("shutil.which", return_value="/usr/bin/xdotool"):
+            with patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run:
+                paste.perform_auto_paste(
+                    "Test",
+                    policy=PastePolicy(press_enter_after_paste=True),
+                )
+
+    calls = [call.args[0] for call in mock_run.call_args_list]
+    assert ["/usr/bin/xdotool", "key", "ctrl+v"] in calls
+    assert ["/usr/bin/xdotool", "key", "Return"] in calls
 
 
 @pytest.mark.unit

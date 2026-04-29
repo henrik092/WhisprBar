@@ -303,7 +303,12 @@ _history_write_count = 0
 _HISTORY_CLEANUP_INTERVAL = 10  # Cleanup every 10 writes instead of every write
 
 
-def write_history(transcript: str, duration: float, word_count: int) -> None:
+def write_history(
+    transcript: str,
+    duration: float,
+    word_count: int,
+    metadata: Optional[Dict[str, any]] = None,
+) -> None:
     """Append transcription to history log.
 
     Writes a JSONL entry to ~/.local/share/whisprbar/history.jsonl with
@@ -315,9 +320,14 @@ def write_history(transcript: str, duration: float, word_count: int) -> None:
         transcript: Transcribed text
         duration: Audio duration in seconds
         word_count: Number of words in transcript
+        metadata: Optional metadata for Flow Mode and future features
     """
     global _history_write_count
     from .config import cfg
+
+    if cfg.get("flow_history_storage") == "never":
+        debug("History storage disabled by Flow privacy setting")
+        return
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -327,6 +337,8 @@ def write_history(transcript: str, duration: float, word_count: int) -> None:
         "duration_seconds": round(duration, 3),
         "word_count": word_count,
     }
+    if metadata:
+        payload["metadata"] = metadata
     try:
         with HIST_FILE.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")

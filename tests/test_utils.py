@@ -154,6 +154,44 @@ def test_write_history_creates_jsonl(monkeypatch_home, tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
+def test_write_history_preserves_metadata(tmp_path, monkeypatch):
+    """Flow metadata is stored with history entries."""
+    from whisprbar import config
+
+    hist_file = tmp_path / "history.jsonl"
+    monkeypatch.setattr(utils, "HIST_FILE", hist_file)
+    monkeypatch.setattr(utils, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "cfg", {"language": "en", "flow_history_storage": "normal"})
+
+    utils.write_history(
+        "Final text",
+        1.25,
+        2,
+        metadata={"raw_text": "raw text", "profile_id": "email"},
+    )
+
+    entry = json.loads(hist_file.read_text(encoding="utf-8").strip())
+    assert entry["text"] == "Final text"
+    assert entry["metadata"]["raw_text"] == "raw text"
+    assert entry["metadata"]["profile_id"] == "email"
+
+
+@pytest.mark.unit
+def test_write_history_respects_never_store(tmp_path, monkeypatch):
+    """Flow privacy mode can disable local history writes."""
+    from whisprbar import config
+
+    hist_file = tmp_path / "history.jsonl"
+    monkeypatch.setattr(utils, "HIST_FILE", hist_file)
+    monkeypatch.setattr(utils, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "cfg", {"language": "en", "flow_history_storage": "never"})
+
+    utils.write_history("Private", 1.0, 1)
+
+    assert not hist_file.exists()
+
+
+@pytest.mark.unit
 def test_is_newer_version_basic():
     """Test version comparison logic."""
     assert utils.is_newer_version("1.0.1", "1.0.0") is True
