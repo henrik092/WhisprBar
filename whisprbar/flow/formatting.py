@@ -57,8 +57,15 @@ def _replace_punctuation_words(text: str, language: str) -> Tuple[str, bool]:
     result = text
     changed = False
     for phrase, punctuation in sorted(replacements.items(), key=lambda item: len(item[0]), reverse=True):
-        pattern = re.compile(rf"\s+\b{re.escape(phrase)}\b", re.IGNORECASE)
-        result, count = pattern.subn(punctuation, result)
+        pattern = re.compile(
+            rf"(?:\s*[,.;:!?])?\s+\b{re.escape(phrase)}\b[\s,.;:!?]*",
+            re.IGNORECASE,
+        )
+
+        def replacement(match: re.Match[str]) -> str:
+            return punctuation + (" " if match.end() < len(result) else "")
+
+        result, count = pattern.subn(replacement, result)
         changed = changed or bool(count)
     result = re.sub(r"([,?!.])(?=\S)", r"\1 ", result)
     return result.strip(), changed

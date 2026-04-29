@@ -44,6 +44,19 @@ def test_apply_smart_formatting_converts_punctuation_words():
 
 
 @pytest.mark.unit
+def test_apply_smart_formatting_deduplicates_recognizer_punctuation_around_words():
+    text, metadata = apply_smart_formatting(
+        "Das ist ein Browsertest, Komma, eingefügt über Whisperbar Punkt.",
+        "de",
+        FlowProfile("default", "Default"),
+        {"flow_smart_formatting_enabled": True},
+    )
+
+    assert text == "Das ist ein Browsertest, eingefügt über Whisperbar."
+    assert metadata["punctuation_words"] is True
+
+
+@pytest.mark.unit
 def test_apply_smart_formatting_converts_numbered_list_markers():
     text, metadata = apply_smart_formatting(
         "one apples two bananas",
