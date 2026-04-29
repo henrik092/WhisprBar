@@ -10,6 +10,7 @@ from .models import (
     PastePolicy,
     Snippet,
 )
+from .pipeline import process_flow_text
 
 __all__ = [
     "AppContext",
@@ -20,4 +21,5 @@ __all__ = [
     "FlowProfile",
     "PastePolicy",
     "Snippet",
+    "process_flow_text",
 ]
