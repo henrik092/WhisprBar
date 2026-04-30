@@ -7,11 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-04-30
+
 ### Changed
 - Added a shared German/English UI translation layer so the active settings window, tray menu, diagnostics, history, scratchpad, recording indicator, paste notifications, hotkey messages, and main dictation status follow the selected app language consistently.
+- Updated the default settings hotkey to `F12` and migrate unsafe local `<` bindings to avoid accidental activation from common key combinations.
 
 ### Fixed
 - Replaced the live overlay text buffer with a simpler label to avoid a GTK text-layout crash when the overlay updates and hides after transcription.
+- Fixed settings-window presentation so reopening settings raises the existing window instead of leaving it hidden behind another app.
+- Fixed hotkey matching to require exact modifiers, preventing `Alt+<` from triggering a bare `<` binding.
+- Routed UI-triggering hotkey callbacks onto the GTK thread to avoid lifecycle issues when global shortcuts open settings or other windows.
 
 ## [1.2.1] - 2026-04-30
 
