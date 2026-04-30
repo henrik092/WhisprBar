@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-04-30
+
+### Fixed
+- Updated release metadata and README badge after the Flow Mode release.
+- Fixed update checks to use the package version instead of a stale hard-coded version, preventing false "newer version" messages when the installed app already matches the latest release.
+- Added regression coverage to keep update-check version metadata aligned with `whisprbar --version`.
+
 ## [1.2.0] - 2026-04-29
 
 ### Added
