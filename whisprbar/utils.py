@@ -24,11 +24,12 @@ from typing import Dict, List, Optional
 from PIL import Image, ImageDraw
 
 # Import constants from config module
+from . import __version__
 from .config import DATA_DIR, HIST_FILE, CONFIG_PATH, cfg, DEFAULT_CFG
 
 # Application constants
 APP_NAME = "WhisprBar"
-APP_VERSION = "1.0.0"
+APP_VERSION = __version__
 GITHUB_REPO = os.environ.get("WHISPRBAR_GITHUB_REPO", "henrik092/whisprBar")
 GITHUB_RELEASE_URL = os.environ.get(
     "WHISPRBAR_UPDATE_URL",

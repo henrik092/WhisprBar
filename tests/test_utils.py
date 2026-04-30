@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PIL import Image
 
+from whisprbar import __version__
 from whisprbar import utils
 
 
@@ -22,6 +23,12 @@ class _ImmediateThread:
     def start(self):
         if self._target:
             self._target(*self._args, **self._kwargs)
+
+
+@pytest.mark.unit
+def test_app_version_matches_package_version():
+    """Update checks should compare against the installed package version."""
+    assert utils.APP_VERSION == __version__
 
 
 @pytest.mark.unit
