@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-04-30
+
+### Fixed
+- Aligned the UI translation fallback with the app's German default language so legacy or partial configs no longer switch missing-language UI paths to English.
+
 ## [1.3.0] - 2026-04-30
 
 ### Changed

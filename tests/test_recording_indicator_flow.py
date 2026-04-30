@@ -14,13 +14,15 @@ def test_flow_indicator_enabled_from_config():
 
 @pytest.mark.unit
 def test_flow_phase_labels_include_rewriting():
-    assert indicator._flow_phase_label(indicator.PHASE_RECORDING) == "Listening"
-    assert indicator._flow_phase_label(indicator.PHASE_PROCESSING) == "Processing"
-    assert indicator._flow_phase_label(indicator.PHASE_TRANSCRIBING) == "Transcribing"
-    assert indicator._flow_phase_label(indicator.PHASE_REWRITING) == "Rewriting"
-    assert indicator._flow_phase_label(indicator.PHASE_PASTING) == "Pasting"
-    assert indicator._flow_phase_label(indicator.PHASE_COMPLETE) == "Done"
-    assert indicator._flow_phase_label("unknown") == "Working"
+    cfg = {"language": "en"}
+
+    assert indicator._flow_phase_label(indicator.PHASE_RECORDING, cfg) == "Listening"
+    assert indicator._flow_phase_label(indicator.PHASE_PROCESSING, cfg) == "Processing"
+    assert indicator._flow_phase_label(indicator.PHASE_TRANSCRIBING, cfg) == "Transcribing"
+    assert indicator._flow_phase_label(indicator.PHASE_REWRITING, cfg) == "Rewriting"
+    assert indicator._flow_phase_label(indicator.PHASE_PASTING, cfg) == "Pasting"
+    assert indicator._flow_phase_label(indicator.PHASE_COMPLETE, cfg) == "Done"
+    assert indicator._flow_phase_label("unknown", cfg) == "Working"
 
 
 @pytest.mark.unit

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Mapping
 
 SUPPORTED_LANGUAGES = {"de", "en"}
-DEFAULT_LANGUAGE = "en"
+DEFAULT_LANGUAGE = "de"
 
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "de": {
