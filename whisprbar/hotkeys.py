@@ -370,6 +370,38 @@ def modifier_name(key) -> Optional[str]:
     return MODIFIER_LOOKUP.get(key)
 
 
+def token_modifier_name(token: str) -> Optional[str]:
+    """Return the generic modifier represented by a key token, if any."""
+    normalized = normalize_key_token(token)
+    if normalized in {"CTRL", "CTRL_L", "CTRL_R"}:
+        return "CTRL"
+    if normalized in {"ALT", "ALT_L", "ALT_R"}:
+        return "ALT"
+    if normalized in {"SHIFT", "SHIFT_L", "SHIFT_R"}:
+        return "SHIFT"
+    if normalized in {"SUPER", "SUPER_L", "SUPER_R"}:
+        return "SUPER"
+    return None
+
+
+def hotkey_event_matches(
+    token: str,
+    active_modifiers: Set[str],
+    required_mods: frozenset[str],
+    required_token: str,
+) -> bool:
+    """Return whether the current key event should trigger a hotkey binding."""
+    if token != required_token:
+        return False
+
+    comparable_modifiers = set(active_modifiers)
+    token_modifier = token_modifier_name(required_token)
+    if token_modifier:
+        comparable_modifiers.discard(token_modifier)
+
+    return comparable_modifiers == set(required_mods)
+
+
 # Current hotkey binding (used by capture_hotkey and update_hotkey_binding)
 _current_hotkey: HotkeyBinding = (frozenset(), "F9")
 
@@ -544,7 +576,12 @@ class HotkeyManager:
 
                 # Check all registered hotkeys
                 for action, (required_mods, required_token) in self._hotkeys.items():
-                    if token == required_token and required_mods.issubset(self._active_modifiers):
+                    if hotkey_event_matches(
+                        token,
+                        self._active_modifiers,
+                        required_mods,
+                        required_token,
+                    ):
                         callback_to_call = self._callbacks.get(action)
                         break
 
@@ -694,6 +731,7 @@ def capture_hotkey(
 
     global _capture_listener
     from .config import cfg
+    from .i18n import t
     from .utils import notify
     import threading
 
@@ -704,7 +742,7 @@ def capture_hotkey(
         _capture_listener = None
 
     if notify_user:
-        notify("Press a key for the new hotkey...")
+        notify(t("hotkey.press_new", cfg))
 
     capture_modifiers: Set[str] = set()
     capture_done = {"value": False}
@@ -731,7 +769,7 @@ def capture_hotkey(
         # If no token, capture was cancelled/timed out
         if not token:
             if notify_user:
-                notify("Hotkey capture cancelled.")
+                notify(t("hotkey.capture_cancelled", cfg))
             if on_cancel:
                 try:
                     from gi.repository import GLib
@@ -840,6 +878,7 @@ def update_hotkey_binding(
     """
     global _current_hotkey
     from .config import cfg, save_config
+    from .i18n import t
     from .utils import notify
 
     # Normalize and validate
@@ -863,7 +902,7 @@ def update_hotkey_binding(
 
     # Notify user
     if notify_change:
-        notify(f"Hotkey set to {hotkey_to_label(_current_hotkey)}.")
+        notify(t("hotkey.set_to", cfg).format(hotkey=hotkey_to_label(_current_hotkey)))
 
     # Restart listener if requested
     # Note: In V6, the listener is managed by main.py, so we can't directly restart it here

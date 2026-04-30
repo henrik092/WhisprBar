@@ -26,6 +26,7 @@ from PIL import Image, ImageDraw
 # Import constants from config module
 from . import __version__
 from .config import DATA_DIR, HIST_FILE, CONFIG_PATH, cfg, DEFAULT_CFG
+from .i18n import t
 
 # Application constants
 APP_NAME = "WhisprBar"
@@ -451,6 +452,7 @@ def collect_diagnostics() -> List[DiagnosticResult]:
     from .config import ensure_directories, load_env_file_values, cfg
 
     ensure_directories()
+    tr = lambda key: t(key, cfg)
     results: List[DiagnosticResult] = []
     env_values = load_env_file_values()
 
@@ -460,22 +462,29 @@ def collect_diagnostics() -> List[DiagnosticResult]:
         results.append(
             DiagnosticResult(
                 "session",
-                "Session",
+                tr("diagnostics.session"),
                 STATUS_WARN,
-                "Wayland – auto paste copies text only.",
-                remedy="Use Ctrl+V manually after transcription or switch to an X11 session for full automation.",
+                tr("diagnostics.session_wayland"),
+                remedy=tr("diagnostics.session_wayland_remedy"),
             )
         )
     elif session == "x11":
-        results.append(DiagnosticResult("session", "Session", STATUS_OK, "X11 – Auto-paste available"))
+        results.append(
+            DiagnosticResult(
+                "session",
+                tr("diagnostics.session"),
+                STATUS_OK,
+                tr("diagnostics.session_x11"),
+            )
+        )
     else:
         results.append(
             DiagnosticResult(
                 "session",
-                "Session",
+                tr("diagnostics.session"),
                 STATUS_WARN,
-                f"{session.capitalize()} – Unknown session type",
-                remedy="Switch to an X11 or Wayland session for full functionality.",
+                tr("diagnostics.session_unknown").format(session=session.capitalize()),
+                remedy=tr("diagnostics.session_unknown_remedy"),
             )
         )
 
@@ -483,15 +492,15 @@ def collect_diagnostics() -> List[DiagnosticResult]:
     if session == "x11":
         has_xdotool = command_exists("xdotool")
         status = STATUS_OK if has_xdotool else STATUS_ERROR
-        detail = "xdotool available" if has_xdotool else "xdotool missing"
-        remedy = None if has_xdotool else "Install xdotool (e.g. sudo apt install xdotool)."
-        results.append(DiagnosticResult("auto_paste", "Auto paste", status, detail, remedy=remedy))
+        detail = tr("diagnostics.xdotool_available") if has_xdotool else tr("diagnostics.xdotool_missing")
+        remedy = None if has_xdotool else tr("diagnostics.install_xdotool")
+        results.append(DiagnosticResult("auto_paste", tr("diagnostics.auto_paste"), status, detail, remedy=remedy))
     elif session == "wayland":
         has_wl = command_exists("wl-clipboard")
-        detail = "Clipboard-only mode" if has_wl else "wl-clipboard missing"
-        remedy = None if has_wl else "Install wl-clipboard (e.g. sudo apt install wl-clipboard)."
+        detail = tr("diagnostics.clipboard_only") if has_wl else tr("diagnostics.wl_clipboard_missing")
+        remedy = None if has_wl else tr("diagnostics.install_wl_clipboard")
         status = STATUS_WARN if has_wl else STATUS_ERROR
-        results.append(DiagnosticResult("auto_paste", "Auto paste", status, detail, remedy=remedy))
+        results.append(DiagnosticResult("auto_paste", tr("diagnostics.auto_paste"), status, detail, remedy=remedy))
 
     # Notifications support
     notify_support = []
@@ -503,68 +512,68 @@ def collect_diagnostics() -> List[DiagnosticResult]:
         notify_support.append("kdialog")
 
     if notify_support:
-        detail = f"Available: {', '.join(notify_support)}"
+        detail = f"{tr('diagnostics.available')}: {', '.join(notify_support)}"
         status = STATUS_OK
         remedy = None
         if "notify-send" not in notify_support:
             status = STATUS_WARN
-            detail += " (using fallback)"
-            remedy = "Install libnotify-bin for native notify-send support."
-        results.append(DiagnosticResult("notifications", "Notifications", status, detail, remedy=remedy))
+            detail += f" ({tr('diagnostics.using_fallback')})"
+            remedy = tr("diagnostics.install_notify")
+        results.append(DiagnosticResult("notifications", tr("diagnostics.notifications"), status, detail, remedy=remedy))
     else:
         results.append(
             DiagnosticResult(
                 "notifications",
-                "Notifications",
+                tr("diagnostics.notifications"),
                 STATUS_WARN,
-                "No notification tools found",
-                remedy="Install libnotify-bin (notify-send) or zenity for desktop alerts.",
+                tr("diagnostics.no_notification_tools"),
+                remedy=tr("diagnostics.install_alerts"),
             )
         )
 
     # API key check
     env_api_key = os.getenv("OPENAI_API_KEY") or env_values.get("OPENAI_API_KEY", "")
     if env_api_key:
-        masked = f"Configured ({len(env_api_key)} characters)"
-        results.append(DiagnosticResult("api_key", "OpenAI API key", STATUS_OK, masked))
+        masked = tr("diagnostics.configured_chars").format(count=len(env_api_key))
+        results.append(DiagnosticResult("api_key", tr("diagnostics.api_key"), STATUS_OK, masked))
     else:
         results.append(
             DiagnosticResult(
                 "api_key",
-                "OpenAI API key",
+                tr("diagnostics.api_key"),
                 STATUS_ERROR,
-                "Missing",
-                remedy="Add OPENAI_API_KEY to ~/.config/whisprbar.env or export it before starting WhisprBar.",
+                tr("diagnostics.missing"),
+                remedy=tr("diagnostics.add_openai_key"),
             )
         )
 
     # Config directory
     config_dir = CONFIG_PATH.parent
     if config_dir.exists() and os.access(config_dir, os.W_OK):
-        results.append(DiagnosticResult("config_dir", "Config directory", STATUS_OK, str(config_dir)))
+        results.append(DiagnosticResult("config_dir", tr("diagnostics.config_dir"), STATUS_OK, str(config_dir)))
     else:
         results.append(
             DiagnosticResult(
                 "config_dir",
-                "Config directory",
+                tr("diagnostics.config_dir"),
                 STATUS_ERROR,
-                f"Not writable: {config_dir}",
-                remedy="Adjust permissions so the current user can write to the config directory.",
+                tr("diagnostics.not_writable").format(path=config_dir),
+                remedy=tr("diagnostics.fix_config_perms"),
             )
         )
 
     # History storage
     history_dir = HIST_FILE.parent
     if history_dir.exists() and os.access(history_dir, os.W_OK):
-        results.append(DiagnosticResult("history", "History storage", STATUS_OK, str(HIST_FILE)))
+        results.append(DiagnosticResult("history", tr("diagnostics.history"), STATUS_OK, str(HIST_FILE)))
     else:
         results.append(
             DiagnosticResult(
                 "history",
-                "History storage",
+                tr("diagnostics.history"),
                 STATUS_ERROR,
-                f"Not writable: {history_dir}",
-                remedy="Adjust permissions for ~/.local/share/whisprbar to enable history logging.",
+                tr("diagnostics.not_writable").format(path=history_dir),
+                remedy=tr("diagnostics.fix_history_perms"),
             )
         )
 
@@ -805,8 +814,8 @@ def copy_to_clipboard(text: str, *, silent: bool = False) -> bool:
     debug(error_msg)
     if not silent:
         notify(
-            "Failed to copy to clipboard. Install xclip, xsel, or wl-clipboard.",
-            title="Clipboard Error",
+            t("clipboard.copy_failed_install", cfg),
+            title=t("clipboard.error_title", cfg),
         )
     return False
 

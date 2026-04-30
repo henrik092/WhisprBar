@@ -11,6 +11,7 @@ except (ImportError, ValueError):
     Gtk = Gdk = GLib = None
 
 from whisprbar.config import save_config, cfg
+from whisprbar.i18n import t
 from whisprbar.utils import (
     collect_diagnostics,
     DiagnosticResult,
@@ -35,7 +36,7 @@ def _mark_first_run_complete(cfg: dict) -> None:
 
 def _run_diagnostics_cli(cfg: dict) -> int:
     """Run diagnostics in CLI mode and return exit code."""
-    print("\n=== WhisprBar Diagnostics ===\n")
+    print(f"\n=== {t('diagnostics.title', cfg)} ===\n")
     results = collect_diagnostics()
 
     errors = sum(1 for r in results if r.status == STATUS_ERROR)
@@ -46,17 +47,17 @@ def _run_diagnostics_cli(cfg: dict) -> int:
         print(f"[{status_label}] {res.label}")
         print(f"  {res.detail}")
         if res.remedy:
-            print(f"  Fix: {res.remedy}")
+            print(f"  {t('diagnostics.fix', cfg)}: {res.remedy}")
         print()
 
     if errors:
-        print(f"Summary: {errors} error(s), {warnings} warning(s) detected.")
+        print(t("diagnostics.summary_errors", cfg).format(errors=errors, warnings=warnings))
         return 1
     elif warnings:
-        print(f"Summary: No errors detected. {warnings} warning(s) to review.")
+        print(t("diagnostics.summary_warnings", cfg).format(warnings=warnings))
         return 0
     else:
-        print("Summary: All checks passed.")
+        print(t("diagnostics.all_passed", cfg))
         return 0
 
 
@@ -78,7 +79,7 @@ def open_diagnostics_window(cfg: dict, first_run: bool = False) -> None:
     global _diagnostics_window
 
     if Gtk is None:
-        print("Diagnostics window requires GTK; falling back to CLI output.")
+        print(t("diagnostics.window_requires_gtk", cfg))
         _run_diagnostics_cli(cfg)
         if first_run:
             _mark_first_run_complete(cfg)
@@ -97,7 +98,7 @@ def open_diagnostics_window(cfg: dict, first_run: bool = False) -> None:
             _diagnostics_window.present()
             return False
 
-        window = Gtk.Window(title="WhisprBar Diagnostics")
+        window = Gtk.Window(title=t("diagnostics.title", cfg))
         window.set_default_size(540, 420)
         try:
             window.set_position(Gtk.WindowPosition.CENTER)
@@ -114,9 +115,9 @@ def open_diagnostics_window(cfg: dict, first_run: bool = False) -> None:
 
         title_label = Gtk.Label()
         if GLib is not None:
-            title_label.set_markup("<b>Environment diagnostics</b>")
+            title_label.set_markup(f"<b>{GLib.markup_escape_text(t('diagnostics.environment', cfg))}</b>")
         else:
-            title_label.set_text("Environment diagnostics")
+            title_label.set_text(t("diagnostics.environment", cfg))
         title_label.set_xalign(0.0)
         content.pack_start(title_label, False, False, 0)
 
@@ -143,8 +144,8 @@ def open_diagnostics_window(cfg: dict, first_run: bool = False) -> None:
         button_box.set_halign(Gtk.Align.END)
         content.pack_end(button_box, False, False, 0)
 
-        rerun_button = Gtk.Button(label="Run again")
-        close_label = "Done" if first_run else "Close"
+        rerun_button = Gtk.Button(label=t("diagnostics.run_again", cfg))
+        close_label = t("diagnostics.done" if first_run else "diagnostics.close", cfg)
         close_button = Gtk.Button(label=close_label)
         button_box.pack_start(rerun_button, False, False, 0)
         button_box.pack_start(close_button, False, False, 0)
@@ -157,11 +158,11 @@ def open_diagnostics_window(cfg: dict, first_run: bool = False) -> None:
             errors = sum(1 for item in results if item.status == STATUS_ERROR)
             warnings = sum(1 for item in results if item.status == STATUS_WARN)
             if errors:
-                summary_label.set_text(f"{errors} error(s), {warnings} warning(s) detected.")
+                summary_label.set_text(t("diagnostics.summary_errors", cfg).format(errors=errors, warnings=warnings))
             elif warnings:
-                summary_label.set_text(f"No errors detected. {warnings} warning(s) to review.")
+                summary_label.set_text(t("diagnostics.summary_warnings", cfg).format(warnings=warnings))
             else:
-                summary_label.set_text("All checks passed.")
+                summary_label.set_text(t("diagnostics.all_passed", cfg))
 
             for res in results:
                 row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -195,7 +196,7 @@ def open_diagnostics_window(cfg: dict, first_run: bool = False) -> None:
                 text_box.pack_start(detail, False, False, 0)
 
                 if res.remedy:
-                    remedy_text = f"Fix: {res.remedy}"
+                    remedy_text = f"{t('diagnostics.fix', cfg)}: {res.remedy}"
                     if GLib is not None:
                         safe_fix = GLib.markup_escape_text(remedy_text)
                         remedy = Gtk.Label()

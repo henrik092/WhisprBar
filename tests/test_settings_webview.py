@@ -16,12 +16,50 @@ def test_generate_settings_html_contains_selected_settings_shell():
         snippets=[],
     )
 
-    assert "WhisprBar Settings" in html
+    assert "WhisprBar Einstellungen" in html
     assert "data-page=\"general\"" in html
     assert "data-page=\"flow\"" in html
-    assert "Flow Mode" in html
+    assert "Flow-Modus" in html
     assert "Deepgram Nova-3" in html
     assert "checked" in html
+
+
+def test_generate_settings_html_uses_english_ui_when_language_is_english():
+    html = generate_settings_html(
+        {
+            "language": "en",
+            "flow_mode_enabled": True,
+        },
+        dictionary_entries=[],
+        snippets=[],
+    )
+
+    assert "WhisprBar Settings" in html
+    assert "Save Changes" in html
+    assert "Recording" in html
+    assert "Transcription" in html
+    assert "Privacy" in html
+    assert "Einstellungen" not in html
+    assert "Speichern" not in html
+
+
+def test_generate_settings_html_uses_german_ui_when_language_is_german():
+    html = generate_settings_html(
+        {
+            "language": "de",
+            "flow_mode_enabled": True,
+        },
+        dictionary_entries=[],
+        snippets=[],
+    )
+
+    assert "WhisprBar Einstellungen" in html
+    assert "Änderungen speichern" in html
+    assert "Aufnahme" in html
+    assert "Transkription" in html
+    assert "Datenschutz" in html
+    assert "WhisprBar Settings" not in html
+    assert "Save Changes" not in html
 
 
 def test_generate_settings_html_escapes_dictionary_and_snippet_values():

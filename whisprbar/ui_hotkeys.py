@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Dict, Optional
 
 from whisprbar.hotkeys import find_hotkey_conflicts, hotkey_to_label, parse_hotkey
+from whisprbar.i18n import t
 
 
 def build_pending_hotkeys(
@@ -33,6 +34,7 @@ def get_hotkey_conflicts_for_actions(
 def build_hotkey_conflict_message(
     conflicts: Dict[str, list[str]],
     editable_actions: Dict[str, str],
+    config: Optional[dict] = None,
 ) -> Optional[str]:
     """Build user-facing conflict message from detected collisions."""
     if not conflicts:
@@ -46,8 +48,7 @@ def build_hotkey_conflict_message(
         readable_hotkey = hotkey_to_label(parse_hotkey(conflict_hotkey))
     except Exception:
         readable_hotkey = conflict_hotkey
-    return (
-        f"Hotkey-Konflikt: {readable_hotkey} ist mehrfach belegt "
-        f"({action_names})."
+    return t("settings.hotkey_conflict", config or {"language": "de"}).format(
+        hotkey=readable_hotkey,
+        actions=action_names,
     )
-

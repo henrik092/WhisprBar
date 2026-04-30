@@ -46,6 +46,7 @@ def test_load_config_with_defaults(monkeypatch_home, monkeypatch):
     # Check that essential defaults are present
     assert config.cfg["language"] == "de"
     assert config.cfg["hotkey"] == "F9"
+    assert config.cfg["hotkeys"]["open_settings"] == "F12"
     assert "start_recording" in config.cfg["hotkeys"]
     assert "stop_recording" in config.cfg["hotkeys"]
     assert config.cfg["use_vad"] is True
@@ -133,6 +134,14 @@ def test_validate_config_clamps_paste_delay():
     config.cfg["paste_delay_ms"] = 250
     config.validate_config()
     assert config.cfg["paste_delay_ms"] == 250
+
+
+@pytest.mark.unit
+def test_validate_config_migrates_unsafe_open_settings_hotkey():
+    """A plain '<' settings hotkey collides with normal typing and Alt+<."""
+    config.cfg["hotkeys"] = {"open_settings": "<"}
+    config.validate_config()
+    assert config.cfg["hotkeys"]["open_settings"] == "F12"
 
 
 @pytest.mark.unit

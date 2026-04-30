@@ -55,6 +55,34 @@ def test_dispatch_transcript_copies_when_auto_paste_disabled(monkeypatch):
 
 
 @pytest.mark.unit
+def test_dispatch_transcript_uses_german_status_labels(monkeypatch):
+    from whisprbar import main
+
+    flow_output = FlowOutput(raw_text="hallo", final_text="Hallo Welt", profile_id="default")
+    overlay_updates = []
+    phases = []
+    mock_notify = MagicMock()
+
+    monkeypatch.setattr(main, "process_flow_text", lambda text, language, cfg: flow_output)
+    monkeypatch.setattr(main, "write_history", MagicMock())
+    monkeypatch.setattr(main, "copy_to_clipboard", MagicMock(return_value=True))
+    monkeypatch.setattr(main, "notify", mock_notify)
+    main.cfg["auto_paste_enabled"] = False
+    main.cfg["language"] = "de"
+
+    main.dispatch_transcript_text(
+        "hallo",
+        output_seconds=1.0,
+        update_overlay_func=lambda text, status: overlay_updates.append((text, status)),
+        show_indicator_func=lambda phase, cfg, info="": phases.append((phase, info)),
+    )
+
+    assert overlay_updates == [("Hallo Welt", "Fertig")]
+    assert phases == [("complete", "(2 Wörter)")]
+    mock_notify.assert_called_once_with("Transkription: Hallo Welt...")
+
+
+@pytest.mark.unit
 def test_dispatch_transcript_shows_paste_before_done(monkeypatch):
     from whisprbar import main
 

@@ -43,6 +43,7 @@ from whisprbar.utils import (
 )
 from whisprbar.config import cfg
 from whisprbar.hotkeys import key_to_label
+from whisprbar.i18n import t
 
 # Module state
 _icon: Optional[Any] = None  # pystray.Icon
@@ -176,6 +177,23 @@ def cfg_equals_checker(key: str, expected) -> Callable:
 # Menu Builders
 # =============================================================================
 
+def get_tray_labels(config: Dict[str, Any] | None = None) -> Dict[str, str]:
+    """Return localized tray labels for the configured UI language."""
+    config = config or cfg
+    return {
+        "recent": t("tray.recent", config),
+        "clear_history": t("tray.clear_history", config),
+        "no_recent": t("tray.no_recent", config),
+        "vad": t("tray.vad", config),
+        "settings": t("tray.settings", config),
+        "quit": t("tray.quit", config),
+        "ready": t("tray.ready", config),
+        "recording": t("tray.recording", config),
+        "transcribing": t("tray.transcribing", config),
+        "start_stop": t("tray.start_stop", config),
+    }
+
+
 def build_pystray_menu(callbacks: Dict[str, Callable], state: Dict[str, Any]) -> "pystray.Menu":
     """
     Build simplified menu for PyStray backend.
@@ -195,6 +213,8 @@ def build_pystray_menu(callbacks: Dict[str, Callable], state: Dict[str, Any]) ->
     if pystray is None:
         raise RuntimeError("PyStray not available")
 
+    labels = get_tray_labels(cfg)
+
     # Build recent transcriptions submenu
     history_entries = read_history(limit=10)
     recent_items = []
@@ -212,28 +232,28 @@ def build_pystray_menu(callbacks: Dict[str, Callable], state: Dict[str, Any]) ->
         recent_items.append(pystray.Menu.SEPARATOR)
         recent_items.append(
             pystray.MenuItem(
-                "Clear History",
+                labels["clear_history"],
                 lambda *_: callbacks["clear_history"]()
             )
         )
     else:
         recent_items.append(
-            pystray.MenuItem("(No recent transcriptions)", None, enabled=False)
+            pystray.MenuItem(labels["no_recent"], None, enabled=False)
         )
 
     return pystray.Menu(
-        pystray.MenuItem("Recent", pystray.Menu(*recent_items)),
+        pystray.MenuItem(labels["recent"], pystray.Menu(*recent_items)),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(
-            "Voice Activity Detection",
+            labels["vad"],
             lambda *_: callbacks["toggle_vad"](),
             checked=lambda _: cfg.get("use_vad", False),
             enabled=callbacks.get("vad_available", lambda: True)(),
         ),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Settings...", lambda *_: callbacks["open_settings"]()),
+        pystray.MenuItem(labels["settings"], lambda *_: callbacks["open_settings"]()),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Quit", lambda *_: callbacks["quit"]()),
+        pystray.MenuItem(labels["quit"], lambda *_: callbacks["quit"]()),
     )
 
 
@@ -251,10 +271,11 @@ def build_appindicator_menu(callbacks: Dict[str, Callable], state: Dict[str, Any
     if not APPINDICATOR_AVAILABLE:
         raise RuntimeError("AppIndicator backend unavailable")
 
+    labels = get_tray_labels(cfg)
     menu = Gtk.Menu()
 
     # Recent transcriptions submenu
-    recent_menu_item = Gtk.MenuItem(label="Recent")
+    recent_menu_item = Gtk.MenuItem(label=labels["recent"])
     recent_submenu = Gtk.Menu()
 
     history_entries = read_history(limit=10)
@@ -271,11 +292,11 @@ def build_appindicator_menu(callbacks: Dict[str, Callable], state: Dict[str, Any
 
         recent_submenu.append(Gtk.SeparatorMenuItem())
 
-        clear_item = Gtk.MenuItem(label="Clear History")
+        clear_item = Gtk.MenuItem(label=labels["clear_history"])
         clear_item.connect("activate", lambda *_: callbacks["clear_history"]())
         recent_submenu.append(clear_item)
     else:
-        empty_item = Gtk.MenuItem(label="(No recent transcriptions)")
+        empty_item = Gtk.MenuItem(label=labels["no_recent"])
         empty_item.set_sensitive(False)
         recent_submenu.append(empty_item)
 
@@ -285,7 +306,7 @@ def build_appindicator_menu(callbacks: Dict[str, Callable], state: Dict[str, Any
     menu.append(Gtk.SeparatorMenuItem())
 
     # VAD toggle
-    vad_item = Gtk.CheckMenuItem(label="Voice Activity Detection")
+    vad_item = Gtk.CheckMenuItem(label=labels["vad"])
     vad_item.set_active(cfg.get("use_vad", False))
     vad_item.set_sensitive(callbacks.get("vad_available", lambda: True)())
     vad_item.connect("activate", lambda *_: callbacks["toggle_vad"]())
@@ -294,14 +315,14 @@ def build_appindicator_menu(callbacks: Dict[str, Callable], state: Dict[str, Any
     menu.append(Gtk.SeparatorMenuItem())
 
     # Settings
-    settings_item = Gtk.MenuItem(label="Settings...")
+    settings_item = Gtk.MenuItem(label=labels["settings"])
     settings_item.connect("activate", lambda *_: callbacks["open_settings"]())
     menu.append(settings_item)
 
     menu.append(Gtk.SeparatorMenuItem())
 
     # Quit
-    quit_item = Gtk.MenuItem(label="Quit")
+    quit_item = Gtk.MenuItem(label=labels["quit"])
     quit_item.connect("activate", lambda *_: callbacks["quit"]())
     menu.append(quit_item)
 
@@ -326,13 +347,13 @@ def refresh_tray_indicator(state: Dict[str, Any]) -> None:
             return
 
         if state.get("recording"):
-            status = "Recording"
+            status = get_tray_labels(cfg)["recording"]
             icon_key = "recording"
         elif state.get("transcribing"):
-            status = "Transcribing"
+            status = get_tray_labels(cfg)["transcribing"]
             icon_key = "transcribing"
         else:
-            status = "Ready"
+            status = get_tray_labels(cfg)["ready"]
             icon_key = "ready"
 
         icon_path = _icon_files.get(icon_key)
@@ -351,19 +372,22 @@ def refresh_tray_indicator(state: Dict[str, Any]) -> None:
             return
 
     if state.get("recording"):
-        status = "Recording"
+        status = get_tray_labels(cfg)["recording"]
         image_key = "recording"
     elif state.get("transcribing"):
-        status = "Transcribing"
+        status = get_tray_labels(cfg)["transcribing"]
         image_key = "transcribing"
     else:
-        status = "Ready"
+        status = get_tray_labels(cfg)["ready"]
         image_key = "ready"
 
     from whisprbar.hotkeys import key_to_label
     hotkey_key = state.get("hotkey_key")
     session_label = state.get("session_type", "unknown")
-    _icon.title = f"{APP_NAME} - {status} [{session_label}] ({key_to_label(hotkey_key)}: Start/Stop)"
+    _icon.title = (
+        f"{APP_NAME} - {status} [{session_label}] "
+        f"({key_to_label(hotkey_key)}: {get_tray_labels(cfg)['start_stop']})"
+    )
     image = _icon_images.get(image_key) or _icon_images.get("ready")
     if image is not None:
         _icon.icon = image
@@ -484,7 +508,7 @@ def start_appindicator_tray(callbacks: Dict[str, Callable], state: Dict[str, Any
         str(_icon_files["ready"]),
         AppIndicator3.IndicatorCategory.APPLICATION_STATUS
     )
-    _indicator.set_icon_full(str(_icon_files["ready"]), "Ready")
+    _indicator.set_icon_full(str(_icon_files["ready"]), get_tray_labels(cfg)["ready"])
     _indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
 
     try:
@@ -495,7 +519,7 @@ def start_appindicator_tray(callbacks: Dict[str, Callable], state: Dict[str, Any
     menu = build_appindicator_menu(callbacks, state)
     menu.show_all()
     _indicator.set_menu(menu)
-    _indicator.set_label(f"{APP_NAME} - Ready", APP_NAME)
+    _indicator.set_label(f"{APP_NAME} - {get_tray_labels(cfg)['ready']}", APP_NAME)
 
     _gtk_loop = GLib.MainLoop()
 

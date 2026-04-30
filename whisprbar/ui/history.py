@@ -17,6 +17,7 @@ from whisprbar.utils import (
     clear_history,
     copy_to_clipboard,
 )
+from whisprbar.i18n import t
 from whisprbar.ui.theme import get_effective_theme, apply_theme_css
 from whisprbar.flow.stats import compute_dictation_stats
 
@@ -32,15 +33,15 @@ def open_history_window(cfg: dict) -> None:
 
     if Gtk is None:
         if not entries:
-            notify("No transcription history available.")
+            notify(t("history.none", cfg))
             return
-        preview = entries[0].get("text", "").strip() or "(empty)"
+        preview = entries[0].get("text", "").strip() or t("history.empty", cfg)
         preview = preview[:120] + ("..." if len(preview) > 120 else "")
-        print("Recent transcription history:\n")
+        print(f"{t('history.cli_title', cfg)}\n")
         for entry in entries[:10]:
-            text = (entry.get("text", "") or "").strip() or "(empty)"
+            text = (entry.get("text", "") or "").strip() or t("history.empty", cfg)
             print(f"- {text}")
-        notify(f"Recent history: {preview}")
+        notify(t("history.recent_notify", cfg).format(preview=preview))
         return
 
     if _history_window is not None:
@@ -56,7 +57,7 @@ def open_history_window(cfg: dict) -> None:
             _history_window.present()
             return False
 
-        window = Gtk.Window(title=f"{APP_NAME} History")
+        window = Gtk.Window(title=t("history.title", cfg))
         window.set_default_size(680, 480)
         try:
             window.set_position(Gtk.WindowPosition.CENTER)
@@ -72,9 +73,9 @@ def open_history_window(cfg: dict) -> None:
 
         title = Gtk.Label()
         if GLib is not None:
-            title.set_markup("<b>Recent transcriptions</b>")
+            title.set_markup(f"<b>{GLib.markup_escape_text(t('history.recent', cfg))}</b>")
         else:
-            title.set_text("Recent transcriptions")
+            title.set_text(t("history.recent", cfg))
         title.set_xalign(0.0)
         content.pack_start(title, False, False, 0)
 
@@ -100,9 +101,9 @@ def open_history_window(cfg: dict) -> None:
         button_box.set_halign(Gtk.Align.END)
         content.pack_end(button_box, False, False, 0)
 
-        refresh_button = Gtk.Button(label="Refresh")
-        clear_button = Gtk.Button(label="Clear history")
-        close_button = Gtk.Button(label="Close")
+        refresh_button = Gtk.Button(label=t("history.refresh", cfg))
+        clear_button = Gtk.Button(label=t("history.clear", cfg))
+        close_button = Gtk.Button(label=t("history.close", cfg))
         button_box.pack_start(refresh_button, False, False, 0)
         button_box.pack_start(clear_button, False, False, 0)
         button_box.pack_start(close_button, False, False, 0)
@@ -114,8 +115,8 @@ def open_history_window(cfg: dict) -> None:
                 results_box.remove(child)
 
             if not history_entries:
-                summary_label.set_text("No transcription history available yet.")
-                empty_label = Gtk.Label(label="Record something to populate history.")
+                summary_label.set_text(t("history.none", cfg))
+                empty_label = Gtk.Label(label=t("history.record_to_populate", cfg))
                 empty_label.set_xalign(0.0)
                 try:
                     empty_label.get_style_context().add_class("dim-label")
@@ -127,9 +128,12 @@ def open_history_window(cfg: dict) -> None:
 
             stats = compute_dictation_stats(history_entries)
             summary_label.set_text(
-                f"Showing {len(history_entries)} transcript(s). "
-                f"{stats['word_count']} words, {stats['duration_seconds']:.1f}s, "
-                f"{stats['words_per_minute']:.1f} wpm."
+                t("history.summary", cfg).format(
+                    count=len(history_entries),
+                    words=stats["word_count"],
+                    duration=stats["duration_seconds"],
+                    wpm=stats["words_per_minute"],
+                )
             )
             for entry in history_entries:
                 row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -145,10 +149,10 @@ def open_history_window(cfg: dict) -> None:
                 if entry.get("duration_seconds") is not None:
                     meta_parts.append(f"{float(entry['duration_seconds']):.1f}s")
                 if entry.get("word_count") is not None:
-                    meta_parts.append(f"{int(entry['word_count'])} words")
+                    meta_parts.append(f"{int(entry['word_count'])} {t('history.words', cfg)}")
                 if entry.get("language"):
                     meta_parts.append(str(entry["language"]))
-                meta_text = "  •  ".join(meta_parts) if meta_parts else "Transcript"
+                meta_text = "  •  ".join(meta_parts) if meta_parts else t("history.transcript", cfg)
 
                 meta_label = Gtk.Label()
                 if GLib is not None:
@@ -158,7 +162,7 @@ def open_history_window(cfg: dict) -> None:
                 meta_label.set_xalign(0.0)
                 row.pack_start(meta_label, False, False, 0)
 
-                transcript = Gtk.Label(label=(entry.get("text", "") or "(empty)").strip() or "(empty)")
+                transcript = Gtk.Label(label=(entry.get("text", "") or t("history.empty", cfg)).strip() or t("history.empty", cfg))
                 transcript.set_xalign(0.0)
                 transcript.set_line_wrap(True)
                 transcript.set_selectable(True)
@@ -185,11 +189,11 @@ def open_history_window(cfg: dict) -> None:
 
                 action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
                 action_row.set_halign(Gtk.Align.START)
-                copy_button = Gtk.Button(label="Copy")
+                copy_button = Gtk.Button(label=t("history.copy", cfg))
                 copy_button.connect(
                     "clicked",
-                    lambda *_args, text=entry.get("text", ""): notify("Copied to clipboard")
-                    if copy_to_clipboard(text) else notify("Failed to copy to clipboard")
+                    lambda *_args, text=entry.get("text", ""): notify(t("history.copied", cfg))
+                    if copy_to_clipboard(text) else notify(t("history.copy_failed", cfg))
                 )
                 action_row.pack_start(copy_button, False, False, 0)
                 row.pack_start(action_row, False, False, 0)
@@ -202,7 +206,7 @@ def open_history_window(cfg: dict) -> None:
 
         def on_clear(*_args) -> None:
             clear_history()
-            notify("History cleared")
+            notify(t("history.cleared", cfg))
             populate()
 
         refresh_button.connect("clicked", lambda *_: populate())

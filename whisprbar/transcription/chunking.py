@@ -9,6 +9,7 @@ from .base import Transcriber
 from .factory import get_transcriber
 from .postprocess import postprocess_transcript
 from whisprbar.config import cfg
+from whisprbar.i18n import t
 from whisprbar.utils import debug, error, notify
 from whisprbar.ui import show_live_overlay, update_live_overlay, hide_live_overlay
 from whisprbar.audio import SAMPLE_RATE, split_audio_into_chunks
@@ -121,9 +122,10 @@ def transcribe_audio_chunked(audio: np.ndarray, language: str = "de") -> Optiona
         debug("No chunks created, audio too short")
         return None
 
-    notify(f"Transcribing {len(chunks)} chunks...")
+    notify(t("chunking.transcribing_chunks", cfg).format(count=len(chunks)))
     update_live_overlay(
-        f"Transcribing {len(chunks)} chunks...", f"0/{len(chunks)} completed"
+        t("chunking.transcribing_chunks", cfg).format(count=len(chunks)),
+        t("chunking.completed", cfg).format(done=0, total=len(chunks)),
     )
 
     # Transcribe chunks in parallel
@@ -148,8 +150,8 @@ def transcribe_audio_chunked(audio: np.ndarray, language: str = "de") -> Optiona
                 # Update overlay with progress
                 partial_text = " ".join(t for t in transcripts if t is not None)
                 update_live_overlay(
-                    partial_text or "Processing...",
-                    f"Chunk {completed_count}/{len(chunks)} completed",
+                    partial_text or t("main.processing", cfg),
+                    t("chunking.chunk_completed", cfg).format(done=completed_count, total=len(chunks)),
                 )
             except Exception as exc:
                 print(f"[ERROR] Chunk {idx + 1} failed: {exc}", file=sys.stderr)
@@ -268,7 +270,7 @@ def transcribe_audio(audio: np.ndarray, language: str = "de") -> Optional[str]:
     transcript = postprocess_transcript(transcript, language=language)
 
     # Update overlay with final transcript
-    update_live_overlay(transcript, "Complete!")
+    update_live_overlay(transcript, t("chunking.complete", cfg))
 
     debug(f"Transcription complete: {len(transcript)} chars")
     return transcript

@@ -13,7 +13,7 @@ import threading
 import contextlib
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Callable, Dict, Any, List, Optional
 
 # Import all whisprbar modules
 from whisprbar import __version__
@@ -37,6 +37,7 @@ from whisprbar.audio import (
 from whisprbar.transcription import transcribe_audio, get_transcriber
 from whisprbar.flow import process_flow_text
 from whisprbar.hotkeys import get_hotkey_manager
+from whisprbar.i18n import t
 from whisprbar.hotkey_actions import HOTKEY_ACTION_ORDER
 from whisprbar.hotkey_runtime import build_runtime_hotkey_config, resolve_runtime_hotkeys
 from whisprbar.paste import is_wayland_session, perform_auto_paste as auto_paste
@@ -402,7 +403,7 @@ def toggle_recording() -> None:
             start_recording()
     except Exception as exc:
         debug(f"[RECORDING] Toggle failed: {exc}")
-        notify(f"Aufnahme-Fehler: {exc}")
+        notify(f"{t('main.recording_error', cfg)}: {exc}")
         # Reset state so the app isn't stuck in a broken recording state
         state.recording = False
         state.transcribing = False
@@ -417,7 +418,7 @@ def start_recording_hotkey() -> None:
         start_recording()
     except Exception as exc:
         debug(f"[RECORDING] Start hotkey failed: {exc}")
-        notify(f"Aufnahme-Start fehlgeschlagen: {exc}")
+        notify(f"{t('main.recording_start_failed', cfg)}: {exc}")
         state.recording = False
         state.transcribing = False
         refresh_tray_indicator(state)
@@ -431,7 +432,7 @@ def stop_recording_hotkey() -> None:
         stop_recording()
     except Exception as exc:
         debug(f"[RECORDING] Stop hotkey failed: {exc}")
-        notify(f"Aufnahme-Stopp fehlgeschlagen: {exc}")
+        notify(f"{t('main.recording_stop_failed', cfg)}: {exc}")
         state.recording = False
         state.transcribing = False
         refresh_tray_indicator(state)
@@ -445,7 +446,7 @@ def hands_free_recording_callback() -> None:
 def paste_last_transcript_callback() -> None:
     """Paste the last successful final transcript."""
     if not state.last_transcript:
-        notify("No previous transcript available.")
+        notify(t("main.no_previous_transcript", cfg))
         return
     auto_paste(state.last_transcript)
 
@@ -453,12 +454,12 @@ def paste_last_transcript_callback() -> None:
 def copy_last_transcript_callback() -> None:
     """Copy the last successful final transcript."""
     if not state.last_transcript:
-        notify("No previous transcript available.")
+        notify(t("main.no_previous_transcript", cfg))
         return
     if copy_to_clipboard(state.last_transcript):
-        notify("Copied last transcript")
+        notify(t("main.copied_last_transcript", cfg))
     else:
-        notify("Failed to copy last transcript")
+        notify(t("main.copy_last_transcript_failed", cfg))
 
 
 def command_mode_callback() -> None:
@@ -466,14 +467,31 @@ def command_mode_callback() -> None:
     start_recording_hotkey()
 
 
+def run_on_gtk_thread(callback: Callable[..., None], *args: Any) -> None:
+    """Schedule GTK UI work on the main loop when invoked from hotkey threads."""
+    try:
+        from gi.repository import GLib
+
+        def _run() -> bool:
+            callback(*args)
+            return False
+
+        GLib.idle_add(_run)
+    except Exception:
+        callback(*args)
+
+
 def open_scratchpad_callback() -> None:
     """Open local Flow scratchpad when available."""
-    try:
-        from whisprbar.ui.scratchpad import open_scratchpad_window
-        open_scratchpad_window(cfg)
-    except Exception as exc:
-        debug(f"Scratchpad unavailable: {exc}")
-        notify("Scratchpad unavailable.")
+    def _open() -> None:
+        try:
+            from whisprbar.ui.scratchpad import open_scratchpad_window
+            open_scratchpad_window(cfg)
+        except Exception as exc:
+            debug(f"Scratchpad unavailable: {exc}")
+            notify(t("main.scratchpad_unavailable", cfg))
+
+    run_on_gtk_thread(_open)
 
 
 
@@ -481,9 +499,8 @@ def toggle_notifications() -> None:
     """Toggle notifications on/off (menu callback)."""
     cfg["notifications_enabled"] = not cfg.get("notifications_enabled", True)
     save_config()
-    notify_state = "on" if cfg["notifications_enabled"] else "off"
     if cfg["notifications_enabled"]:
-        notify(f"Notifications {notify_state}.")
+        notify(t("main.notifications_on", cfg))
     refresh_menu(get_callbacks(), state)
 
 
@@ -491,14 +508,13 @@ def toggle_auto_paste() -> None:
     """Toggle auto-paste on/off (menu callback)."""
     cfg["auto_paste_enabled"] = not cfg.get("auto_paste_enabled", False)
     save_config()
-    state_txt = "enabled" if cfg["auto_paste_enabled"] else "disabled"
-    notify(f"Auto-paste {state_txt}.")
+    notify(t("main.auto_paste_enabled" if cfg["auto_paste_enabled"] else "main.auto_paste_disabled", cfg))
 
     if cfg.get("auto_paste_enabled"):
         state["wayland_notice_shown"] = False
 
     if cfg.get("auto_paste_enabled") and is_wayland_session() and not state.get("wayland_notice_shown"):
-        notify("Wayland session detected: auto-paste will remain clipboard-only.")
+        notify(t("main.wayland_clipboard", cfg))
         state["wayland_notice_shown"] = True
 
     refresh_menu(get_callbacks(), state)
@@ -508,12 +524,11 @@ def toggle_auto_paste() -> None:
 def toggle_vad() -> None:
     """Toggle VAD on/off (menu callback)."""
     if not vad_available():
-        notify("WebRTC VAD not installed.")
+        notify(t("main.vad_unavailable", cfg))
         return
     cfg["use_vad"] = not cfg.get("use_vad", False)
     save_config()
-    state_txt = "enabled" if cfg["use_vad"] else "disabled"
-    notify(f"VAD {state_txt}.")
+    notify(t("main.vad_enabled" if cfg["use_vad"] else "main.vad_disabled", cfg))
     refresh_menu(get_callbacks(), state)
 
 
@@ -529,17 +544,17 @@ def open_settings_callback() -> None:
         refresh_menu(get_callbacks(), state)
         refresh_tray_indicator(state)
 
-    open_settings_window(cfg, state, on_save=on_save)
+    run_on_gtk_thread(lambda: open_settings_window(cfg, state, on_save=on_save))
 
 
 def open_diagnostics_callback() -> None:
     """Open diagnostics window (menu callback)."""
-    open_diagnostics_window(cfg, first_run=False)
+    run_on_gtk_thread(lambda: open_diagnostics_window(cfg, first_run=False))
 
 
 def open_history_callback() -> None:
     """Open transcription history window (menu/hotkey callback)."""
-    open_history_window(cfg)
+    run_on_gtk_thread(lambda: open_history_window(cfg))
 
 
 def copy_to_clipboard_callback(text: str) -> None:
@@ -547,16 +562,16 @@ def copy_to_clipboard_callback(text: str) -> None:
     from whisprbar.utils import copy_to_clipboard
     success = copy_to_clipboard(text)
     if success:
-        notify("Copied to clipboard")
+        notify(t("main.copied_clipboard", cfg))
     else:
-        notify("Failed to copy to clipboard")
+        notify(t("main.copy_clipboard_failed", cfg))
 
 
 def clear_history_callback() -> None:
     """Clear transcription history (menu callback)."""
     from whisprbar.utils import clear_history
     clear_history()
-    notify("History cleared")
+    notify(t("main.history_cleared", cfg))
     refresh_menu(get_callbacks(), state)
 
 
@@ -675,7 +690,7 @@ def prepare_openai_client() -> bool:
         state["client_ready"] = False
         debug("OPENAI_API_KEY not configured; transcription disabled until key is configured.")
         if not state.get("client_warning_shown"):
-            notify("OPENAI_API_KEY not set. Transcription disabled until configured.")
+            notify(t("main.openai_key_missing", cfg))
             state["client_warning_shown"] = True
         return False
 
@@ -689,7 +704,7 @@ def prepare_openai_client() -> bool:
         state["client_ready"] = False
         debug(f"Failed to initialize transcription client: {exc}")
         if not state.get("client_warning_shown"):
-            notify("Failed to initialize transcription client.")
+            notify(t("main.client_init_failed", cfg))
             state["client_warning_shown"] = True
         return False
 
@@ -710,7 +725,7 @@ def dispatch_transcript_text(
     state.last_transcript = final_text
 
     if update_overlay_func is not None:
-        update_overlay_func(final_text, "Complete")
+        update_overlay_func(final_text, t("main.complete", cfg))
 
     word_count = len(final_text.split())
     history_metadata = dict(flow_output.metadata)
@@ -718,7 +733,8 @@ def dispatch_transcript_text(
     history_metadata.setdefault("final_text", flow_output.final_text)
     write_history(final_text, output_seconds, word_count, metadata=history_metadata)
 
-    word_info = f"({word_count} {'word' if word_count == 1 else 'words'})"
+    word_label_key = "main.word" if word_count == 1 else "main.words"
+    word_info = f"({word_count} {t(word_label_key, cfg)})"
 
     if cfg.get("auto_paste_enabled"):
         if show_indicator_func is not None:
@@ -730,7 +746,7 @@ def dispatch_transcript_text(
             show_indicator_func(PHASE_COMPLETE, cfg, info=word_info)
     else:
         copy_to_clipboard(final_text)
-        notify(f"Transcription: {final_text[:50]}...")
+        notify(t("main.transcription_preview", cfg).format(preview=final_text[:50]))
         if show_indicator_func is not None:
             from whisprbar.ui.recording_indicator import PHASE_COMPLETE
             show_indicator_func(PHASE_COMPLETE, cfg, info=word_info)
@@ -793,7 +809,7 @@ def on_recording_stop() -> None:
         # Acquire semaphore to limit concurrent transcriptions
         if not TRANSCRIPTION_SEMAPHORE.acquire(blocking=False):
             debug("Transcription queue full, dropping request (max 2 concurrent)")
-            notify("Transcription busy, please wait for current transcription to finish.")
+            notify(t("main.transcription_busy", cfg))
             state.transcribing = False
             refresh_tray_indicator(state)
             from whisprbar.ui.recording_indicator import hide_recording_indicator
@@ -815,7 +831,7 @@ def on_recording_stop() -> None:
             from whisprbar.audio import apply_vad, apply_noise_reduction, SAMPLE_RATE
 
             # Show live overlay if enabled
-            show_live_overlay(cfg, "Processing audio...")
+            show_live_overlay(cfg, t("main.processing_audio", cfg))
 
             input_seconds = audio_data.size / SAMPLE_RATE if audio_data.size else 0.0
 
@@ -846,12 +862,12 @@ def on_recording_stop() -> None:
                 from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_ERROR
                 if processed.size == 0:
                     debug("No speech detected after VAD")
-                    notify("No speech detected.")
-                    show_recording_indicator(PHASE_ERROR, cfg, info="No speech")
+                    notify(t("main.no_speech", cfg))
+                    show_recording_indicator(PHASE_ERROR, cfg, info=t("indicator.no_speech", cfg))
                 else:
                     debug(f"Audio too short after VAD ({output_seconds:.2f}s < {MIN_AUDIO_SECONDS}s)")
-                    notify("Recording too short, no speech detected.")
-                    show_recording_indicator(PHASE_ERROR, cfg, info="Too short")
+                    notify(t("main.too_short", cfg))
+                    show_recording_indicator(PHASE_ERROR, cfg, info=t("indicator.too_short", cfg))
                 state.transcribing = False
                 refresh_tray_indicator(state)
                 hide_live_overlay()
@@ -866,16 +882,16 @@ def on_recording_stop() -> None:
 
             if audio_energy < min_audio_energy:
                 debug(f"Audio energy too low ({audio_energy:.4f} < {min_audio_energy}), likely just noise")
-                notify("No speech detected, only background noise.")
+                notify(t("main.only_noise", cfg))
                 from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_ERROR
-                show_recording_indicator(PHASE_ERROR, cfg, info="Only noise")
+                show_recording_indicator(PHASE_ERROR, cfg, info=t("indicator.only_noise", cfg))
                 state.transcribing = False
                 refresh_tray_indicator(state)
                 hide_live_overlay()
                 return
 
             # Update overlay and indicator
-            update_live_overlay("Transcribing...", "Processing...")
+            update_live_overlay(t("main.transcribing", cfg), t("main.processing", cfg))
             from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_TRANSCRIBING
             show_recording_indicator(PHASE_TRANSCRIBING, cfg)
 
@@ -916,8 +932,8 @@ def on_recording_stop() -> None:
                 from whisprbar.utils import error as log_error
                 log_error(f"Transcription returned no result after {_transcribe_ms:.0f}ms (backend: {cfg.get('transcription_backend', '?')})")
                 from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_ERROR
-                show_recording_indicator(PHASE_ERROR, cfg, info="No result")
-                notify("Transcription failed or empty.")
+                show_recording_indicator(PHASE_ERROR, cfg, info=t("main.no_result", cfg))
+                notify(t("main.transcription_failed", cfg))
                 hide_live_overlay()
 
         except Exception as exc:
@@ -926,7 +942,7 @@ def on_recording_stop() -> None:
             from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_ERROR
             error_msg = str(exc)[:30] if str(exc) else "Unknown error"
             show_recording_indicator(PHASE_ERROR, cfg, info=error_msg)
-            notify(f"Transcription error: {exc}")
+            notify(f"{t('main.transcription_error', cfg)}: {exc}")
         finally:
             # Always cleanup overlay (indicator auto-hides via its own timers)
             try:
@@ -1086,9 +1102,9 @@ def main() -> None:
 
     # Check for existing instance (singleton enforcement)
     if not acquire_singleton_lock():
-        print("WhisprBar is already running.", file=sys.stderr)
+        print(t("main.already_running", cfg), file=sys.stderr)
         notify(
-            "WhisprBar is already running",
+            t("main.already_running", cfg),
             title="WhisprBar",
             force=True
         )
@@ -1160,7 +1176,7 @@ def main() -> None:
             debug("Wayland session detected. Auto-paste limited to clipboard-only mode.")
             print("[INFO] Wayland session detected. Auto-paste limited to clipboard-only mode.")
             if cfg.get("auto_paste_enabled") and not state.get("wayland_notice_shown"):
-                notify("Wayland session detected: auto-paste is clipboard-only.")
+                notify(t("main.wayland_clipboard", cfg))
                 if cfg.get("notifications_enabled"):
                     state["wayland_notice_shown"] = True
 
@@ -1210,7 +1226,7 @@ def main() -> None:
         elif tray_backend in {"gtk", "xorg"}:
             loop_runner = start_pystray_tray(callbacks, state)
         else:
-            raise RuntimeError("No supported tray backend available")
+            raise RuntimeError(t("main.no_tray_backend", cfg))
 
         # Run tray event loop
         try:

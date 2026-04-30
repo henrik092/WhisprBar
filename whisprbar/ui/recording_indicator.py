@@ -21,6 +21,8 @@ import time
 from collections import deque
 from typing import Optional
 
+from whisprbar.i18n import t
+
 try:
     import gi
     gi.require_version("Gtk", "3.0")
@@ -77,17 +79,17 @@ def _is_flow_indicator_enabled(cfg: Optional[dict]) -> bool:
     return bool((cfg or {}).get("flow_mode_enabled", False))
 
 
-def _flow_phase_label(phase: str) -> str:
+def _flow_phase_label(phase: str, cfg: Optional[dict] = None) -> str:
     """Map internal indicator phases to compact Flow-Bar labels."""
     return {
-        PHASE_RECORDING: "Listening",
-        PHASE_PROCESSING: "Processing",
-        PHASE_TRANSCRIBING: "Transcribing",
-        PHASE_REWRITING: "Rewriting",
-        PHASE_PASTING: "Pasting",
-        PHASE_COMPLETE: "Done",
-        PHASE_ERROR: "Error",
-    }.get(phase, "Working")
+        PHASE_RECORDING: t("indicator.listening", cfg),
+        PHASE_PROCESSING: t("indicator.processing", cfg),
+        PHASE_TRANSCRIBING: t("indicator.transcribing", cfg),
+        PHASE_REWRITING: t("indicator.rewriting", cfg),
+        PHASE_PASTING: t("indicator.pasting", cfg),
+        PHASE_COMPLETE: t("indicator.done", cfg),
+        PHASE_ERROR: t("indicator.error", cfg),
+    }.get(phase, t("indicator.working", cfg))
 
 
 def _flow_hotkey_label(cfg: Optional[dict]) -> str:
@@ -684,7 +686,7 @@ class RecordingIndicator:
         badge_y = (h - badge_h) / 2
         self._draw_flow_badge(cr, badge_x, badge_y, badge_w, badge_h, alpha)
 
-        label = _flow_phase_label(self._phase)
+        label = _flow_phase_label(self._phase, self._cfg)
         label_x = badge_x + badge_w + h * 0.28
         center_y = h / 2
         label_font = max(12.0, min(14.0, h * 0.28))
@@ -870,7 +872,7 @@ class RecordingIndicator:
 
         # Label with animated dots
         dot_count = int(t * 2) % 4
-        label = "Processing" + "." * dot_count
+        label = t("indicator.processing", self._cfg) + "." * dot_count
         self._draw_text(cr, label, label_x, cy, alpha,
                         color=COLOR_TEXT, font_size=label_font)
 
@@ -896,7 +898,7 @@ class RecordingIndicator:
 
         # Label with animated dots
         dot_count = int(t * 2) % 4
-        label = "Transcribing" + "." * dot_count
+        label = t("indicator.transcribing", self._cfg) + "." * dot_count
         self._draw_text(cr, label, label_x, cy, alpha,
                         color=COLOR_TEXT, font_size=label_font)
 
@@ -939,7 +941,7 @@ class RecordingIndicator:
 
         # Label with animated dots
         dot_count = int(t * 3) % 4
-        label = "Pasting" + "." * dot_count
+        label = t("indicator.pasting", self._cfg) + "." * dot_count
         self._draw_text(cr, label, label_x, cy, alpha,
                         color=COLOR_TEXT, font_size=label_font)
 
@@ -959,15 +961,15 @@ class RecordingIndicator:
         cr.line_to(cx + icon_size * 0.35, cy - icon_size * 0.25)
         cr.stroke()
 
-        # "Done!" label
-        self._draw_text(cr, "Done!", label_x, cy, alpha,
+        done_label = t("indicator.done", self._cfg) + "!"
+        self._draw_text(cr, done_label, label_x, cy, alpha,
                         color=COLOR_COMPLETE, bold=True, font_size=label_font)
 
         # Info text (word count) after label
         if self._info_text:
             cr.select_font_face("Sans", 0, 1)
             cr.set_font_size(label_font)
-            done_ext = cr.text_extents("Done! ")
+            done_ext = cr.text_extents(done_label + " ")
             info_x = label_x + done_ext.width + w * 0.01
             info_font = label_font * 0.88
             self._draw_text(cr, self._info_text, info_x, cy, alpha * 0.7,
@@ -993,7 +995,7 @@ class RecordingIndicator:
         cr.stroke()
 
         # Error label
-        label = self._info_text if self._info_text else "Error"
+        label = self._info_text if self._info_text else t("indicator.error", self._cfg)
         self._draw_text(cr, label, label_x, cy, alpha,
                         color=COLOR_ERROR, bold=True, font_size=label_font)
 

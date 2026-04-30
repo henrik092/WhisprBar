@@ -22,6 +22,7 @@ except Exception as exc:
     _PYNPUT_IMPORT_ERROR = str(exc)
 
 from .config import cfg
+from .i18n import t
 from .utils import debug, detect_session_type, notify, copy_to_clipboard
 from whisprbar.flow.models import PastePolicy
 
@@ -333,7 +334,7 @@ def perform_auto_paste(text: str, policy: Optional[PastePolicy] = None) -> None:
 
     if sequence == "clipboard":
         if wayland_session:
-            notify("Text copied to clipboard. Press Ctrl+V to paste.", force=True)
+            notify(t("paste.clipboard_manual", cfg), force=True)
         debug("Clipboard-only paste; skipping key injection")
         return
 
@@ -372,7 +373,7 @@ def perform_auto_paste(text: str, policy: Optional[PastePolicy] = None) -> None:
 
     # Fallback to pynput keyboard simulation
     if _controller is None or not PYNPUT_AVAILABLE:
-        notify("Auto-paste failed: keyboard injection backend is unavailable.", force=True)
+        notify(t("paste.keyboard_unavailable", cfg), force=True)
         return
 
     if sequence == "ctrl_shift_v":

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from whisprbar.config import DATA_DIR
+from whisprbar.i18n import t
 from whisprbar.utils import copy_to_clipboard, notify
 
 try:
@@ -83,7 +84,7 @@ def open_scratchpad_window(cfg: dict) -> None:
     """Open a small local scratchpad window."""
     global _scratchpad_window
     if Gtk is None:
-        notify("Scratchpad unavailable: GTK not installed.")
+        notify(t("scratchpad.unavailable", cfg))
         return
     if _scratchpad_window is not None:
         _scratchpad_window.present()
@@ -93,7 +94,7 @@ def open_scratchpad_window(cfg: dict) -> None:
     active_note = notes[-1] if notes else create_note("", storage_enabled=cfg.get("flow_history_storage") != "never")
     storage_enabled = cfg.get("flow_history_storage") != "never"
 
-    window = Gtk.Window(title="WhisprBar Scratchpad")
+    window = Gtk.Window(title=t("scratchpad.title", cfg))
     window.set_default_size(520, 360)
     window.set_keep_above(True)
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -107,8 +108,8 @@ def open_scratchpad_window(cfg: dict) -> None:
     box.pack_start(text_view, True, True, 0)
 
     buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-    new_button = Gtk.Button(label="New")
-    copy_button = Gtk.Button(label="Copy")
+    new_button = Gtk.Button(label=t("scratchpad.new", cfg))
+    copy_button = Gtk.Button(label=t("scratchpad.copy", cfg))
     buttons.pack_start(new_button, False, False, 0)
     buttons.pack_start(copy_button, False, False, 0)
     box.pack_start(buttons, False, False, 0)
@@ -137,7 +138,7 @@ def open_scratchpad_window(cfg: dict) -> None:
     def copy_note(*_args) -> None:
         start, end = buffer.get_bounds()
         text = buffer.get_text(start, end, True)
-        notify("Copied scratchpad") if copy_to_clipboard(text) else notify("Failed to copy scratchpad")
+        notify(t("scratchpad.copied", cfg)) if copy_to_clipboard(text) else notify(t("scratchpad.copy_failed", cfg))
 
     new_button.connect("clicked", new_note)
     copy_button.connect("clicked", copy_note)

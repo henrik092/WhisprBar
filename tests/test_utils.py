@@ -260,6 +260,7 @@ def test_is_newer_version_invalid_inputs():
 def test_collect_diagnostics_basic(monkeypatch):
     """Test basic diagnostic collection."""
     monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    monkeypatch.setitem(utils.cfg, "language", "en")
 
     # Mock command_exists to simulate xdotool availability
     def mock_command_exists(cmd):
@@ -278,6 +279,7 @@ def test_collect_diagnostics_basic(monkeypatch):
     # Find session diagnostic
     session_diag = next((r for r in results if r.key == "session"), None)
     assert session_diag is not None
+    assert session_diag.label == "Session"
     assert session_diag.status == utils.STATUS_OK
     assert "X11" in session_diag.detail
 
@@ -290,6 +292,29 @@ def test_collect_diagnostics_basic(monkeypatch):
     api_diag = next((r for r in results if r.key == "api_key"), None)
     assert api_diag is not None
     assert api_diag.status == utils.STATUS_OK
+
+
+@pytest.mark.unit
+def test_collect_diagnostics_uses_german_labels(monkeypatch):
+    monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    monkeypatch.setitem(utils.cfg, "language", "de")
+    monkeypatch.setattr(utils, "command_exists", lambda cmd: cmd in {"xdotool", "notify-send"})
+
+    from whisprbar import config
+
+    monkeypatch.setattr(config, "load_env_file_values", lambda: {"OPENAI_API_KEY": "sk-test-key"})
+
+    results = utils.collect_diagnostics()
+
+    labels = {result.key: result.label for result in results}
+    assert labels["auto_paste"] == "Auto-Paste"
+    assert labels["notifications"] == "Benachrichtigungen"
+    assert labels["api_key"] == "OpenAI API-Schlüssel"
+    assert labels["config_dir"] == "Konfigurationsordner"
+
+    details = {result.key: result.detail for result in results}
+    assert details["session"] == "X11 - Auto-Paste verfügbar"
+    assert details["auto_paste"] == "xdotool verfügbar"
 
 
 @pytest.mark.unit

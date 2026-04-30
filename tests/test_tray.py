@@ -57,6 +57,19 @@ def test_select_tray_backend_returns_auto_without_pystray(monkeypatch):
 
 
 @pytest.mark.unit
+def test_get_tray_labels_follow_config_language():
+    german = tray.get_tray_labels({"language": "de"})
+    english = tray.get_tray_labels({"language": "en"})
+
+    assert german["recent"] == "Verlauf"
+    assert german["settings"] == "Einstellungen..."
+    assert german["quit"] == "Beenden"
+    assert english["recent"] == "Recent"
+    assert english["settings"] == "Settings..."
+    assert english["quit"] == "Quit"
+
+
+@pytest.mark.unit
 def test_shutdown_tray_hides_and_stops_pystray_icon(monkeypatch):
     """PyStray shutdown should hide the icon and clear module state."""
     icon = DummyPystrayIcon()

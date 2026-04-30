@@ -16,6 +16,7 @@ except (ImportError, ValueError):
     cairo = None
 
 from whisprbar.config import save_config
+from whisprbar.i18n import t
 from whisprbar.ui.theme import get_effective_theme
 
 # Module state
@@ -105,31 +106,32 @@ def show_live_overlay(cfg: dict, initial_text: str = "Transcribing...") -> None:
         spinner.start()
         box.pack_start(spinner, False, False, 0)
 
-        # Transcript text
-        text_view = Gtk.TextView()
-        text_view.set_editable(False)
-        text_view.set_cursor_visible(False)
-        text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        buffer = text_view.get_buffer()
-        buffer.set_text(initial_text)
+        # Transcript text. A plain label avoids GtkTextView/TextBuffer redraw crashes
+        # that can happen while the overlay is updated and destroyed in quick succession.
+        text_label = Gtk.Label(label=initial_text)
+        text_label.set_xalign(0.0)
+        text_label.set_yalign(0.0)
+        text_label.set_line_wrap(True)
+        text_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        text_label.set_selectable(False)
 
         # Font size
         try:
             from gi.repository import Pango
             font_size = int(cfg.get("live_overlay_font_size", 14))
             font_desc = Pango.FontDescription(f"monospace {font_size}")
-            text_view.override_font(font_desc)
+            text_label.override_font(font_desc)
         except Exception:
             pass  # Font override is optional
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scroll.add(text_view)
+        scroll.add(text_label)
         scroll.set_min_content_height(80)
         box.pack_start(scroll, True, True, 0)
 
         # Hint
-        hint = Gtk.Label(label="ESC to cancel, processing...")
+        hint = Gtk.Label(label=t("overlay.processing_hint", cfg))
         hint.set_xalign(0.0)
         hint.get_style_context().add_class("dim-label")
         box.pack_start(hint, False, False, 0)
@@ -182,7 +184,7 @@ def show_live_overlay(cfg: dict, initial_text: str = "Transcribing...") -> None:
         window.add(box)
 
         # Store references
-        window.text_buffer = buffer
+        window.text_label = text_label
         window.spinner = spinner
         window.hint_label = hint
 
@@ -258,7 +260,8 @@ def update_live_overlay(text: str, status: str = "") -> None:
             return False
 
         try:
-            window_ref.text_buffer.set_text(text)
+            if hasattr(window_ref, "text_label"):
+                window_ref.text_label.set_text(text)
             if status and hasattr(window_ref, 'hint_label'):
                 window_ref.hint_label.set_text(status)
         except Exception:

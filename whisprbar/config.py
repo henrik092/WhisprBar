@@ -24,7 +24,7 @@ DEFAULT_CFG = {
         "toggle_recording": "F9",
         "start_recording": None,  # Optional dedicated start hotkey
         "stop_recording": None,  # Optional dedicated stop hotkey
-        "open_settings": "F10",
+        "open_settings": "F12",
         "show_history": None,  # Not assigned by default
         "cancel_recording": None,  # Not assigned (ESC is hardcoded)
         "hands_free_recording": None,
@@ -222,6 +222,10 @@ def validate_config() -> None:
     Modifies the global `cfg` dict in-place to ensure values are within
     acceptable bounds. Invalid values are clamped or reset to defaults.
     """
+    hotkeys = cfg.get("hotkeys")
+    if isinstance(hotkeys, dict) and hotkeys.get("open_settings") == "<":
+        hotkeys["open_settings"] = DEFAULT_CFG["hotkeys"]["open_settings"]
+
     # Clamp paste_delay_ms to prevent UI freezes
     if "paste_delay_ms" in cfg:
         try:

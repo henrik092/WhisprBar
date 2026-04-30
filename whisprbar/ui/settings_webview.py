@@ -21,6 +21,7 @@ from whisprbar.flow.models import DictionaryEntry, Snippet
 from whisprbar.flow.snippets import load_snippets, save_snippets
 from whisprbar.hotkey_actions import HOTKEY_SETTINGS_LABELS
 from whisprbar.hotkeys import cancel_hotkey_capture, capture_hotkey
+from whisprbar.i18n import get_language, hotkey_action_labels, t
 from whisprbar.paste import PASTE_OPTIONS, is_wayland_session
 from whisprbar.ui_hotkeys import (
     build_hotkey_conflict_message,
@@ -31,6 +32,35 @@ from whisprbar.utils import APP_NAME, notify
 
 _settings_webview_window = None
 _settings_webview_lock = threading.Lock()
+
+
+def _present_settings_window(window: object) -> None:
+    """Bring the settings window forward without pinning it permanently."""
+    try:
+        from gi.repository import GLib, Gtk
+
+        if hasattr(window, "set_keep_above"):
+            window.set_keep_above(True)
+        if hasattr(window, "present_with_time"):
+            window.present_with_time(Gtk.get_current_event_time())
+        elif hasattr(window, "present"):
+            window.present()
+
+        def release_keep_above() -> bool:
+            try:
+                if hasattr(window, "set_keep_above"):
+                    window.set_keep_above(False)
+            except Exception:
+                pass
+            return False
+
+        GLib.timeout_add(600, release_keep_above)
+    except Exception:
+        try:
+            if hasattr(window, "present"):
+                window.present()
+        except Exception:
+            pass
 
 
 @dataclass(frozen=True)
@@ -205,7 +235,8 @@ def _snippet_rows(snippets: Iterable[Snippet]) -> str:
 def _hotkey_rows(config: Mapping[str, object]) -> str:
     hotkeys = config.get("hotkeys") if isinstance(config.get("hotkeys"), dict) else {}
     rows = []
-    for action_id, label in HOTKEY_SETTINGS_LABELS.items():
+    labels = hotkey_action_labels(config)
+    for action_id, label in labels.items():
         current = ""
         if isinstance(hotkeys, dict):
             current = str(hotkeys.get(action_id) or "")
@@ -217,8 +248,8 @@ def _hotkey_rows(config: Mapping[str, object]) -> str:
                 <span>{escape(action_id)}</span>
               </span>
               <span class="wb-inline-controls">
-                <input name="hotkey:{escape(action_id)}" value="{escape(current)}" placeholder="Nicht gesetzt">
-                <button class="wb-button compact" type="button" data-capture-hotkey="{escape(action_id)}">Capture</button>
+                <input name="hotkey:{escape(action_id)}" value="{escape(current)}" placeholder="{escape(t("settings.not_set", config))}">
+                <button class="wb-button compact" type="button" data-capture-hotkey="{escape(action_id)}">{escape(t("settings.capture_hotkey", config))}</button>
               </span>
             </div>
             """
@@ -229,8 +260,9 @@ def _hotkey_rows(config: Mapping[str, object]) -> str:
 def _device_options(
     devices: Iterable[Mapping[str, object]],
     active_device_name: Optional[object],
+    config: Mapping[str, object],
 ) -> list[tuple[str, str]]:
-    options = [("", "System default")]
+    options = [("", t("option.system_default", config))]
     active_name = str(active_device_name or "").lower()
     for device in devices:
         name = str(device.get("name") or "")
@@ -238,7 +270,7 @@ def _device_options(
             continue
         label = name
         if active_name and name.lower() == active_name:
-            label = f"{name} (active)"
+            label = f"{name} ({t('option.active', config)})"
         options.append((name, label))
     return options
 
@@ -275,11 +307,17 @@ def apply_settings_payload(
     if not isinstance(snippets_payload, list):
         snippets_payload = []
 
+    language_config = dict(config)
+    language_config.setdefault("language", config.get("language", "de"))
+    if isinstance(settings, Mapping) and "language" in settings:
+        language_config["language"] = str(settings.get("language") or config.get("language", "de"))
+    editable_hotkey_labels = hotkey_action_labels(language_config)
+
     pending_hotkeys = build_pending_hotkeys(
         config.get("hotkeys", {}),
-        HOTKEY_SETTINGS_LABELS,
+        editable_hotkey_labels,
     )
-    for action_id in HOTKEY_SETTINGS_LABELS:
+    for action_id in editable_hotkey_labels:
         raw_value = hotkeys_payload.get(action_id, pending_hotkeys.get(action_id))
         if raw_value is None:
             pending_hotkeys[action_id] = None
@@ -287,8 +325,8 @@ def apply_settings_payload(
         clean_value = str(raw_value).strip()
         pending_hotkeys[action_id] = clean_value or None
 
-    conflicts = get_hotkey_conflicts_for_actions(pending_hotkeys, HOTKEY_SETTINGS_LABELS)
-    conflict_message = build_hotkey_conflict_message(conflicts, HOTKEY_SETTINGS_LABELS)
+    conflicts = get_hotkey_conflicts_for_actions(pending_hotkeys, editable_hotkey_labels)
+    conflict_message = build_hotkey_conflict_message(conflicts, editable_hotkey_labels, language_config)
     if conflict_message:
         return SettingsApplyResult(False, conflict_message)
 
@@ -545,7 +583,7 @@ def apply_settings_payload(
 
     save_config_func()
     update_device_func()
-    return SettingsApplyResult(True, "Einstellungen gespeichert.")
+    return SettingsApplyResult(True, t("settings.saved", config))
 
 
 def generate_settings_html(
@@ -558,6 +596,8 @@ def generate_settings_html(
 ) -> str:
     """Generate the experimental WebKit settings HTML."""
 
+    language = get_language(config)
+    tr = lambda key: t(key, config)
     dictionary_rows = _dictionary_rows(dictionary_entries)
     snippet_rows = _snippet_rows(snippets)
     preferred_languages = config.get("flow_preferred_languages", ["de", "en"])
@@ -567,57 +607,58 @@ def generate_settings_html(
         preferred_languages_text = str(preferred_languages or "")
     api_keys = api_keys or {}
     devices = list(devices or [])
+    paste_options = [(value, tr(f"paste.{value}")) for value in PASTE_OPTIONS]
 
     general_rows = (
         _select(
             "theme_preference",
-            "Theme",
-            "Farbmodus der Bedienoberfläche.",
-            [("auto", "Auto"), ("light", "Light"), ("dark", "Dark")],
+            tr("setting.theme"),
+            tr("setting.theme_desc"),
+            [("auto", "Auto"), ("light", tr("option.light")), ("dark", tr("option.dark"))],
             config.get("theme_preference", "auto"),
         )
         + _select(
             "language",
-            "Language",
-            "Primäre Sprache für die Transkription.",
+            tr("setting.language"),
+            tr("setting.language_desc"),
             [("de", "Deutsch"), ("en", "English")],
             config.get("language", "de"),
         )
         + _switch(
             "auto_paste_enabled",
-            "Auto-Paste",
-            "Fügt Transkripte nach der Aufnahme automatisch ein.",
+            tr("setting.auto_paste"),
+            tr("setting.auto_paste_desc"),
             config.get("auto_paste_enabled", False),
         )
         + _switch(
             "notifications_enabled",
-            "Notifications",
-            "Zeigt Desktop-Benachrichtigungen für Status und Fehler.",
+            tr("setting.notifications"),
+            tr("setting.notifications_desc"),
             config.get("notifications_enabled", True),
         )
         + _select(
             "paste_sequence",
-            "Paste mode",
-            "Einfügemethode für X11, Terminal und Fallbacks.",
-            list(PASTE_OPTIONS.items()),
+            tr("setting.paste_mode"),
+            tr("setting.paste_mode_desc"),
+            paste_options,
             config.get("paste_sequence", "auto"),
         )
         + _switch(
             "auto_paste_add_space",
-            "Add trailing space",
-            "Fügt nach Auto-Paste bei Bedarf ein Leerzeichen an.",
+            tr("setting.add_trailing_space"),
+            tr("setting.add_trailing_space_desc"),
             config.get("auto_paste_add_space", True),
         )
         + _switch(
             "auto_paste_add_newline",
-            "Add trailing newline",
-            "Fügt nach Auto-Paste bei Bedarf eine neue Zeile an.",
+            tr("setting.add_trailing_newline"),
+            tr("setting.add_trailing_newline_desc"),
             config.get("auto_paste_add_newline", True),
         )
         + _field(
             "paste_delay_ms",
-            "Paste delay",
-            "Kurze Verzögerung vor dem Einfügen in Millisekunden.",
+            tr("setting.paste_delay"),
+            tr("setting.paste_delay_desc"),
             config.get("paste_delay_ms", 250),
             "number",
         )
@@ -627,47 +668,47 @@ def generate_settings_html(
     recording_rows = (
         _select(
             "device_name",
-            "Input device",
-            "Mikrofon für Aufnahmen. Leer bedeutet Systemstandard.",
-            _device_options(devices, config.get("device_name")),
+            tr("setting.input_device"),
+            tr("setting.input_device_desc"),
+            _device_options(devices, config.get("device_name"), config),
             config.get("device_name") or "",
         )
         + _switch(
             "use_vad",
-            "VAD",
-            "Schneidet Stille und kann Aufnahmen kompakter machen.",
+            tr("setting.vad"),
+            tr("setting.vad_desc"),
             config.get("use_vad", False),
         )
         + _field(
             "vad_bridge_ms",
-            "Pause bridge",
-            "Kurze Pausen werden weiter als ein Satz behandelt.",
+            tr("setting.pause_bridge"),
+            tr("setting.pause_bridge_desc"),
             config.get("vad_bridge_ms", 180),
             "number",
         )
         + _switch(
             "noise_reduction_enabled",
-            "Noise reduction",
-            "Reduziert Hintergrundrauschen vor der Transkription.",
+            tr("setting.noise_reduction"),
+            tr("setting.noise_reduction_desc"),
             config.get("noise_reduction_enabled", True),
         )
         + _field(
             "noise_reduction_strength",
-            "Noise reduction strength",
-            "Stärke der Rauschunterdrückung von 0.0 bis 1.0.",
+            tr("setting.noise_reduction_strength"),
+            tr("setting.noise_reduction_strength_desc"),
             config.get("noise_reduction_strength", 0.7),
             "number",
         )
         + _switch(
             "audio_feedback_enabled",
-            "Audio feedback",
-            "Spielt Töne beim Starten und Stoppen der Aufnahme.",
+            tr("setting.audio_feedback"),
+            tr("setting.audio_feedback_desc"),
             config.get("audio_feedback_enabled", True),
         )
         + _field(
             "audio_feedback_volume",
-            "Audio feedback volume",
-            "Lautstärke der Feedback-Töne von 0.0 bis 1.0.",
+            tr("setting.audio_feedback_volume"),
+            tr("setting.audio_feedback_volume_desc"),
             config.get("audio_feedback_volume", 0.3),
             "number",
         )
@@ -676,8 +717,8 @@ def generate_settings_html(
     transcription_rows = (
         _select(
             "transcription_backend",
-            "Backend",
-            "Wählt Dienst oder lokales Modell.",
+            tr("setting.backend"),
+            tr("setting.backend_desc"),
             [
                 ("deepgram", "Deepgram Nova-3"),
                 ("elevenlabs", "ElevenLabs Scribe v2"),
@@ -689,14 +730,14 @@ def generate_settings_html(
         )
         + _field(
             "faster_whisper_model",
-            "Local model",
-            "Modellname für faster-whisper.",
+            tr("setting.local_model"),
+            tr("setting.local_model_desc"),
             config.get("faster_whisper_model", "medium"),
         )
         + _field(
             "streaming_model",
-            "Streaming model",
-            "Modellname für sherpa-onnx Streaming.",
+            tr("setting.streaming_model"),
+            tr("setting.streaming_model_desc"),
             config.get("streaming_model", "tiny"),
         )
     )
@@ -704,21 +745,21 @@ def generate_settings_html(
         _field(
             "api:DEEPGRAM_API_KEY",
             "Deepgram API key",
-            "Gespeichert lokal in ~/.config/whisprbar.env.",
+            tr("setting.api_key_desc"),
             api_keys.get("DEEPGRAM_API_KEY", ""),
             "password",
         )
         + _field(
             "api:OPENAI_API_KEY",
             "OpenAI API key",
-            "Gespeichert lokal in ~/.config/whisprbar.env.",
+            tr("setting.api_key_desc"),
             api_keys.get("OPENAI_API_KEY", ""),
             "password",
         )
         + _field(
             "api:ELEVENLABS_API_KEY",
             "ElevenLabs API key",
-            "Gespeichert lokal in ~/.config/whisprbar.env.",
+            tr("setting.api_key_desc"),
             api_keys.get("ELEVENLABS_API_KEY", ""),
             "password",
         )
@@ -726,20 +767,20 @@ def generate_settings_html(
     postprocess_rows = (
         _switch(
             "postprocess_enabled",
-            "Post-processing",
-            "Bereinigt Leerzeichen, Satzzeichen und Großschreibung.",
+            tr("setting.postprocess"),
+            tr("setting.postprocess_desc"),
             config.get("postprocess_enabled", True),
         )
         + _switch(
             "postprocess_fix_spacing",
-            "Fix spacing",
-            "Korrigiert doppelte Leerzeichen und Satzzeichenabstände.",
+            tr("setting.fix_spacing"),
+            tr("setting.fix_spacing_desc"),
             config.get("postprocess_fix_spacing", True),
         )
         + _switch(
             "postprocess_fix_capitalization",
-            "Fix capitalization",
-            "Korrigiert Satzanfänge und häufige Großschreibung.",
+            tr("setting.fix_capitalization"),
+            tr("setting.fix_capitalization_desc"),
             config.get("postprocess_fix_capitalization", True),
         )
     )
@@ -747,38 +788,38 @@ def generate_settings_html(
     flow_primary_rows = (
         _switch(
             "flow_mode_enabled",
-            "Flow Mode",
-            "Aktiviert die Wispr-Flow-artige Diktatpipeline.",
+            tr("settings.flow_mode"),
+            tr("setting.flow_mode_desc"),
             config.get("flow_mode_enabled", False),
         )
         + _switch(
             "flow_context_awareness_enabled",
-            "Context awareness",
-            "Passt Format und Einfügen an die aktive App an.",
+            tr("setting.context_awareness"),
+            tr("setting.context_awareness_desc"),
             config.get("flow_context_awareness_enabled", True),
         )
         + _switch(
             "flow_smart_formatting_enabled",
-            "Smart formatting",
-            "Formatiert natürliche Sprache zu Text, Listen und Zeilenumbrüchen.",
+            tr("setting.smart_formatting"),
+            tr("setting.smart_formatting_desc"),
             config.get("flow_smart_formatting_enabled", True),
         )
         + _switch(
             "flow_backtrack_enabled",
-            "Backtrack",
-            "Erlaubt Korrekturen wie kürzer, länger oder umformulieren.",
+            tr("setting.backtrack"),
+            tr("setting.backtrack_desc"),
             config.get("flow_backtrack_enabled", True),
         )
         + _switch(
             "flow_command_mode_enabled",
-            "Command mode",
-            "Erkennt natürliche Befehle wie neue Zeile oder als Liste.",
+            tr("setting.command_mode"),
+            tr("setting.command_mode_desc"),
             config.get("flow_command_mode_enabled", True),
         )
         + _switch(
             "flow_press_enter_enabled",
-            "Press Enter",
-            "Erlaubt Flow-Befehlen, nach dem Einfügen Enter zu drücken.",
+            tr("setting.press_enter"),
+            tr("setting.press_enter_desc"),
             config.get("flow_press_enter_enabled", False),
         )
     )
@@ -786,13 +827,13 @@ def generate_settings_html(
     flow_controls_rows = (
         _select(
             "flow_default_profile",
-            "Default profile",
-            "Standardprofil, falls keine App-Regel greift.",
+            tr("setting.default_profile"),
+            tr("setting.default_profile_desc"),
             [
-                ("default", "Default"),
+                ("default", tr("option.default")),
                 ("chat", "Chat"),
-                ("email", "Email"),
-                ("notes", "Notes"),
+                ("email", tr("option.email")),
+                ("notes", tr("option.notes")),
                 ("editor", "Editor"),
                 ("terminal", "Terminal"),
             ],
@@ -800,55 +841,55 @@ def generate_settings_html(
         )
         + _field(
             "flow_preferred_languages",
-            "Preferred languages",
-            "Kommagetrennte Sprachliste für Flow.",
+            tr("setting.preferred_languages"),
+            tr("setting.preferred_languages_desc"),
             preferred_languages_text,
         )
         + _field(
             "flow_max_recording_minutes",
-            "Max recording",
-            "Maximale Aufnahmezeit in Minuten.",
+            tr("setting.max_recording"),
+            tr("setting.max_recording_desc"),
             config.get("flow_max_recording_minutes", 20),
             "number",
         )
         + _field(
             "flow_recent_copy_seconds",
-            "Recent transcript window",
-            "Sekunden, in denen letzter Text als frisch gilt.",
+            tr("setting.recent_transcript_window"),
+            tr("setting.recent_transcript_window_desc"),
             config.get("flow_recent_copy_seconds", 5),
             "number",
         )
         + _switch(
             "flow_language_auto_detect",
-            "Language auto-detect",
-            "Lässt Flow zwischen bevorzugten Sprachen wechseln.",
+            tr("setting.language_auto_detect"),
+            tr("setting.language_auto_detect_desc"),
             config.get("flow_language_auto_detect", False),
         )
     )
     rewrite_rows = (
         _switch(
             "flow_rewrite_enabled",
-            "AI rewrite",
-            "Optionales Umschreiben über einen OpenAI-kompatiblen Anbieter.",
+            tr("settings.ai_rewrite"),
+            tr("setting.ai_rewrite_desc"),
             config.get("flow_rewrite_enabled", False),
         )
         + _select(
             "flow_rewrite_provider",
-            "Rewrite provider",
-            "Backend für die Rewrite-Funktion.",
+            tr("setting.rewrite_provider"),
+            tr("setting.rewrite_provider_desc"),
             [("none", "None"), ("openai_compatible", "OpenAI-compatible")],
             config.get("flow_rewrite_provider", "none"),
         )
         + _field(
             "flow_rewrite_model",
-            "Rewrite model",
-            "Modellname für AI Rewrite.",
+            tr("setting.rewrite_model"),
+            tr("setting.rewrite_model_desc"),
             config.get("flow_rewrite_model", ""),
         )
         + _field(
             "flow_rewrite_timeout_seconds",
-            "Rewrite timeout",
-            "Timeout in Sekunden.",
+            tr("setting.rewrite_timeout"),
+            tr("setting.rewrite_timeout_desc"),
             config.get("flow_rewrite_timeout_seconds", 12.0),
             "number",
         )
@@ -857,31 +898,31 @@ def generate_settings_html(
     privacy_rows = (
         _select(
             "flow_history_storage",
-            "History storage",
-            "Wie Flow-Verlauf gespeichert werden soll.",
+            tr("setting.history_storage"),
+            tr("setting.history_storage_desc"),
             [
-                ("normal", "Normal"),
-                ("auto_delete", "Auto-delete after 24h"),
-                ("never", "Never store"),
+                ("normal", tr("option.normal")),
+                ("auto_delete", tr("option.auto_delete_24h")),
+                ("never", tr("option.never_store")),
             ],
             config.get("flow_history_storage", "normal"),
         )
         + _switch(
             "flow_dictionary_enabled",
-            "Dictionary",
-            "Nutzt eigene Wortersetzungen wie WhisprBar.",
+            tr("settings.dictionary"),
+            tr("setting.dictionary_desc"),
             config.get("flow_dictionary_enabled", True),
         )
         + _switch(
             "flow_snippets_enabled",
-            "Snippets",
-            "Erweitert gesprochene Kürzel zu längeren Textbausteinen.",
+            tr("settings.snippets"),
+            tr("setting.snippets_desc"),
             config.get("flow_snippets_enabled", True),
         )
         + _field(
             "flow_history_auto_delete_hours",
-            "Auto-delete hours",
-            "Aufbewahrung bei Auto-delete in Stunden.",
+            tr("setting.auto_delete_hours"),
+            tr("setting.auto_delete_hours_desc"),
             config.get("flow_history_auto_delete_hours", 24),
             "number",
         )
@@ -890,50 +931,50 @@ def generate_settings_html(
     advanced_rows = (
         _field(
             "min_audio_energy",
-            "Hallucination guard",
-            "Mindestenergie, unter der Transkription blockiert wird.",
+            tr("setting.hallucination_guard"),
+            tr("setting.hallucination_guard_desc"),
             config.get("min_audio_energy", 0.0008),
             "number",
         )
         + _switch(
             "chunking_enabled",
-            "Chunking",
-            "Teilt lange Aufnahmen für stabilere Verarbeitung.",
+            tr("setting.chunking"),
+            tr("setting.chunking_desc"),
             config.get("chunking_enabled", True),
         )
     )
     vad_rows = (
         _field(
             "vad_energy_ratio",
-            "VAD sensitivity",
-            "Energie-Schwelle für Sprachaktivität.",
+            tr("setting.vad_sensitivity"),
+            tr("setting.vad_sensitivity_desc"),
             config.get("vad_energy_ratio", 0.02),
             "number",
         )
         + _field(
             "vad_min_energy_frames",
-            "Noise guard frames",
-            "Mindestanzahl aktiver Frames.",
+            tr("setting.noise_guard_frames"),
+            tr("setting.noise_guard_frames_desc"),
             config.get("vad_min_energy_frames", 2),
             "number",
         )
         + _switch(
             "vad_auto_stop_enabled",
-            "Auto-stop on silence",
-            "Stoppt automatisch nach erkannter Stille.",
+            tr("setting.auto_stop_on_silence"),
+            tr("setting.auto_stop_on_silence_desc"),
             config.get("vad_auto_stop_enabled", False),
         )
         + _field(
             "vad_auto_stop_silence_seconds",
-            "Silence duration",
-            "Sekunden Stille bis Auto-Stop.",
+            tr("setting.silence_duration"),
+            tr("setting.silence_duration_desc"),
             config.get("vad_auto_stop_silence_seconds", 2.0),
             "number",
         )
         + _field(
             "stop_tail_grace_ms",
-            "Recording tail buffer",
-            "Puffer am Ende einer Aufnahme in Millisekunden.",
+            tr("setting.recording_tail_buffer"),
+            tr("setting.recording_tail_buffer_desc"),
             config.get("stop_tail_grace_ms", 500),
             "number",
         )
@@ -941,104 +982,108 @@ def generate_settings_html(
     indicator_rows = (
         _switch(
             "recording_indicator_enabled",
-            "Flow indicator",
-            "Zeigt den modernen Aufnahmeindikator.",
+            tr("setting.flow_indicator"),
+            tr("setting.flow_indicator_desc"),
             config.get("recording_indicator_enabled", True),
         )
         + _select(
             "recording_indicator_position",
-            "Indicator position",
-            "Position des Aufnahmeindikators.",
+            tr("setting.indicator_position"),
+            tr("setting.indicator_position_desc"),
             [
-                ("top-center", "Top center"),
-                ("top-left", "Top left"),
-                ("top-right", "Top right"),
-                ("bottom-center", "Bottom center"),
-                ("draggable", "Draggable"),
+                ("top-center", tr("option.top_center")),
+                ("top-left", tr("option.top_left")),
+                ("top-right", tr("option.top_right")),
+                ("bottom-center", tr("option.bottom_center")),
+                ("draggable", tr("option.draggable")),
             ],
             config.get("recording_indicator_position", "top-center"),
         )
         + _field(
             "recording_indicator_width",
-            "Indicator width",
-            "Breite in Pixeln.",
+            tr("setting.indicator_width"),
+            tr("setting.indicator_width_desc"),
             config.get("recording_indicator_width", 240),
             "number",
         )
         + _field(
             "recording_indicator_height",
-            "Indicator height",
-            "Höhe in Pixeln.",
+            tr("setting.indicator_height"),
+            tr("setting.indicator_height_desc"),
             config.get("recording_indicator_height", 30),
             "number",
         )
         + _field(
             "recording_indicator_opacity",
-            "Indicator opacity",
-            "Deckkraft von 0.0 bis 1.0.",
+            tr("setting.indicator_opacity"),
+            tr("setting.indicator_opacity_desc"),
             config.get("recording_indicator_opacity", 0.85),
             "number",
         )
         + """
       <div class="wb-row">
         <span class="wb-row-label">
-          <b>Preview indicator</b>
-          <span>Zeigt den Aufnahmeindikator kurz mit den aktuellen Werten.</span>
+          <b>{preview_label}</b>
+          <span>{preview_desc}</span>
         </span>
-        <button class="wb-button compact" type="button" data-preview-indicator>Preview</button>
+        <button class="wb-button compact" type="button" data-preview-indicator>{preview_button}</button>
       </div>
-    """
+    """.format(
+            preview_label=escape(tr("setting.preview_indicator")),
+            preview_desc=escape(tr("setting.preview_indicator_desc")),
+            preview_button=escape(tr("setting.preview")),
+        )
     )
     overlay_rows = (
         _switch(
             "live_overlay_enabled",
-            "Live overlay",
-            "Schwebendes Fenster für Transkriptionsfortschritt.",
+            tr("setting.live_overlay"),
+            tr("setting.live_overlay_desc"),
             config.get("live_overlay_enabled", False),
         )
         + _field(
             "live_overlay_font_size",
-            "Overlay font size",
-            "Schriftgröße des Overlays.",
+            tr("setting.overlay_font_size"),
+            tr("setting.overlay_font_size_desc"),
             config.get("live_overlay_font_size", 14),
             "number",
         )
         + _field(
             "live_overlay_opacity",
-            "Overlay opacity",
-            "Deckkraft von 0.0 bis 1.0.",
+            tr("setting.overlay_opacity"),
+            tr("setting.indicator_opacity_desc"),
             config.get("live_overlay_opacity", 0.9),
             "number",
         )
         + _field(
             "live_overlay_width",
-            "Overlay width",
-            "Breite in Pixeln.",
+            tr("setting.overlay_width"),
+            tr("setting.indicator_width_desc"),
             config.get("live_overlay_width", 400),
             "number",
         )
         + _field(
             "live_overlay_height",
-            "Overlay height",
-            "Höhe in Pixeln.",
+            tr("setting.overlay_height"),
+            tr("setting.indicator_height_desc"),
             config.get("live_overlay_height", 150),
             "number",
         )
         + _field(
             "live_overlay_display_duration",
-            "Overlay duration",
-            "Anzeigedauer nach Abschluss in Sekunden.",
+            tr("setting.overlay_duration"),
+            tr("setting.overlay_duration_desc"),
             config.get("live_overlay_display_duration", 2.0),
             "number",
         )
     )
 
     return f"""<!doctype html>
-<html lang="en">
+<html lang="{escape(language)}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{escape(APP_NAME)} Settings</title>
+<title>{escape(tr("settings.title"))}</title>
 <style>
   :root {{
     color-scheme: dark;
@@ -1337,87 +1382,87 @@ def generate_settings_html(
 <body>
 <form class="wb-frame wb-polished">
   <header class="wb-windowbar">
-    <div class="wb-title"><span class="wb-logo">WB</span><span>WhisprBar Settings</span></div>
+    <div class="wb-title"><span class="wb-logo">WB</span><span>{escape(tr("settings.title"))}</span></div>
     <div class="wb-actions">
       <span id="settings-message" class="wb-message"></span>
-      <button id="settings-cancel" class="wb-button" type="button">Cancel</button>
-      <button id="settings-save" class="wb-button primary" type="button">Save Changes</button>
+      <button id="settings-cancel" class="wb-button" type="button">{escape(tr("settings.cancel"))}</button>
+      <button id="settings-save" class="wb-button primary" type="button">{escape(tr("settings.save"))}</button>
     </div>
   </header>
   <div class="wb-shell">
     <aside class="wb-sidebar">
-      <div class="wb-nav-label">Settings</div>
-      <nav class="wb-nav" aria-label="Settings pages">
-        <button class="wb-nav-item active" type="button" data-page="general"><span class="wb-icon"></span><span>General</span><span class="wb-count">2</span></button>
-        <button class="wb-nav-item" type="button" data-page="recording"><span class="wb-icon"></span><span>Recording</span><span class="wb-count">2</span></button>
-        <button class="wb-nav-item" type="button" data-page="transcription"><span class="wb-icon"></span><span>Transcription</span><span class="wb-count">3</span></button>
-        <button class="wb-nav-item" type="button" data-page="flow"><span class="wb-icon"></span><span>Flow</span><span class="wb-count">5</span></button>
-        <button class="wb-nav-item" type="button" data-page="privacy"><span class="wb-icon"></span><span>Privacy</span><span class="wb-count">1</span></button>
-        <button class="wb-nav-item" type="button" data-page="advanced"><span class="wb-icon"></span><span>Advanced</span><span class="wb-count">4</span></button>
+      <div class="wb-nav-label">{escape(tr("settings.nav_label"))}</div>
+      <nav class="wb-nav" aria-label="{escape(tr("settings.nav_label"))}">
+        <button class="wb-nav-item active" type="button" data-page="general"><span class="wb-icon"></span><span>{escape(tr("settings.general"))}</span><span class="wb-count">2</span></button>
+        <button class="wb-nav-item" type="button" data-page="recording"><span class="wb-icon"></span><span>{escape(tr("settings.recording"))}</span><span class="wb-count">2</span></button>
+        <button class="wb-nav-item" type="button" data-page="transcription"><span class="wb-icon"></span><span>{escape(tr("settings.transcription"))}</span><span class="wb-count">3</span></button>
+        <button class="wb-nav-item" type="button" data-page="flow"><span class="wb-icon"></span><span>{escape(tr("settings.flow"))}</span><span class="wb-count">5</span></button>
+        <button class="wb-nav-item" type="button" data-page="privacy"><span class="wb-icon"></span><span>{escape(tr("settings.privacy"))}</span><span class="wb-count">1</span></button>
+        <button class="wb-nav-item" type="button" data-page="advanced"><span class="wb-icon"></span><span>{escape(tr("settings.advanced"))}</span><span class="wb-count">4</span></button>
       </nav>
     </aside>
     <main class="wb-main">
       <section class="wb-page active" data-page-id="general">
         <div class="wb-page-head">
-          <div><h2>General</h2><p>Basisverhalten, Sprache und Einfügen bleiben kompakt erreichbar.</p></div>
-          <span class="wb-status-pill"><span class="wb-dot"></span> Local preview</span>
+          <div><h2>{escape(tr("settings.general"))}</h2><p>{escape(tr("settings.general_desc"))}</p></div>
+          <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.local_preview"))}</span>
         </div>
         <div class="wb-stack">
-          {_section("App behavior", "Daily use", general_rows, hero=True)}
-          {_section("Hotkeys", "All actions", hotkey_rows)}
+          {_section(tr("settings.app_behavior"), tr("settings.daily_use"), general_rows, hero=True)}
+          {_section(tr("settings.hotkeys"), tr("settings.all_actions"), hotkey_rows)}
         </div>
       </section>
 
       <section class="wb-page" data-page-id="recording">
         <div class="wb-page-head">
-          <div><h2>Recording</h2><p>Aufnahmequalität, VAD und akustisches Feedback.</p></div>
-          <span class="wb-status-pill"><span class="wb-dot"></span> Audio</span>
+          <div><h2>{escape(tr("settings.recording"))}</h2><p>{escape(tr("settings.recording_desc"))}</p></div>
+          <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.audio"))}</span>
         </div>
         <div class="wb-stack">
-          {_section("Capture", "Input and feedback", recording_rows, hero=True)}
-          {_section("Silence handling", "Expert VAD", vad_rows)}
+          {_section(tr("settings.capture"), tr("settings.input_feedback"), recording_rows, hero=True)}
+          {_section(tr("settings.silence_handling"), tr("settings.expert_vad"), vad_rows)}
         </div>
       </section>
 
       <section class="wb-page" data-page-id="transcription">
         <div class="wb-page-head">
-          <div><h2>Transcription</h2><p>Backend, Modell und Nachbearbeitung.</p></div>
-          <span class="wb-status-pill"><span class="wb-dot"></span> Engine</span>
+          <div><h2>{escape(tr("settings.transcription"))}</h2><p>{escape(tr("settings.transcription_desc"))}</p></div>
+          <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.engine_status"))}</span>
         </div>
         <div class="wb-stack">
-          {_section("Engine", "Backend", transcription_rows, hero=True)}
-          {_section("API keys", "Local env file", api_rows)}
-          {_section("Post-processing", "Cleanup", postprocess_rows)}
+          {_section(tr("settings.engine"), tr("setting.backend"), transcription_rows, hero=True)}
+          {_section(tr("settings.api_keys"), tr("settings.local_env_file"), api_rows)}
+          {_section(tr("settings.post_processing"), tr("settings.cleanup"), postprocess_rows)}
         </div>
       </section>
 
       <section class="wb-page" data-page-id="flow">
         <div class="wb-page-head">
-          <div><h2>Flow</h2><p>Die wichtigsten Wispr-Flow-artigen Funktionen an einem Ort.</p></div>
-          <span class="wb-status-pill"><span class="wb-dot"></span> Flow ready</span>
+          <div><h2>{escape(tr("settings.flow"))}</h2><p>{escape(tr("settings.flow_desc"))}</p></div>
+          <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.flow_ready"))}</span>
         </div>
         <div class="wb-layout">
           <div class="wb-stack">
-            {_section("Flow Mode", "Behavior", flow_primary_rows, hero=True)}
-            {_section("Profiles", "Context", flow_controls_rows)}
-            {_section("AI Rewrite", "Optional", rewrite_rows)}
+            {_section(tr("settings.flow_mode"), tr("settings.behavior"), flow_primary_rows, hero=True)}
+            {_section(tr("settings.profiles"), tr("settings.context"), flow_controls_rows)}
+            {_section(tr("settings.ai_rewrite"), tr("settings.optional"), rewrite_rows)}
           </div>
           <div class="wb-stack">
             <section class="wb-section">
-              <div class="wb-section-head"><h3>Dictionary</h3><span>Spoken -> written</span></div>
+              <div class="wb-section-head"><h3>{escape(tr("settings.dictionary"))}</h3><span>{escape(tr("settings.spoken_written"))}</span></div>
               <div class="wb-table" data-table="dictionary">
-                <div class="wb-table-head"><span>Recognized</span><span>Insert as</span><span></span></div>
+                <div class="wb-table-head"><span>{escape(tr("settings.recognized"))}</span><span>{escape(tr("settings.insert_as"))}</span><span></span></div>
                 {dictionary_rows}
               </div>
-              <div class="wb-table-actions"><button class="wb-button compact" type="button" data-add-row="dictionary">Add dictionary row</button></div>
+              <div class="wb-table-actions"><button class="wb-button compact" type="button" data-add-row="dictionary">{escape(tr("settings.add_dictionary_row"))}</button></div>
             </section>
             <section class="wb-section">
-              <div class="wb-section-head"><h3>Snippets</h3><span>Trigger -> text</span></div>
+              <div class="wb-section-head"><h3>{escape(tr("settings.snippets"))}</h3><span>{escape(tr("settings.trigger_text"))}</span></div>
               <div class="wb-table" data-table="snippets">
-                <div class="wb-table-head"><span>Trigger</span><span>Text</span><span></span></div>
+                <div class="wb-table-head"><span>{escape(tr("settings.trigger"))}</span><span>{escape(tr("settings.text"))}</span><span></span></div>
                 {snippet_rows}
               </div>
-              <div class="wb-table-actions"><button class="wb-button compact" type="button" data-add-row="snippets">Add snippet row</button></div>
+              <div class="wb-table-actions"><button class="wb-button compact" type="button" data-add-row="snippets">{escape(tr("settings.add_snippet_row"))}</button></div>
             </section>
           </div>
         </div>
@@ -1425,22 +1470,22 @@ def generate_settings_html(
 
       <section class="wb-page" data-page-id="privacy">
         <div class="wb-page-head">
-          <div><h2>Privacy</h2><p>Verlauf, lokale Flow-Dateien und Speicherung.</p></div>
-          <span class="wb-status-pill"><span class="wb-dot"></span> Local files</span>
+          <div><h2>{escape(tr("settings.privacy"))}</h2><p>{escape(tr("settings.privacy_desc"))}</p></div>
+          <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.local_files"))}</span>
         </div>
-        <div class="wb-stack">{_section("Storage", "History and local helpers", privacy_rows, hero=True)}</div>
+        <div class="wb-stack">{_section(tr("settings.storage"), tr("settings.history_local_helpers"), privacy_rows, hero=True)}</div>
       </section>
 
       <section class="wb-page" data-page-id="advanced">
         <div class="wb-page-head">
-          <div><h2>Advanced</h2><p>Technische Einstellungen für Indikator, Overlay und lange Aufnahmen.</p></div>
-          <span class="wb-status-pill"><span class="wb-dot"></span> Expert</span>
+          <div><h2>{escape(tr("settings.advanced"))}</h2><p>{escape(tr("settings.advanced_desc"))}</p></div>
+          <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.expert"))}</span>
         </div>
         <div class="wb-stack">
-          {_section("Runtime", "Technical", advanced_rows, hero=True)}
-          {_section("Indicator", "Flow bar", indicator_rows)}
-          {_section("Overlay", "Floating transcript", overlay_rows)}
-          <section class="wb-section"><div class="wb-note">Viele seltene Regler bleiben bewusst hier. Die wichtigen Alltagsoptionen sitzen in General, Recording, Transcription und Flow.</div></section>
+          {_section(tr("settings.runtime"), tr("settings.technical"), advanced_rows, hero=True)}
+          {_section(tr("settings.indicator"), tr("settings.flow_bar"), indicator_rows)}
+          {_section(tr("settings.overlay"), tr("settings.floating_transcript"), overlay_rows)}
+          <section class="wb-section"><div class="wb-note">{escape(tr("settings.advanced_note"))}</div></section>
         </div>
       </section>
     </main>
@@ -1538,13 +1583,13 @@ def generate_settings_html(
     const captureButton = event.target.closest('[data-capture-hotkey]');
     if (captureButton) {{
       const action = captureButton.dataset.captureHotkey;
-      setMessage('Press a key...', '');
+      setMessage({json.dumps(tr("settings.press_key"))}, '');
       postSettingsMessage({{ action: 'capture_hotkey', hotkey_action: action }});
     }}
   }});
 
   document.getElementById('settings-save').addEventListener('click', () => {{
-    setMessage('Saving...', '');
+    setMessage({json.dumps(tr("settings.saving"))}, '');
     postSettingsMessage({{ action: 'save', payload: collectPayload() }});
   }});
 
@@ -1565,7 +1610,7 @@ def generate_settings_html(
         input.value = value || '';
         input.title = label || value || '';
       }}
-      setMessage(label ? `Captured ${{label}}` : 'Hotkey captured', 'ok');
+      setMessage(label ? `${{label}}` : {json.dumps(tr("settings.hotkey_captured"))}, 'ok');
     }},
     setMessage(text, type) {{
       setMessage(text, type);
@@ -1627,16 +1672,16 @@ def open_settings_window(
             open_gtk_settings(config, state or {}, on_save=on_save)
             return True
         except Exception as fallback_exc:
-            notify("Settings window is unavailable.")
+            notify(t("settings.unavailable", config))
             print(f"[WARN] Settings fallback unavailable: {fallback_exc}", file=sys.stderr)
             return False
 
     with _settings_webview_lock:
         if _settings_webview_window is not None:
-            _settings_webview_window.close()
+            _present_settings_window(_settings_webview_window)
             return True
 
-    window = Gtk.Window(title=f"{APP_NAME} Settings")
+    window = Gtk.Window(title=t("settings.title", config))
     window.set_position(Gtk.WindowPosition.CENTER)
     window.set_default_size(1120, 760)
     window.set_resizable(True)
@@ -1708,13 +1753,13 @@ def open_settings_window(
                 return False
 
             GLib.timeout_add(2200, stop_preview)
-            _set_webview_message(webview, "Indicator preview shown.", "ok")
+            _set_webview_message(webview, t("settings.preview_shown", config), "ok")
         except Exception as exc:
-            _set_webview_message(webview, f"Preview failed: {exc}", "error")
+            _set_webview_message(webview, f"{t('settings.preview_failed', config)}: {exc}", "error")
 
     def handle_capture_hotkey(action_id: str) -> None:
         if action_id not in HOTKEY_SETTINGS_LABELS:
-            _set_webview_message(webview, "Unknown hotkey action.", "error")
+            _set_webview_message(webview, t("settings.hotkey_unknown", config), "error")
             return
 
         def on_complete(config_value: str, label: str) -> None:
@@ -1726,12 +1771,12 @@ def open_settings_window(
             )
 
         def on_cancel() -> None:
-            _set_webview_message(webview, "Hotkey capture cancelled.", "error")
+            _set_webview_message(webview, t("settings.hotkey_cancelled", config), "error")
 
         try:
             capture_hotkey(on_complete=on_complete, on_cancel=on_cancel, notify_user=False)
         except Exception as exc:
-            _set_webview_message(webview, f"Hotkey capture unavailable: {exc}", "error")
+            _set_webview_message(webview, f"{t('settings.hotkey_unavailable', config)}: {exc}", "error")
 
     def on_settings_message(_manager, message) -> None:
         data = _decode_webkit_message(message)
@@ -1756,8 +1801,8 @@ def open_settings_window(
                 state=state,
             )
         except Exception as exc:
-            notify(f"Einstellungen konnten nicht gespeichert werden: {exc}")
-            _set_webview_message(webview, f"Save failed: {exc}", "error")
+            notify(f"{t('settings.save_failed', config)}: {exc}")
+            _set_webview_message(webview, f"{t('settings.save_failed', config)}: {exc}", "error")
             return
 
         if not result.ok:
@@ -1766,7 +1811,7 @@ def open_settings_window(
             return
 
         if config.get("auto_paste_enabled") and is_wayland_session():
-            notify("Wayland: Auto-Paste nur über Zwischenablage.")
+            notify(t("settings.wayland_clipboard", config))
         notify(result.message)
         _set_webview_message(webview, result.message, "ok")
         if on_save:
@@ -1789,7 +1834,7 @@ def open_settings_window(
     webview.load_html(html, "file:///")
     window.connect("destroy", close_window)
     window.show_all()
-    window.present()
+    _present_settings_window(window)
     with _settings_webview_lock:
         _settings_webview_window = window
     return True

@@ -202,6 +202,22 @@ def test_find_hotkey_conflicts_detects_duplicates():
 
 
 @pytest.mark.unit
+def test_hotkey_event_matches_requires_exact_modifiers():
+    """Plain hotkeys should not fire while unrelated modifiers are held."""
+    assert hotkeys.hotkey_event_matches("<", set(), frozenset(), "<") is True
+    assert hotkeys.hotkey_event_matches("<", {"ALT"}, frozenset(), "<") is False
+    assert hotkeys.hotkey_event_matches("F9", {"CTRL"}, frozenset({"CTRL"}), "F9") is True
+    assert hotkeys.hotkey_event_matches("F9", {"CTRL", "ALT"}, frozenset({"CTRL"}), "F9") is False
+
+
+@pytest.mark.unit
+def test_hotkey_event_matches_keeps_modifier_only_hotkeys_working():
+    """Right-Ctrl style modifier hotkeys carry their own active modifier."""
+    assert hotkeys.hotkey_event_matches("CTRL_R", {"CTRL"}, frozenset(), "CTRL_R") is True
+    assert hotkeys.hotkey_event_matches("CTRL_R", {"CTRL", "ALT"}, frozenset(), "CTRL_R") is False
+
+
+@pytest.mark.unit
 def test_event_to_token_fkeys():
     """Test converting keyboard events to tokens for F-keys."""
     # Test each F-key mapping
