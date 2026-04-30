@@ -19,6 +19,7 @@ pip-wheel-metadata/
 # Logs and generated data
 *.log
 *.tmp
+.sync_*.db*
 
 # Local planning docs (not for publication)
 AGENTS.md

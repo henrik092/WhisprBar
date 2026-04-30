@@ -171,6 +171,38 @@ def test_validate_config_clamps_audio_feedback_volume():
 
 
 @pytest.mark.unit
+def test_validate_config_clamps_runtime_ui_values():
+    """Runtime UI dimensions and timing values are clamped before use."""
+    config.cfg.update(
+        {
+            "noise_reduction_strength": 4,
+            "recording_indicator_width": 9999,
+            "recording_indicator_height": 0,
+            "recording_indicator_opacity": -5,
+            "live_overlay_font_size": 99,
+            "live_overlay_opacity": -1,
+            "live_overlay_width": 9999,
+            "live_overlay_height": 0,
+            "live_overlay_display_duration": 99,
+            "min_audio_energy": 1,
+        }
+    )
+
+    config.validate_config()
+
+    assert config.cfg["noise_reduction_strength"] == 1.0
+    assert config.cfg["recording_indicator_width"] == 600
+    assert config.cfg["recording_indicator_height"] == 10
+    assert config.cfg["recording_indicator_opacity"] == 0.3
+    assert config.cfg["live_overlay_font_size"] == 32
+    assert config.cfg["live_overlay_opacity"] == 0.3
+    assert config.cfg["live_overlay_width"] == 800
+    assert config.cfg["live_overlay_height"] == 100
+    assert config.cfg["live_overlay_display_duration"] == 10.0
+    assert config.cfg["min_audio_energy"] == 0.01
+
+
+@pytest.mark.unit
 def test_validate_config_clamps_flow_values():
     """Flow config values are validated to safe ranges and known enum values."""
     config.cfg["flow_rewrite_timeout_seconds"] = 999

@@ -212,6 +212,72 @@ def test_apply_settings_payload_rejects_hotkey_conflicts_without_writing():
     assert saved_config == []
 
 
+def test_apply_settings_payload_clamps_runtime_sensitive_values():
+    config = {"hotkeys": {"toggle_recording": "F9"}, "hotkey": "F9"}
+
+    result = apply_settings_payload(
+        config,
+        {
+            "settings": {
+                "paste_delay_ms": "999999",
+                "noise_reduction_strength": "5",
+                "audio_feedback_volume": "-1",
+                "vad_energy_ratio": "3",
+                "vad_bridge_ms": "-10",
+                "vad_min_energy_frames": "99",
+                "vad_auto_stop_silence_seconds": "99",
+                "stop_tail_grace_ms": "9999",
+                "min_audio_energy": "1",
+                "recording_indicator_width": "9999",
+                "recording_indicator_height": "-4",
+                "recording_indicator_opacity": "9",
+                "live_overlay_font_size": "99",
+                "live_overlay_opacity": "-4",
+                "live_overlay_width": "9999",
+                "live_overlay_height": "-20",
+                "live_overlay_display_duration": "99",
+                "flow_rewrite_timeout_seconds": "999",
+                "flow_history_auto_delete_hours": "99999",
+                "flow_recent_copy_seconds": "-2",
+                "flow_max_recording_minutes": "999",
+            },
+            "hotkeys": {},
+            "api_keys": {},
+            "dictionary": [],
+            "snippets": [],
+        },
+        save_config_func=lambda: None,
+        save_env_func=lambda _key, _value: None,
+        save_dictionary_func=lambda _entries: None,
+        save_snippets_func=lambda _entries: None,
+        update_device_func=lambda: None,
+        reset_indicator_func=lambda: None,
+    )
+
+    assert result.ok is True
+    assert config["paste_delay_ms"] == 5000
+    assert config["noise_reduction_strength"] == 1.0
+    assert config["audio_feedback_volume"] == 0.0
+    assert config["vad_energy_ratio"] == 0.3
+    assert config["vad_bridge_ms"] == 0
+    assert config["vad_min_energy_frames"] == 10
+    assert config["vad_auto_stop_silence_seconds"] == 30.0
+    assert config["stop_tail_grace_ms"] == 2000
+    assert config["min_audio_energy"] == 0.01
+    assert config["recording_indicator_width"] == 600
+    assert config["recording_indicator_height"] == 10
+    assert config["recording_indicator_opacity"] == 1.0
+    assert config["live_overlay_font_size"] == 32
+    assert config["live_overlay_opacity"] == 0.3
+    assert config["live_overlay_width"] == 800
+    assert config["live_overlay_height"] == 100
+    assert config["live_overlay_display_duration"] == 10.0
+    assert config["flow_rewrite_timeout_seconds"] == 60.0
+    assert config["flow_history_auto_delete_hours"] == 720
+    assert config["flow_recent_copy_seconds"] == 1
+    assert config["flow_max_recording_minutes"] == 60
+
+
 def test_ui_exports_webview_settings_as_default():
     from whisprbar import ui
 

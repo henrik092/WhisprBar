@@ -109,3 +109,13 @@ def test_new_line_command_appends_newline():
     assert detection.command_id == "new_line"
     assert detection.paste_policy is not None
     assert detection.paste_policy.add_newline is True
+
+
+@pytest.mark.unit
+def test_german_next_line_command_alias_appends_newline():
+    detection = detect_command("hallo nächste zeile", "de", enabled=True)
+
+    assert detection.text == "hallo"
+    assert detection.command_id == "new_line"
+    assert detection.paste_policy is not None
+    assert detection.paste_policy.add_newline is True

@@ -27,6 +27,7 @@ COMMAND_SPECS = (
     CommandSpec("clipboard_only", "nur in die zwischenablage", paste_policy=PastePolicy(clipboard_only=True)),
     CommandSpec("press_enter", "drücke enter", paste_policy=PastePolicy(press_enter_after_paste=True)),
     CommandSpec("new_line", "neue zeile", paste_policy=PastePolicy(add_newline=True)),
+    CommandSpec("new_line", "nächste zeile", paste_policy=PastePolicy(add_newline=True)),
     CommandSpec("professional", "make this more professional", "professional"),
     CommandSpec("shorter", "make this shorter", "shorter"),
     CommandSpec("longer", "make this longer", "longer"),

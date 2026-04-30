@@ -302,6 +302,76 @@ def validate_config() -> None:
         except (ValueError, TypeError):
             cfg["audio_feedback_volume"] = DEFAULT_CFG["audio_feedback_volume"]
 
+    if "noise_reduction_strength" in cfg:
+        try:
+            strength = float(cfg["noise_reduction_strength"])
+            cfg["noise_reduction_strength"] = max(0.0, min(1.0, strength))
+        except (ValueError, TypeError):
+            cfg["noise_reduction_strength"] = DEFAULT_CFG["noise_reduction_strength"]
+
+    if "min_audio_energy" in cfg:
+        try:
+            energy = float(cfg["min_audio_energy"])
+            cfg["min_audio_energy"] = max(0.0001, min(0.01, energy))
+        except (ValueError, TypeError):
+            cfg["min_audio_energy"] = DEFAULT_CFG["min_audio_energy"]
+
+    if "recording_indicator_width" in cfg:
+        try:
+            width = int(cfg["recording_indicator_width"])
+            cfg["recording_indicator_width"] = max(60, min(600, width))
+        except (ValueError, TypeError):
+            cfg["recording_indicator_width"] = DEFAULT_CFG["recording_indicator_width"]
+
+    if "recording_indicator_height" in cfg:
+        try:
+            height = int(cfg["recording_indicator_height"])
+            cfg["recording_indicator_height"] = max(10, min(100, height))
+        except (ValueError, TypeError):
+            cfg["recording_indicator_height"] = DEFAULT_CFG["recording_indicator_height"]
+
+    if "recording_indicator_opacity" in cfg:
+        try:
+            opacity = float(cfg["recording_indicator_opacity"])
+            cfg["recording_indicator_opacity"] = max(0.3, min(1.0, opacity))
+        except (ValueError, TypeError):
+            cfg["recording_indicator_opacity"] = DEFAULT_CFG["recording_indicator_opacity"]
+
+    if "live_overlay_font_size" in cfg:
+        try:
+            font_size = int(cfg["live_overlay_font_size"])
+            cfg["live_overlay_font_size"] = max(8, min(32, font_size))
+        except (ValueError, TypeError):
+            cfg["live_overlay_font_size"] = DEFAULT_CFG["live_overlay_font_size"]
+
+    if "live_overlay_opacity" in cfg:
+        try:
+            opacity = float(cfg["live_overlay_opacity"])
+            cfg["live_overlay_opacity"] = max(0.3, min(1.0, opacity))
+        except (ValueError, TypeError):
+            cfg["live_overlay_opacity"] = DEFAULT_CFG["live_overlay_opacity"]
+
+    if "live_overlay_width" in cfg:
+        try:
+            width = int(cfg["live_overlay_width"])
+            cfg["live_overlay_width"] = max(200, min(800, width))
+        except (ValueError, TypeError):
+            cfg["live_overlay_width"] = DEFAULT_CFG["live_overlay_width"]
+
+    if "live_overlay_height" in cfg:
+        try:
+            height = int(cfg["live_overlay_height"])
+            cfg["live_overlay_height"] = max(100, min(400, height))
+        except (ValueError, TypeError):
+            cfg["live_overlay_height"] = DEFAULT_CFG["live_overlay_height"]
+
+    if "live_overlay_display_duration" in cfg:
+        try:
+            duration = float(cfg["live_overlay_display_duration"])
+            cfg["live_overlay_display_duration"] = max(0.5, min(10.0, duration))
+        except (ValueError, TypeError):
+            cfg["live_overlay_display_duration"] = DEFAULT_CFG["live_overlay_display_duration"]
+
     if cfg.get("flow_rewrite_provider") not in {"none", "openai_compatible"}:
         cfg["flow_rewrite_provider"] = DEFAULT_CFG["flow_rewrite_provider"]
 

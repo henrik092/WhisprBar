@@ -72,6 +72,14 @@ def _float_value(value: object, default: float, digits: int = 2) -> float:
         return default
 
 
+def _clamp_int(value: int, lower: int, upper: int) -> int:
+    return max(lower, min(upper, value))
+
+
+def _clamp_float(value: float, lower: float, upper: float, digits: int = 2) -> float:
+    return round(max(lower, min(upper, value)), digits)
+
+
 def _setting(settings: Mapping[str, object], key: str, default: object) -> object:
     return settings[key] if key in settings else default
 
@@ -299,7 +307,11 @@ def apply_settings_payload(
     config["auto_paste_add_newline"] = _bool_value(_setting(settings, "auto_paste_add_newline", config.get("auto_paste_add_newline", True)))
     config["notifications_enabled"] = _bool_value(_setting(settings, "notifications_enabled", config.get("notifications_enabled", True)))
     config["paste_sequence"] = str(_setting(settings, "paste_sequence", config.get("paste_sequence", "auto")) or "auto")
-    config["paste_delay_ms"] = _int_value(_setting(settings, "paste_delay_ms", config.get("paste_delay_ms", 250)), 250)
+    config["paste_delay_ms"] = _clamp_int(
+        _int_value(_setting(settings, "paste_delay_ms", config.get("paste_delay_ms", 250)), 250),
+        0,
+        5000,
+    )
     config["hotkeys"] = pending_hotkeys.copy()
     config["hotkey"] = config["hotkeys"].get("toggle_recording") or config.get("hotkey", "F9")
 
@@ -310,35 +322,72 @@ def apply_settings_payload(
         if noise_reduction_available
         else False
     )
-    config["noise_reduction_strength"] = _float_value(
-        _setting(settings, "noise_reduction_strength", config.get("noise_reduction_strength", 0.7)),
-        0.7,
+    config["noise_reduction_strength"] = _clamp_float(
+        _float_value(
+            _setting(settings, "noise_reduction_strength", config.get("noise_reduction_strength", 0.7)),
+            0.7,
+            1,
+        ),
+        0.0,
+        1.0,
         1,
     )
     config["audio_feedback_enabled"] = _bool_value(_setting(settings, "audio_feedback_enabled", config.get("audio_feedback_enabled", True)))
-    config["audio_feedback_volume"] = _float_value(_setting(settings, "audio_feedback_volume", config.get("audio_feedback_volume", 0.3)), 0.3, 1)
+    config["audio_feedback_volume"] = _clamp_float(
+        _float_value(_setting(settings, "audio_feedback_volume", config.get("audio_feedback_volume", 0.3)), 0.3, 1),
+        0.0,
+        1.0,
+        1,
+    )
 
     config["transcription_backend"] = str(_setting(settings, "transcription_backend", config.get("transcription_backend", "openai")) or "openai")
     config["faster_whisper_model"] = str(_setting(settings, "faster_whisper_model", config.get("faster_whisper_model", "medium")) or "medium")
     config["streaming_model"] = str(_setting(settings, "streaming_model", config.get("streaming_model", "tiny")) or "tiny")
 
     config["use_vad"] = _bool_value(_setting(settings, "use_vad", config.get("use_vad", False))) if vad_available else False
-    config["vad_energy_ratio"] = _float_value(_setting(settings, "vad_energy_ratio", config.get("vad_energy_ratio", 0.02)), 0.02, 3)
-    config["vad_bridge_ms"] = _int_value(_setting(settings, "vad_bridge_ms", config.get("vad_bridge_ms", 180)), 180)
-    config["vad_min_energy_frames"] = _int_value(_setting(settings, "vad_min_energy_frames", config.get("vad_min_energy_frames", 2)), 2)
+    config["vad_energy_ratio"] = _clamp_float(
+        _float_value(_setting(settings, "vad_energy_ratio", config.get("vad_energy_ratio", 0.02)), 0.02, 3),
+        0.002,
+        0.3,
+        3,
+    )
+    config["vad_bridge_ms"] = _clamp_int(
+        _int_value(_setting(settings, "vad_bridge_ms", config.get("vad_bridge_ms", 180)), 180),
+        0,
+        1000,
+    )
+    config["vad_min_energy_frames"] = _clamp_int(
+        _int_value(_setting(settings, "vad_min_energy_frames", config.get("vad_min_energy_frames", 2)), 2),
+        1,
+        10,
+    )
     config["vad_auto_stop_enabled"] = (
         _bool_value(_setting(settings, "vad_auto_stop_enabled", config.get("vad_auto_stop_enabled", False)))
         and config["use_vad"]
         if vad_available
         else False
     )
-    config["vad_auto_stop_silence_seconds"] = _float_value(
-        _setting(settings, "vad_auto_stop_silence_seconds", config.get("vad_auto_stop_silence_seconds", 2.0)),
-        2.0,
+    config["vad_auto_stop_silence_seconds"] = _clamp_float(
+        _float_value(
+            _setting(settings, "vad_auto_stop_silence_seconds", config.get("vad_auto_stop_silence_seconds", 2.0)),
+            2.0,
+            1,
+        ),
+        0.5,
+        30.0,
         1,
     )
-    config["stop_tail_grace_ms"] = _int_value(_setting(settings, "stop_tail_grace_ms", config.get("stop_tail_grace_ms", 500)), 500)
-    config["min_audio_energy"] = _float_value(_setting(settings, "min_audio_energy", config.get("min_audio_energy", 0.0008)), 0.0008, 4)
+    config["stop_tail_grace_ms"] = _clamp_int(
+        _int_value(_setting(settings, "stop_tail_grace_ms", config.get("stop_tail_grace_ms", 500)), 500),
+        0,
+        2000,
+    )
+    config["min_audio_energy"] = _clamp_float(
+        _float_value(_setting(settings, "min_audio_energy", config.get("min_audio_energy", 0.0008)), 0.0008, 4),
+        0.0001,
+        0.01,
+        4,
+    )
     config["postprocess_enabled"] = _bool_value(_setting(settings, "postprocess_enabled", config.get("postprocess_enabled", True)))
     config["postprocess_fix_spacing"] = _bool_value(_setting(settings, "postprocess_fix_spacing", config.get("postprocess_fix_spacing", True))) and config["postprocess_enabled"]
     config["postprocess_fix_capitalization"] = _bool_value(_setting(settings, "postprocess_fix_capitalization", config.get("postprocess_fix_capitalization", True))) and config["postprocess_enabled"]
@@ -346,18 +395,53 @@ def apply_settings_payload(
 
     config["recording_indicator_enabled"] = _bool_value(_setting(settings, "recording_indicator_enabled", config.get("recording_indicator_enabled", True)))
     config["recording_indicator_position"] = str(_setting(settings, "recording_indicator_position", config.get("recording_indicator_position", "top-center")) or "top-center")
-    config["recording_indicator_width"] = _int_value(_setting(settings, "recording_indicator_width", config.get("recording_indicator_width", 240)), 240)
-    config["recording_indicator_height"] = _int_value(_setting(settings, "recording_indicator_height", config.get("recording_indicator_height", 30)), 30)
-    config["recording_indicator_opacity"] = _float_value(_setting(settings, "recording_indicator_opacity", config.get("recording_indicator_opacity", 0.85)), 0.85, 2)
+    config["recording_indicator_width"] = _clamp_int(
+        _int_value(_setting(settings, "recording_indicator_width", config.get("recording_indicator_width", 240)), 240),
+        60,
+        600,
+    )
+    config["recording_indicator_height"] = _clamp_int(
+        _int_value(_setting(settings, "recording_indicator_height", config.get("recording_indicator_height", 30)), 30),
+        10,
+        100,
+    )
+    config["recording_indicator_opacity"] = _clamp_float(
+        _float_value(_setting(settings, "recording_indicator_opacity", config.get("recording_indicator_opacity", 0.85)), 0.85, 2),
+        0.3,
+        1.0,
+        2,
+    )
 
     config["live_overlay_enabled"] = _bool_value(_setting(settings, "live_overlay_enabled", config.get("live_overlay_enabled", False)))
-    config["live_overlay_font_size"] = _int_value(_setting(settings, "live_overlay_font_size", config.get("live_overlay_font_size", 14)), 14)
-    config["live_overlay_opacity"] = _float_value(_setting(settings, "live_overlay_opacity", config.get("live_overlay_opacity", 0.9)), 0.9, 2)
-    config["live_overlay_width"] = _int_value(_setting(settings, "live_overlay_width", config.get("live_overlay_width", 400)), 400)
-    config["live_overlay_height"] = _int_value(_setting(settings, "live_overlay_height", config.get("live_overlay_height", 150)), 150)
-    config["live_overlay_display_duration"] = _float_value(
-        _setting(settings, "live_overlay_display_duration", config.get("live_overlay_display_duration", 2.0)),
-        2.0,
+    config["live_overlay_font_size"] = _clamp_int(
+        _int_value(_setting(settings, "live_overlay_font_size", config.get("live_overlay_font_size", 14)), 14),
+        8,
+        32,
+    )
+    config["live_overlay_opacity"] = _clamp_float(
+        _float_value(_setting(settings, "live_overlay_opacity", config.get("live_overlay_opacity", 0.9)), 0.9, 2),
+        0.3,
+        1.0,
+        2,
+    )
+    config["live_overlay_width"] = _clamp_int(
+        _int_value(_setting(settings, "live_overlay_width", config.get("live_overlay_width", 400)), 400),
+        200,
+        800,
+    )
+    config["live_overlay_height"] = _clamp_int(
+        _int_value(_setting(settings, "live_overlay_height", config.get("live_overlay_height", 150)), 150),
+        100,
+        400,
+    )
+    config["live_overlay_display_duration"] = _clamp_float(
+        _float_value(
+            _setting(settings, "live_overlay_display_duration", config.get("live_overlay_display_duration", 2.0)),
+            2.0,
+            1,
+        ),
+        0.5,
+        10.0,
         1,
     )
 
@@ -372,27 +456,44 @@ def apply_settings_payload(
     config["flow_rewrite_enabled"] = _bool_value(_setting(settings, "flow_rewrite_enabled", config.get("flow_rewrite_enabled", False)))
     config["flow_rewrite_provider"] = str(_setting(settings, "flow_rewrite_provider", config.get("flow_rewrite_provider", "none")) or "none")
     config["flow_rewrite_model"] = str(_setting(settings, "flow_rewrite_model", config.get("flow_rewrite_model", "")) or "").strip()
-    config["flow_rewrite_timeout_seconds"] = _float_value(
-        _setting(settings, "flow_rewrite_timeout_seconds", config.get("flow_rewrite_timeout_seconds", 12.0)),
-        12.0,
+    config["flow_rewrite_timeout_seconds"] = _clamp_float(
+        _float_value(
+            _setting(settings, "flow_rewrite_timeout_seconds", config.get("flow_rewrite_timeout_seconds", 12.0)),
+            12.0,
+            1,
+        ),
+        1.0,
+        60.0,
         1,
     )
     config["flow_default_profile"] = str(_setting(settings, "flow_default_profile", config.get("flow_default_profile", "default")) or "default")
     config["flow_history_storage"] = str(_setting(settings, "flow_history_storage", config.get("flow_history_storage", "normal")) or "normal")
-    config["flow_history_auto_delete_hours"] = _int_value(
-        _setting(settings, "flow_history_auto_delete_hours", config.get("flow_history_auto_delete_hours", 24)),
-        24,
+    config["flow_history_auto_delete_hours"] = _clamp_int(
+        _int_value(
+            _setting(settings, "flow_history_auto_delete_hours", config.get("flow_history_auto_delete_hours", 24)),
+            24,
+        ),
+        1,
+        720,
     )
-    config["flow_recent_copy_seconds"] = _int_value(
-        _setting(settings, "flow_recent_copy_seconds", config.get("flow_recent_copy_seconds", 5)),
-        5,
+    config["flow_recent_copy_seconds"] = _clamp_int(
+        _int_value(
+            _setting(settings, "flow_recent_copy_seconds", config.get("flow_recent_copy_seconds", 5)),
+            5,
+        ),
+        1,
+        30,
     )
     languages_value = str(_setting(settings, "flow_preferred_languages", ", ".join(config.get("flow_preferred_languages", ["de", "en"]))) or "")
     config["flow_preferred_languages"] = [item.strip() for item in languages_value.split(",") if item.strip()] or ["de", "en"]
     config["flow_language_auto_detect"] = _bool_value(_setting(settings, "flow_language_auto_detect", config.get("flow_language_auto_detect", False)))
-    config["flow_max_recording_minutes"] = _int_value(
-        _setting(settings, "flow_max_recording_minutes", config.get("flow_max_recording_minutes", 20)),
-        20,
+    config["flow_max_recording_minutes"] = _clamp_int(
+        _int_value(
+            _setting(settings, "flow_max_recording_minutes", config.get("flow_max_recording_minutes", 20)),
+            20,
+        ),
+        1,
+        60,
     )
 
     for key in ("DEEPGRAM_API_KEY", "OPENAI_API_KEY", "ELEVENLABS_API_KEY"):

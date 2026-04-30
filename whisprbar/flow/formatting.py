@@ -27,7 +27,7 @@ PUNCTUATION_WORDS = {
 
 LINE_BREAK_WORDS = {
     "en": ("new line",),
-    "de": ("neue zeile",),
+    "de": ("neue zeile", "nächste zeile"),
 }
 
 LIST_MARKERS = {

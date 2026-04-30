@@ -83,6 +83,19 @@ def test_apply_smart_formatting_converts_spoken_new_line():
 
 
 @pytest.mark.unit
+def test_apply_smart_formatting_converts_german_next_line_alias():
+    text, metadata = apply_smart_formatting(
+        "whisperbar punkt nächste zeile das ist ein test",
+        "de",
+        FlowProfile("default", "Default"),
+        {"flow_smart_formatting_enabled": True},
+    )
+
+    assert text == "whisperbar.\ndas ist ein test"
+    assert metadata["line_breaks"] is True
+
+
+@pytest.mark.unit
 def test_apply_smart_formatting_formats_list_with_punctuation_noise():
     text, metadata = apply_smart_formatting(
         "eins Punkt, erster Punkt, zwei Punkt, zweiter Punkt",
