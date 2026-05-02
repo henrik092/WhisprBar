@@ -16,6 +16,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 
 from whisprbar.audio import list_input_devices, update_device_index
 from whisprbar.config import get_env_value, save_config, save_env_file_value
+from whisprbar.flow.commands import COMMAND_SPECS, CommandSpec
 from whisprbar.flow.dictionary import load_dictionary, save_dictionary
 from whisprbar.flow.models import DictionaryEntry, Snippet
 from whisprbar.flow.snippets import load_snippets, save_snippets
@@ -251,6 +252,49 @@ def _hotkey_rows(config: Mapping[str, object]) -> str:
                 <input name="hotkey:{escape(action_id)}" value="{escape(current)}" placeholder="{escape(t("settings.not_set", config))}">
                 <button class="wb-button compact" type="button" data-capture-hotkey="{escape(action_id)}">{escape(t("settings.capture_hotkey", config))}</button>
               </span>
+            </div>
+            """
+        )
+    return "\n".join(rows)
+
+
+def _command_action_label(command_id: str, config: Mapping[str, object]) -> str:
+    labels = {
+        "professional": t("voice_command.professional", config),
+        "shorter": t("voice_command.shorter", config),
+        "longer": t("voice_command.longer", config),
+        "list": t("voice_command.list", config),
+        "translate_english": t("voice_command.translate_english", config),
+        "correct_english": t("voice_command.correct_english", config),
+        "humanize": t("voice_command.humanize", config),
+        "clipboard_only": t("voice_command.clipboard_only", config),
+        "press_enter": t("voice_command.press_enter", config),
+        "new_line": t("voice_command.new_line", config),
+    }
+    return labels.get(command_id, command_id.replace("_", " "))
+
+
+def _command_requirement(spec: CommandSpec, config: Mapping[str, object]) -> str:
+    parts = [
+        t("settings.uses_ai_rewrite", config)
+        if spec.rewrite_mode
+        else t("settings.no_ai", config)
+    ]
+    if spec.command_id == "press_enter":
+        parts.append(t("settings.requires_press_enter", config))
+    return " · ".join(parts)
+
+
+def _voice_command_rows(command_specs: Iterable[CommandSpec], config: Mapping[str, object]) -> str:
+    rows = []
+    for spec in command_specs:
+        kind = "ai" if spec.rewrite_mode else "local"
+        rows.append(
+            f"""
+            <div class="wb-command-row" data-command-kind="{escape(kind)}">
+              <code>{escape(spec.phrase)}</code>
+              <span>{escape(_command_action_label(spec.command_id, config))}</span>
+              <span>{escape(_command_requirement(spec, config))}</span>
             </div>
             """
         )
@@ -894,6 +938,14 @@ def generate_settings_html(
             "number",
         )
     )
+    ai_command_rows = _voice_command_rows(
+        (spec for spec in COMMAND_SPECS if spec.rewrite_mode),
+        config,
+    )
+    local_command_rows = _voice_command_rows(
+        (spec for spec in COMMAND_SPECS if not spec.rewrite_mode),
+        config,
+    )
 
     privacy_rows = (
         _select(
@@ -1168,9 +1220,16 @@ def generate_settings_html(
   .wb-shell {{
     display: grid;
     grid-template-columns: 218px minmax(0, 1fr);
-    min-height: calc(100vh - 52px);
+    height: calc(100vh - 52px);
+    min-height: 0;
+    overflow: hidden;
   }}
   .wb-sidebar {{
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: calc(100vh - 52px);
+    overflow-y: auto;
     padding: 18px 12px;
     background: var(--panel-2);
     border-right: 1px solid rgba(255,255,255,0.08);
@@ -1214,7 +1273,8 @@ def generate_settings_html(
   .wb-main {{
     padding: 26px 30px 30px;
     background: #0d1218;
-    overflow: auto;
+    min-height: 0;
+    overflow-y: auto;
   }}
   .wb-page {{ display: none; max-width: 1180px; }}
   .wb-page.active {{ display: block; }}
@@ -1371,11 +1431,46 @@ def generate_settings_html(
     font-size: 12px;
     line-height: 1.45;
   }}
+  .wb-command-list {{
+    display: grid;
+    gap: 0;
+  }}
+  .wb-command-head, .wb-command-row {{
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) minmax(160px, 0.72fr) minmax(180px, 0.9fr);
+    gap: 12px;
+    align-items: center;
+    padding: 10px 16px;
+    border-top: 1px solid rgba(255,255,255,0.055);
+  }}
+  .wb-command-head {{
+    border-top: 0;
+    color: #7f8d9b;
+    font-size: 11px;
+  }}
+  .wb-command-row code {{
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    border-radius: 6px;
+    background: rgba(0,0,0,0.18);
+    color: #dce5ee;
+    padding: 5px 7px;
+    line-height: 1.3;
+  }}
+  .wb-command-row span {{
+    min-width: 0;
+    color: #aab7c4;
+    font-size: 12px;
+    line-height: 1.35;
+  }}
   @media (max-width: 760px) {{
-    .wb-shell {{ grid-template-columns: 1fr; }}
-    .wb-sidebar {{ border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.08); }}
+    .wb-shell {{ grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 52px); overflow: visible; }}
+    .wb-sidebar {{ position: static; height: auto; border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.08); }}
     .wb-layout {{ grid-template-columns: 1fr; }}
     .wb-page-head {{ grid-template-columns: 1fr; }}
+    .wb-main {{ overflow: visible; }}
+    .wb-command-head, .wb-command-row {{ grid-template-columns: 1fr; }}
   }}
 </style>
 </head>
@@ -1397,6 +1492,7 @@ def generate_settings_html(
         <button class="wb-nav-item" type="button" data-page="recording"><span class="wb-icon"></span><span>{escape(tr("settings.recording"))}</span><span class="wb-count">2</span></button>
         <button class="wb-nav-item" type="button" data-page="transcription"><span class="wb-icon"></span><span>{escape(tr("settings.transcription"))}</span><span class="wb-count">3</span></button>
         <button class="wb-nav-item" type="button" data-page="flow"><span class="wb-icon"></span><span>{escape(tr("settings.flow"))}</span><span class="wb-count">5</span></button>
+        <button class="wb-nav-item" type="button" data-page="voice-commands"><span class="wb-icon"></span><span>{escape(tr("settings.voice_commands"))}</span><span class="wb-count">{len(COMMAND_SPECS)}</span></button>
         <button class="wb-nav-item" type="button" data-page="privacy"><span class="wb-icon"></span><span>{escape(tr("settings.privacy"))}</span><span class="wb-count">1</span></button>
         <button class="wb-nav-item" type="button" data-page="advanced"><span class="wb-icon"></span><span>{escape(tr("settings.advanced"))}</span><span class="wb-count">4</span></button>
       </nav>
@@ -1465,6 +1561,30 @@ def generate_settings_html(
               <div class="wb-table-actions"><button class="wb-button compact" type="button" data-add-row="snippets">{escape(tr("settings.add_snippet_row"))}</button></div>
             </section>
           </div>
+        </div>
+      </section>
+
+      <section class="wb-page" data-page-id="voice-commands">
+        <div class="wb-page-head">
+          <div><h2>{escape(tr("settings.voice_commands"))}</h2><p>{escape(tr("settings.voice_commands_desc"))}</p></div>
+          <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("setting.command_mode"))}</span>
+        </div>
+        <div class="wb-stack">
+          <section class="wb-section wb-hero">
+            <div class="wb-section-head"><h3>{escape(tr("settings.ai_commands"))}</h3><span>{escape(tr("settings.uses_ai_rewrite"))}</span></div>
+            <div class="wb-command-list">
+              <div class="wb-command-head"><span>{escape(tr("settings.command_phrase"))}</span><span>{escape(tr("settings.command_action"))}</span><span>{escape(tr("settings.command_requirement"))}</span></div>
+              {ai_command_rows}
+            </div>
+          </section>
+          <section class="wb-section">
+            <div class="wb-section-head"><h3>{escape(tr("settings.paste_commands"))}</h3><span>{escape(tr("settings.no_ai"))}</span></div>
+            <div class="wb-command-list">
+              <div class="wb-command-head"><span>{escape(tr("settings.command_phrase"))}</span><span>{escape(tr("settings.command_action"))}</span><span>{escape(tr("settings.command_requirement"))}</span></div>
+              {local_command_rows}
+            </div>
+          </section>
+          <section class="wb-section"><div class="wb-note">{escape(tr("settings.voice_commands_note"))}</div></section>
         </div>
       </section>
 

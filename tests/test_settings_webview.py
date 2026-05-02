@@ -93,6 +93,41 @@ def test_generate_settings_html_uses_monitor_polished_density_tokens():
     assert "grid-template-columns: 218px minmax(0, 1fr)" in html
 
 
+def test_generate_settings_html_shows_voice_commands_from_command_specs():
+    html = generate_settings_html(
+        {"language": "de", "flow_mode_enabled": True},
+        dictionary_entries=[],
+        snippets=[],
+    )
+
+    assert "data-page=\"voice-commands\"" in html
+    assert "data-page-id=\"voice-commands\"" in html
+    assert "Sprachbefehle" in html
+    assert "KI-Bearbeitung" in html
+    assert "Einfüge- und Steuerbefehle" in html
+    assert "correct my english" in html
+    assert "mach das menschlicher" in html
+    assert "drücke enter" in html
+    assert "Nutzt AI-Umschreiben" in html
+    assert "Keine KI" in html
+    assert "settings.command_mode" not in html
+
+
+def test_generate_settings_html_keeps_settings_sidebar_fixed_while_main_scrolls():
+    html = generate_settings_html(
+        {"flow_mode_enabled": True},
+        dictionary_entries=[],
+        snippets=[],
+    )
+
+    assert ".wb-shell {" in html
+    assert "height: calc(100vh - 52px)" in html
+    assert ".wb-sidebar {" in html
+    assert "position: sticky" in html
+    assert "overflow-y: auto" in html
+    assert ".wb-main {" in html
+
+
 def test_apply_settings_payload_updates_config_env_and_flow_files():
     config = {
         "hotkeys": {
