@@ -55,6 +55,50 @@ def test_detect_english_longer_command_suffix():
 
 
 @pytest.mark.unit
+def test_detect_german_correct_english_command_suffix():
+    detection = detect_command("i has a problem with this sentence korrigiere mein englisch", "de", enabled=True)
+
+    assert detection.text == "i has a problem with this sentence"
+    assert detection.command_id == "correct_english"
+    assert detection.rewrite_mode == "correct_english"
+
+
+@pytest.mark.unit
+def test_detect_english_correct_my_english_command_suffix():
+    detection = detect_command("i has a problem with this sentence correct my english", "en", enabled=True)
+
+    assert detection.text == "i has a problem with this sentence"
+    assert detection.command_id == "correct_english"
+    assert detection.rewrite_mode == "correct_english"
+
+
+@pytest.mark.unit
+def test_detect_german_humanize_command_suffix():
+    detection = detect_command(
+        "dieser abschnitt klingt noch sehr nach ki mach das menschlicher",
+        "de",
+        enabled=True,
+    )
+
+    assert detection.text == "dieser abschnitt klingt noch sehr nach ki"
+    assert detection.command_id == "humanize"
+    assert detection.rewrite_mode == "humanize"
+
+
+@pytest.mark.unit
+def test_detect_english_humanize_command_suffix():
+    detection = detect_command(
+        "this paragraph sounds like a generic assistant response humanize this",
+        "en",
+        enabled=True,
+    )
+
+    assert detection.text == "this paragraph sounds like a generic assistant response"
+    assert detection.command_id == "humanize"
+    assert detection.rewrite_mode == "humanize"
+
+
+@pytest.mark.unit
 def test_detect_german_list_alias_from_misheard_phrase():
     detection = detect_command("eins äpfel zwei birnen als leiste.", "de", enabled=True)
 

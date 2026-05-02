@@ -1,6 +1,6 @@
 """Flow Mode text pipeline orchestration."""
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Dict
 
 from whisprbar.flow.commands import detect_command
@@ -48,6 +48,7 @@ def process_flow_text(raw_text: str, language: str, cfg: dict) -> FlowOutput:
     dictionary_hits = ()
     snippet_hits = ()
     command_id = None
+    command_rewrite_mode = None
     paste_policy = None
 
     if cfg.get("flow_mode_enabled", False):
@@ -75,23 +76,29 @@ def process_flow_text(raw_text: str, language: str, cfg: dict) -> FlowOutput:
         )
         local_text = command.text
         command_id = command.command_id
+        command_rewrite_mode = command.rewrite_mode
         paste_policy = command.paste_policy
         if command_id:
             metadata_extra["command"] = command_id
 
     rewrite_status = "not_requested"
     final_text = local_text
+    rewrite_profile = (
+        replace(profile, rewrite_mode=command_rewrite_mode)
+        if command_rewrite_mode
+        else profile
+    )
     should_rewrite = (
         cfg.get("flow_mode_enabled", False)
         and cfg.get("flow_rewrite_enabled", False)
-        and (command_id is not None or profile.rewrite_mode != "none")
+        and rewrite_profile.rewrite_mode != "none"
     )
     if should_rewrite:
         rewrite_result = rewrite_text(
             text=local_text,
             language=language,
             context=context,
-            profile=profile,
+            profile=rewrite_profile,
             command=command_id,
             dictionary_terms=dictionary_hits,
             cfg=cfg,

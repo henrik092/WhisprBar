@@ -202,12 +202,17 @@ class DeepgramTranscriber(Transcriber):
     def _build_request_path(self, language: str) -> str:
         """Build Deepgram API URL path with parameters.
 
-        Uses requested language when provided (e.g. "de", "en") for better
-        punctuation and formatting. Falls back to language=multi to support
-        code-switching when language is missing/auto.
+        Uses Deepgram's multilingual mode for the app's normal simple language
+        hints so German dictation can still contain English words or phrases.
+        Explicit locale tags are preserved for callers that intentionally need
+        a narrow Deepgram language target.
         """
-        language_code = (language or "").strip().lower()
-        if not language_code or language_code in {"auto", "multi"}:
+        language_code = (language or "").strip()
+        normalized_language = language_code.lower()
+        if (
+            not normalized_language
+            or normalized_language in {"auto", "multi", "de", "en"}
+        ):
             language_param = "multi"
         else:
             language_param = language_code

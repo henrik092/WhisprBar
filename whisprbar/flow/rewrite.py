@@ -7,6 +7,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Optional, Protocol, Sequence
 
+from whisprbar.config import load_env_file_values
 from whisprbar.flow.models import AppContext, FlowProfile
 from whisprbar.utils import debug
 
@@ -30,9 +31,12 @@ class OpenAICompatibleRewriteProvider:
     """Minimal OpenAI-compatible chat completions provider."""
 
     def rewrite(self, text: str, prompt: str, cfg: dict) -> str:
+        env_values = load_env_file_values()
         api_key = (
             os.environ.get("WHISPRBAR_FLOW_REWRITE_API_KEY")
             or os.environ.get("OPENAI_API_KEY")
+            or env_values.get("WHISPRBAR_FLOW_REWRITE_API_KEY")
+            or env_values.get("OPENAI_API_KEY")
         )
         model = cfg.get("flow_rewrite_model") or ""
         if not api_key or not model:
@@ -67,6 +71,46 @@ class OpenAICompatibleRewriteProvider:
         return payload["choices"][0]["message"]["content"].strip()
 
 
+def _rewrite_instruction(rewrite_mode: str) -> str:
+    """Return mode-specific rewrite guidance for the provider prompt."""
+    instructions = {
+        "correct_english": (
+            "Correct English spelling, grammar, punctuation, and wording. "
+            "Preserve the original meaning, tone, names, and technical terms. "
+            "Do not translate non-English proper nouns or code."
+        ),
+        "humanize": (
+            "Remove AI-sounding patterns while keeping the text useful and natural. "
+            "Preserve the language, meaning, facts, names, and technical terms. "
+            "Use simple direct wording, varied sentence rhythm, and a real human voice. "
+            "Do not start with Here is, Here's, Of course, or Certainly. "
+            "Forbidden output words and phrases: highlight, highlights, underscore, underscores, "
+            "crucial, pivotal, important, key, comprehensive overview. "
+            "If the source uses those words, replace them with specific plain wording or remove the claim. "
+            "Avoid promotional language, fake significance, generic conclusions, "
+            "overused AI vocabulary, signposting, rule-of-three padding, excessive "
+            "hedging, bold labels, emojis, and mechanical list structure. "
+            "Use straight quotes and apostrophes. "
+            "Do not include a draft, audit, bullets, or explanation."
+        ),
+        "translate_english": (
+            "Translate the text to natural English. Preserve names, numbers, "
+            "technical terms, and the intended tone."
+        ),
+        "professional": "Make the text professional while preserving the original meaning.",
+        "shorter": "Make the text shorter without dropping important meaning.",
+        "longer": "Make the text more detailed without inventing facts.",
+        "list": "Format the text as a clear list.",
+        "structured": "Structure the text clearly while preserving the original meaning.",
+        "concise": "Make the text concise and conversational.",
+        "clean": "Clean up dictated wording while preserving the original meaning.",
+    }
+    return instructions.get(
+        rewrite_mode,
+        "Clean up the dictated text while preserving the original meaning.",
+    )
+
+
 def build_rewrite_prompt(
     language: str,
     context: AppContext,
@@ -76,14 +120,16 @@ def build_rewrite_prompt(
 ) -> str:
     """Build a deterministic rewrite instruction prompt."""
     terms = ", ".join(dictionary_terms) if dictionary_terms else "None"
+    rewrite_mode = profile.rewrite_mode or "clean"
     return "\n".join(
         [
             "Rewrite dictation text for insertion into the active app.",
             f"Language: {language}",
             f"Profile: {profile.profile_id}",
             f"Style: {profile.style}",
-            f"Rewrite mode: {profile.rewrite_mode}",
+            f"Rewrite mode: {rewrite_mode}",
             f"Command: {command or 'none'}",
+            f"Instruction: {_rewrite_instruction(rewrite_mode)}",
             f"Active app class: {context.app_class or 'unknown'}",
             f"Active window title: {context.window_title or 'unknown'}",
             f"Must-preserve terms: {terms}",

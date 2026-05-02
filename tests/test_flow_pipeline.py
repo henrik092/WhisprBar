@@ -110,3 +110,58 @@ def test_process_flow_text_rewrite_success_uses_rewritten_text(monkeypatch):
     assert output.profile_id == "email"
     assert output.rewrite_status == "applied"
     assert output.metadata["context"]["app_class"] == "thunderbird"
+
+
+@pytest.mark.unit
+def test_process_flow_text_passes_command_rewrite_mode_to_rewriter(monkeypatch):
+    monkeypatch.setattr("whisprbar.flow.pipeline.detect_app_context", lambda: AppContext("x11"))
+    monkeypatch.setattr("whisprbar.flow.pipeline.load_dictionary", lambda: [])
+    monkeypatch.setattr("whisprbar.flow.pipeline.load_snippets", lambda: [])
+    captured = {}
+
+    def fake_rewrite_text(**kwargs):
+        captured["profile"] = kwargs["profile"]
+        captured["command"] = kwargs["command"]
+        return RewriteResult(text="I have a problem with this sentence.", status="applied")
+
+    monkeypatch.setattr("whisprbar.flow.pipeline.rewrite_text", fake_rewrite_text)
+
+    output = process_flow_text(
+        "i has a problem with this sentence correct my english",
+        "en",
+        {"flow_mode_enabled": True, "flow_command_mode_enabled": True, "flow_rewrite_enabled": True},
+    )
+
+    assert output.final_text == "I have a problem with this sentence."
+    assert output.command == "correct_english"
+    assert captured["command"] == "correct_english"
+    assert captured["profile"].rewrite_mode == "correct_english"
+
+
+@pytest.mark.unit
+def test_process_flow_text_paste_only_command_does_not_trigger_rewrite(monkeypatch):
+    monkeypatch.setattr("whisprbar.flow.pipeline.detect_app_context", lambda: AppContext("x11"))
+    monkeypatch.setattr("whisprbar.flow.pipeline.load_dictionary", lambda: [])
+    monkeypatch.setattr("whisprbar.flow.pipeline.load_snippets", lambda: [])
+
+    def fail_rewrite_text(**kwargs):
+        raise AssertionError("paste-only command should not call rewrite_text")
+
+    monkeypatch.setattr("whisprbar.flow.pipeline.rewrite_text", fail_rewrite_text)
+
+    output = process_flow_text(
+        "bitte bestätigen drücke enter",
+        "de",
+        {
+            "flow_mode_enabled": True,
+            "flow_command_mode_enabled": True,
+            "flow_rewrite_enabled": True,
+            "flow_profiles": {"default": {"rewrite_mode": "none"}},
+        },
+    )
+
+    assert output.final_text == "Bitte bestätigen"
+    assert output.command == "press_enter"
+    assert output.paste_policy is not None
+    assert output.paste_policy.press_enter_after_paste is True
+    assert output.rewrite_status == "not_requested"

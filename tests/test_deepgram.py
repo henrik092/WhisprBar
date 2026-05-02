@@ -117,13 +117,22 @@ def test_deepgram_connection_registry_does_not_hold_strong_references():
 
 
 @pytest.mark.unit
-def test_deepgram_build_request_path_uses_explicit_language():
-    """Explicit language codes should be sent to Deepgram instead of forcing multi."""
+def test_deepgram_build_request_path_uses_multilingual_for_default_hints():
+    """Default app language hints should allow mixed German/English dictation."""
     transcriber = DeepgramTranscriber()
 
-    assert "language=de" in transcriber._build_request_path("de")
-    assert "language=en" in transcriber._build_request_path("en")
+    assert "language=multi" in transcriber._build_request_path("de")
+    assert "language=multi" in transcriber._build_request_path("en")
     assert "language=multi" in transcriber._build_request_path("auto")
+
+
+@pytest.mark.unit
+def test_deepgram_build_request_path_preserves_explicit_locale_tags():
+    """Locale tags remain available for callers that need a narrow target."""
+    transcriber = DeepgramTranscriber()
+
+    assert "language=en-US" in transcriber._build_request_path("en-US")
+    assert "language=de-CH" in transcriber._build_request_path("de-CH")
 
 
 @pytest.mark.unit
