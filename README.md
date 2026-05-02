@@ -50,7 +50,11 @@ ELEVENLABS_API_KEY=sk_...   # Alternative
 chmod 600 ~/.config/whisprbar.env
 ```
 
-For **offline use**, no API key needed -- just install faster-whisper and select it in Settings.
+For **offline use**, no API key is needed. Install the optional local backend and select it in Settings:
+
+```bash
+pip install ".[faster-whisper]"
+```
 
 ## Usage
 
@@ -125,6 +129,13 @@ python3 -m venv --system-site-packages .venv   # --system-site-packages required
 source .venv/bin/activate
 pip install -r requirements.txt
 .venv/bin/python whisprbar.py
+```
+
+Optional local backends are installed as packaging extras:
+
+```bash
+pip install ".[faster-whisper]"
+pip install ".[sherpa]"
 ```
 
 See [CLAUDE.md](CLAUDE.md) for architecture docs.

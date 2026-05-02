@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Kept local/offline transcription backends out of the default `requirements.txt` install and documented `faster-whisper` and `sherpa-onnx` as optional packaging extras.
+
+### Fixed
+- Aligned `pyproject.toml` with the runtime package version and added regression coverage so packaging metadata cannot drift silently.
+- Removed stale installation documentation references to missing development-log files.
+
 ## [1.3.1] - 2026-04-30
 
 ### Fixed

@@ -5,8 +5,8 @@ check_dependencies.py - Verify all WhisprBar dependencies are installed
 This script checks for:
 1. Python version
 2. System dependencies (GTK, AppIndicator, xdotool, etc.)
-3. Python packages (from requirements.txt)
-4. Optional dependencies
+3. Core Python packages (from requirements.txt)
+4. Optional backend dependencies
 """
 
 import sys
@@ -118,14 +118,14 @@ def main():
         print(result[1])
     print()
 
-    # Python packages (optional but recommended)
-    print("Optional Python Packages")
+    # Python packages (optional backend add-ons)
+    print("Optional Backend Packages")
     print("-" * 60)
     optional_packages = [
         ("webrtcvad", "webrtcvad", "Voice Activity Detection"),
         ("noisereduce", "noisereduce", "Noise reduction"),
-        ("faster-whisper", "faster_whisper", "Local transcription"),
-        ("sherpa-onnx", "sherpa_onnx", "Streaming transcription"),
+        ("faster-whisper", "faster_whisper", "Local transcription: pip install '.[faster-whisper]'"),
+        ("sherpa-onnx", "sherpa_onnx", "Streaming transcription: pip install '.[sherpa]'"),
     ]
 
     for package, import_name, description in optional_packages:

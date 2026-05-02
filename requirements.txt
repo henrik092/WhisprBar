@@ -8,8 +8,12 @@ elevenlabs
 webrtcvad
 pynput
 noisereduce
-faster-whisper
-sherpa-onnx
+
+# Optional local/offline transcription backends are intentionally not part of
+# the default install because they pull large native dependencies and can drift
+# independently from the core app:
+#   pip install ".[faster-whisper]"
+#   pip install ".[sherpa]"
 
 # Testing dependencies
 pytest>=7.4.0

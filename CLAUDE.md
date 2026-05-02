@@ -119,7 +119,6 @@ WhisperBar/                           # Repository root
 │
 ├── README.md                         # User-facing documentation
 ├── CHANGELOG.md                      # Version history
-├── WORKLOG.md                        # Development log
 ├── CLAUDE.md                         # This file
 ├── AGENTS.md                         # Repository guide
 ├── ROADMAP_REFACTORING.md            # Refactoring plan
@@ -605,8 +604,12 @@ python3 -m venv --system-site-packages .venv
 # Activate venv
 source .venv/bin/activate
 
-# Install dependencies
+# Install core dependencies
 pip install -r requirements.txt
+
+# Optional local/offline backends
+pip install ".[faster-whisper]"
+pip install ".[sherpa]"
 
 # Verify AppIndicator3 is accessible
 python3 -c "import gi; gi.require_version('AppIndicator3', '0.1'); from gi.repository import AppIndicator3; print('✅ AppIndicator3 OK')"
@@ -1026,7 +1029,6 @@ def test_load_config():
 
 **After adding features:**
 - Update CHANGELOG.md (`[Unreleased]` section)
-- Update WORKLOG.md (dated entry)
 - Update this file (CLAUDE.md) if architecture changed
 - Update README.md if user-facing
 
@@ -1036,7 +1038,6 @@ def test_load_config():
 - Update ROADMAP_REFACTORING.md status
 
 **After bug fixes:**
-- Update WORKLOG.md
 - Update CHANGELOG.md if user-impacting
 
 ### Documentation Files
@@ -1056,10 +1057,6 @@ def test_load_config():
 **CHANGELOG.md**
 - Version history (Keep a Changelog format)
 - Update before each release
-
-**WORKLOG.md**
-- Development log (chronological)
-- Update after each significant change
 
 **ROADMAP_REFACTORING.md**
 - Refactoring plan and progress
