@@ -32,6 +32,7 @@ INSTALL.md
 # Internal bug tracking and fixes documentation
 docs/bugs/
 docs/fixes/
+docs/dev-artifacts/local-notes/
 
 # Development/Release temporary files
 .claude-flow/

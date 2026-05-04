@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Moved the new-PC setup note into `docs/`, added a docs index, and documented the repository layout in the README for a cleaner GitHub landing page.
 - Kept local/offline transcription backends out of the default `requirements.txt` install and documented `faster-whisper` and `sherpa-onnx` as optional packaging extras.
 
 ### Fixed

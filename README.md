@@ -23,8 +23,8 @@ A Linux system tray app for voice-to-text transcription. Press a hotkey, speak, 
 ## Installation
 
 ```bash
-git clone https://github.com/henrik092/whisprBar.git WhisperBar
-cd WhisperBar
+git clone https://github.com/henrik092/WhisprBar.git WhisprBar
+cd WhisprBar
 ./install.sh
 ```
 
@@ -139,6 +139,22 @@ pip install ".[sherpa]"
 ```
 
 See [CLAUDE.md](CLAUDE.md) for architecture docs.
+
+## Project Layout
+
+```text
+whisprbar/      Runtime package
+tests/          Automated tests and functional checks
+docs/           User, setup, and reference documentation
+.github/        Issue, pull request, and contribution templates
+```
+
+Useful docs:
+
+- [Docs index](docs/README.md)
+- [New PC setup](docs/setup-new-pc.md)
+- [Changelog](CHANGELOG.md)
+- [Architecture notes](CLAUDE.md)
 
 ## License
 
