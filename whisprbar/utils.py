@@ -19,7 +19,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from PIL import Image, ImageDraw
 
@@ -175,11 +175,12 @@ def build_icon(
     body_color=(0, 0, 0, 220),
     background_color=(64, 64, 64, 180),
     border_color=(255, 255, 255, 230),
+    state: Optional[str] = None,
 ) -> Image.Image:
     """Render a microphone icon with customizable colors.
 
     Creates a circular icon with a microphone glyph. The accent color
-    indicates status (white=ready, green=recording, blue=transcribing).
+    indicates status (white=ready, red=recording, blue=transcribing).
 
     Args:
         size: Icon size in pixels (default 64)
@@ -187,10 +188,24 @@ def build_icon(
         body_color: RGBA tuple for microphone body
         background_color: RGBA tuple for circle background
         border_color: RGBA tuple for circle border
+        state: Optional tray state: "ready", "recording", or "transcribing"
 
     Returns:
         PIL Image object
     """
+    if state == "ready":
+        accent_color = (255, 255, 255, 255)
+    elif state == "recording":
+        accent_color = (255, 60, 60, 255)
+    elif state == "transcribing":
+        accent_color = (60, 120, 255, 255)
+
+    def scale(value: int) -> int:
+        return round(value * size / 64)
+
+    def box(left: int, top: int, right: int, bottom: int) -> Tuple[int, int, int, int]:
+        return (scale(left), scale(top), scale(right), scale(bottom))
+
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
@@ -201,12 +216,28 @@ def build_icon(
     draw.ellipse(bg_bounds, fill=background_color, outline=border_color, width=border_width)
 
     # Microphone capsule
-    draw.ellipse((22, 10, 42, 36), fill=body_color)
+    draw.ellipse(box(22, 10, 42, 36), fill=body_color)
     # Stem and base
-    draw.rectangle((30, 36, 34, 50), fill=body_color)
-    draw.rectangle((24, 48, 40, 52), fill=body_color)
+    draw.rectangle(box(30, 36, 34, 50), fill=body_color)
+    draw.rectangle(box(24, 48, 40, 52), fill=body_color)
     # Status accent inside the capsule
-    draw.ellipse((26, 14, 38, 32), fill=accent_color)
+    draw.ellipse(box(26, 14, 38, 32), fill=accent_color)
+
+    mark_width = max(1, size // 12)
+    if state == "recording":
+        draw.ellipse(
+            box(43, 9, 55, 21),
+            fill=(255, 60, 60, 255),
+            outline=(255, 255, 255, 240),
+            width=max(1, size // 24),
+        )
+    elif state == "transcribing":
+        for y, right in ((16, 55), (24, 51), (32, 55)):
+            draw.line(
+                (scale(44), scale(y), scale(right), scale(y)),
+                fill=(90, 170, 255, 255),
+                width=mark_width,
+            )
     return img
 
 

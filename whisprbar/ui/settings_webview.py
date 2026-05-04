@@ -115,9 +115,20 @@ def _setting(settings: Mapping[str, object], key: str, default: object) -> objec
     return settings[key] if key in settings else default
 
 
-def _switch(name: str, label: str, description: str, active: object) -> str:
+def _visible_attr(visible_when: str | None = None) -> str:
+    return f' data-visible-when="{escape(visible_when)}"' if visible_when else ""
+
+
+def _switch(
+    name: str,
+    label: str,
+    description: str,
+    active: object,
+    *,
+    visible_when: str | None = None,
+) -> str:
     return f"""
-      <label class="wb-row">
+      <label class="wb-row"{_visible_attr(visible_when)}>
         <span class="wb-row-label">
           <b>{escape(label)}</b>
           <span>{escape(description)}</span>
@@ -127,10 +138,18 @@ def _switch(name: str, label: str, description: str, active: object) -> str:
     """
 
 
-def _select(name: str, label: str, description: str, options: Iterable[tuple[str, str]], active: object) -> str:
+def _select(
+    name: str,
+    label: str,
+    description: str,
+    options: Iterable[tuple[str, str]],
+    active: object,
+    *,
+    visible_when: str | None = None,
+) -> str:
     option_html = "\n".join(_option(value, text, active) for value, text in options)
     return f"""
-      <label class="wb-row">
+      <label class="wb-row"{_visible_attr(visible_when)}>
         <span class="wb-row-label">
           <b>{escape(label)}</b>
           <span>{escape(description)}</span>
@@ -140,21 +159,69 @@ def _select(name: str, label: str, description: str, options: Iterable[tuple[str
     """
 
 
-def _field(name: str, label: str, description: str, value: object, input_type: str = "text") -> str:
+def _field(
+    name: str,
+    label: str,
+    description: str,
+    value: object,
+    input_type: str = "text",
+    *,
+    visible_when: str | None = None,
+    input_attrs: Mapping[str, object] | None = None,
+    unit: str = "",
+) -> str:
+    attrs = ""
+    if input_attrs:
+        attrs = "".join(
+            f' {escape(str(key))}="{escape(str(attr_value))}"'
+            for key, attr_value in input_attrs.items()
+        )
+    unit_html = f'<span class="wb-unit">{escape(unit)}</span>' if unit else ""
     return f"""
-      <label class="wb-row">
+      <label class="wb-row"{_visible_attr(visible_when)}>
         <span class="wb-row-label">
           <b>{escape(label)}</b>
           <span>{escape(description)}</span>
         </span>
-        <input type="{escape(input_type)}" name="{escape(name)}" value="{escape(str(value or ''))}">
+        <span class="wb-value-control"><input type="{escape(input_type)}" name="{escape(name)}" value="{escape(str(value or ''))}"{attrs}>{unit_html}</span>
       </label>
     """
 
 
-def _textarea(name: str, label: str, description: str, value: object) -> str:
+def _number_field(
+    name: str,
+    label: str,
+    description: str,
+    value: object,
+    *,
+    minimum: object,
+    maximum: object,
+    step: object,
+    unit: str = "",
+    visible_when: str | None = None,
+) -> str:
+    return _field(
+        name,
+        label,
+        description,
+        value,
+        "number",
+        visible_when=visible_when,
+        input_attrs={"min": minimum, "max": maximum, "step": step},
+        unit=unit,
+    )
+
+
+def _textarea(
+    name: str,
+    label: str,
+    description: str,
+    value: object,
+    *,
+    visible_when: str | None = None,
+) -> str:
     return f"""
-      <label class="wb-row wb-row-tall">
+      <label class="wb-row wb-row-tall"{_visible_attr(visible_when)}>
         <span class="wb-row-label">
           <b>{escape(label)}</b>
           <span>{escape(description)}</span>
@@ -185,7 +252,7 @@ def _dictionary_rows(dictionary_entries: Iterable[DictionaryEntry]) -> str:
             <div class="wb-table-row">
               <input data-col="spoken" value="{spoken}">
               <input data-col="written" value="{written}">
-              <button type="button" data-remove-row>-</button>
+              <button type="button" data-remove-row aria-label="Remove row">-</button>
             </div>
             """.format(
                 spoken=escape(entry.spoken),
@@ -198,7 +265,7 @@ def _dictionary_rows(dictionary_entries: Iterable[DictionaryEntry]) -> str:
             <div class="wb-table-row">
               <input data-col="spoken" placeholder="whisper bar">
               <input data-col="written" placeholder="WhisprBar">
-              <button type="button" data-remove-row>-</button>
+              <button type="button" data-remove-row aria-label="Remove row">-</button>
             </div>
             """
         )
@@ -213,7 +280,7 @@ def _snippet_rows(snippets: Iterable[Snippet]) -> str:
             <div class="wb-table-row">
               <input data-col="trigger" value="{trigger}">
               <input data-col="text" value="{text}">
-              <button type="button" data-remove-row>-</button>
+              <button type="button" data-remove-row aria-label="Remove row">-</button>
             </div>
             """.format(
                 trigger=escape(snippet.trigger),
@@ -226,7 +293,7 @@ def _snippet_rows(snippets: Iterable[Snippet]) -> str:
             <div class="wb-table-row">
               <input data-col="trigger" placeholder="my signature">
               <input data-col="text" placeholder="Best regards, Rik">
-              <button type="button" data-remove-row>-</button>
+              <button type="button" data-remove-row aria-label="Remove row">-</button>
             </div>
             """
         )
@@ -699,12 +766,15 @@ def generate_settings_html(
             tr("setting.add_trailing_newline_desc"),
             config.get("auto_paste_add_newline", True),
         )
-        + _field(
+        + _number_field(
             "paste_delay_ms",
             tr("setting.paste_delay"),
             tr("setting.paste_delay_desc"),
             config.get("paste_delay_ms", 250),
-            "number",
+            minimum=0,
+            maximum=5000,
+            step=50,
+            unit="ms",
         )
     )
     hotkey_rows = _hotkey_rows(config)
@@ -723,12 +793,16 @@ def generate_settings_html(
             tr("setting.vad_desc"),
             config.get("use_vad", False),
         )
-        + _field(
+        + _number_field(
             "vad_bridge_ms",
             tr("setting.pause_bridge"),
             tr("setting.pause_bridge_desc"),
             config.get("vad_bridge_ms", 180),
-            "number",
+            minimum=0,
+            maximum=1000,
+            step=10,
+            unit="ms",
+            visible_when="use_vad=true",
         )
         + _switch(
             "noise_reduction_enabled",
@@ -736,12 +810,15 @@ def generate_settings_html(
             tr("setting.noise_reduction_desc"),
             config.get("noise_reduction_enabled", True),
         )
-        + _field(
+        + _number_field(
             "noise_reduction_strength",
             tr("setting.noise_reduction_strength"),
             tr("setting.noise_reduction_strength_desc"),
             config.get("noise_reduction_strength", 0.7),
-            "number",
+            minimum=0,
+            maximum=1,
+            step=0.1,
+            visible_when="noise_reduction_enabled=true",
         )
         + _switch(
             "audio_feedback_enabled",
@@ -749,12 +826,14 @@ def generate_settings_html(
             tr("setting.audio_feedback_desc"),
             config.get("audio_feedback_enabled", True),
         )
-        + _field(
+        + _number_field(
             "audio_feedback_volume",
             tr("setting.audio_feedback_volume"),
             tr("setting.audio_feedback_volume_desc"),
             config.get("audio_feedback_volume", 0.3),
-            "number",
+            minimum=0,
+            maximum=1,
+            step=0.1,
         )
     )
 
@@ -777,12 +856,14 @@ def generate_settings_html(
             tr("setting.local_model"),
             tr("setting.local_model_desc"),
             config.get("faster_whisper_model", "medium"),
+            visible_when="transcription_backend=faster_whisper",
         )
         + _field(
             "streaming_model",
             tr("setting.streaming_model"),
             tr("setting.streaming_model_desc"),
             config.get("streaming_model", "tiny"),
+            visible_when="transcription_backend=streaming",
         )
     )
     api_rows = (
@@ -820,12 +901,14 @@ def generate_settings_html(
             tr("setting.fix_spacing"),
             tr("setting.fix_spacing_desc"),
             config.get("postprocess_fix_spacing", True),
+            visible_when="postprocess_enabled=true",
         )
         + _switch(
             "postprocess_fix_capitalization",
             tr("setting.fix_capitalization"),
             tr("setting.fix_capitalization_desc"),
             config.get("postprocess_fix_capitalization", True),
+            visible_when="postprocess_enabled=true",
         )
     )
 
@@ -889,19 +972,25 @@ def generate_settings_html(
             tr("setting.preferred_languages_desc"),
             preferred_languages_text,
         )
-        + _field(
+        + _number_field(
             "flow_max_recording_minutes",
             tr("setting.max_recording"),
             tr("setting.max_recording_desc"),
             config.get("flow_max_recording_minutes", 20),
-            "number",
+            minimum=1,
+            maximum=60,
+            step=1,
+            unit="min",
         )
-        + _field(
+        + _number_field(
             "flow_recent_copy_seconds",
             tr("setting.recent_transcript_window"),
             tr("setting.recent_transcript_window_desc"),
             config.get("flow_recent_copy_seconds", 5),
-            "number",
+            minimum=1,
+            maximum=30,
+            step=1,
+            unit="s",
         )
         + _switch(
             "flow_language_auto_detect",
@@ -923,19 +1012,25 @@ def generate_settings_html(
             tr("setting.rewrite_provider_desc"),
             [("none", "None"), ("openai_compatible", "OpenAI-compatible")],
             config.get("flow_rewrite_provider", "none"),
+            visible_when="flow_rewrite_enabled=true",
         )
         + _field(
             "flow_rewrite_model",
             tr("setting.rewrite_model"),
             tr("setting.rewrite_model_desc"),
             config.get("flow_rewrite_model", ""),
+            visible_when="flow_rewrite_enabled=true",
         )
-        + _field(
+        + _number_field(
             "flow_rewrite_timeout_seconds",
             tr("setting.rewrite_timeout"),
             tr("setting.rewrite_timeout_desc"),
             config.get("flow_rewrite_timeout_seconds", 12.0),
-            "number",
+            minimum=1,
+            maximum=60,
+            step=0.5,
+            unit="s",
+            visible_when="flow_rewrite_enabled=true",
         )
     )
     ai_command_rows = _voice_command_rows(
@@ -971,22 +1066,28 @@ def generate_settings_html(
             tr("setting.snippets_desc"),
             config.get("flow_snippets_enabled", True),
         )
-        + _field(
+        + _number_field(
             "flow_history_auto_delete_hours",
             tr("setting.auto_delete_hours"),
             tr("setting.auto_delete_hours_desc"),
             config.get("flow_history_auto_delete_hours", 24),
-            "number",
+            minimum=1,
+            maximum=720,
+            step=1,
+            unit="h",
+            visible_when="flow_history_storage=auto_delete",
         )
     )
 
     advanced_rows = (
-        _field(
+        _number_field(
             "min_audio_energy",
             tr("setting.hallucination_guard"),
             tr("setting.hallucination_guard_desc"),
             config.get("min_audio_energy", 0.0008),
-            "number",
+            minimum=0.0001,
+            maximum=0.01,
+            step=0.0001,
         )
         + _switch(
             "chunking_enabled",
@@ -996,39 +1097,53 @@ def generate_settings_html(
         )
     )
     vad_rows = (
-        _field(
+        _number_field(
             "vad_energy_ratio",
             tr("setting.vad_sensitivity"),
             tr("setting.vad_sensitivity_desc"),
             config.get("vad_energy_ratio", 0.02),
-            "number",
+            minimum=0.002,
+            maximum=0.3,
+            step=0.001,
+            visible_when="use_vad=true",
         )
-        + _field(
+        + _number_field(
             "vad_min_energy_frames",
             tr("setting.noise_guard_frames"),
             tr("setting.noise_guard_frames_desc"),
             config.get("vad_min_energy_frames", 2),
-            "number",
+            minimum=1,
+            maximum=10,
+            step=1,
+            visible_when="use_vad=true",
         )
         + _switch(
             "vad_auto_stop_enabled",
             tr("setting.auto_stop_on_silence"),
             tr("setting.auto_stop_on_silence_desc"),
             config.get("vad_auto_stop_enabled", False),
+            visible_when="use_vad=true",
         )
-        + _field(
+        + _number_field(
             "vad_auto_stop_silence_seconds",
             tr("setting.silence_duration"),
             tr("setting.silence_duration_desc"),
             config.get("vad_auto_stop_silence_seconds", 2.0),
-            "number",
+            minimum=0.5,
+            maximum=30,
+            step=0.5,
+            unit="s",
+            visible_when="vad_auto_stop_enabled=true",
         )
-        + _field(
+        + _number_field(
             "stop_tail_grace_ms",
             tr("setting.recording_tail_buffer"),
             tr("setting.recording_tail_buffer_desc"),
             config.get("stop_tail_grace_ms", 500),
-            "number",
+            minimum=0,
+            maximum=2000,
+            step=50,
+            unit="ms",
         )
     )
     indicator_rows = (
@@ -1051,26 +1166,37 @@ def generate_settings_html(
             ],
             config.get("recording_indicator_position", "top-center"),
         )
-        + _field(
+        + _number_field(
             "recording_indicator_width",
             tr("setting.indicator_width"),
             tr("setting.indicator_width_desc"),
             config.get("recording_indicator_width", 240),
-            "number",
+            minimum=60,
+            maximum=600,
+            step=10,
+            unit="px",
+            visible_when="recording_indicator_enabled=true",
         )
-        + _field(
+        + _number_field(
             "recording_indicator_height",
             tr("setting.indicator_height"),
             tr("setting.indicator_height_desc"),
             config.get("recording_indicator_height", 30),
-            "number",
+            minimum=10,
+            maximum=100,
+            step=1,
+            unit="px",
+            visible_when="recording_indicator_enabled=true",
         )
-        + _field(
+        + _number_field(
             "recording_indicator_opacity",
             tr("setting.indicator_opacity"),
             tr("setting.indicator_opacity_desc"),
             config.get("recording_indicator_opacity", 0.85),
-            "number",
+            minimum=0.3,
+            maximum=1,
+            step=0.05,
+            visible_when="recording_indicator_enabled=true",
         )
         + """
       <div class="wb-row">
@@ -1093,40 +1219,58 @@ def generate_settings_html(
             tr("setting.live_overlay_desc"),
             config.get("live_overlay_enabled", False),
         )
-        + _field(
+        + _number_field(
             "live_overlay_font_size",
             tr("setting.overlay_font_size"),
             tr("setting.overlay_font_size_desc"),
             config.get("live_overlay_font_size", 14),
-            "number",
+            minimum=8,
+            maximum=32,
+            step=1,
+            visible_when="live_overlay_enabled=true",
         )
-        + _field(
+        + _number_field(
             "live_overlay_opacity",
             tr("setting.overlay_opacity"),
             tr("setting.indicator_opacity_desc"),
             config.get("live_overlay_opacity", 0.9),
-            "number",
+            minimum=0.3,
+            maximum=1,
+            step=0.05,
+            visible_when="live_overlay_enabled=true",
         )
-        + _field(
+        + _number_field(
             "live_overlay_width",
             tr("setting.overlay_width"),
             tr("setting.indicator_width_desc"),
             config.get("live_overlay_width", 400),
-            "number",
+            minimum=200,
+            maximum=800,
+            step=10,
+            unit="px",
+            visible_when="live_overlay_enabled=true",
         )
-        + _field(
+        + _number_field(
             "live_overlay_height",
             tr("setting.overlay_height"),
             tr("setting.indicator_height_desc"),
             config.get("live_overlay_height", 150),
-            "number",
+            minimum=100,
+            maximum=400,
+            step=10,
+            unit="px",
+            visible_when="live_overlay_enabled=true",
         )
-        + _field(
+        + _number_field(
             "live_overlay_display_duration",
             tr("setting.overlay_duration"),
             tr("setting.overlay_duration_desc"),
             config.get("live_overlay_display_duration", 2.0),
-            "number",
+            minimum=0.5,
+            maximum=10,
+            step=0.5,
+            unit="s",
+            visible_when="live_overlay_enabled=true",
         )
     )
 
@@ -1366,6 +1510,9 @@ def generate_settings_html(
   .wb-row-tall {{ align-items: start; padding-top: 12px; padding-bottom: 12px; }}
   .wb-inline-controls {{ display: flex; align-items: center; gap: 8px; }}
   .wb-inline-controls input {{ width: 160px; }}
+  .wb-value-control {{ display: flex; align-items: center; justify-content: flex-end; gap: 8px; }}
+  .wb-value-control input {{ width: 150px; min-width: 0; }}
+  .wb-unit {{ min-width: 28px; color: #7f8d9b; font-size: 11px; }}
   .wb-button.compact {{ height: 30px; padding: 0 10px; font-size: 12px; }}
   .wb-switch-input {{
     appearance: none;
@@ -1431,6 +1578,7 @@ def generate_settings_html(
     font-size: 12px;
     line-height: 1.45;
   }}
+  .wb-row.is-hidden {{ display: none; }}
   .wb-command-list {{
     display: grid;
     gap: 0;
@@ -1470,6 +1618,10 @@ def generate_settings_html(
     .wb-layout {{ grid-template-columns: 1fr; }}
     .wb-page-head {{ grid-template-columns: 1fr; }}
     .wb-main {{ overflow: visible; }}
+    .wb-frame {{ min-width: 0; }}
+    .wb-row {{ grid-template-columns: 1fr; }}
+    .wb-value-control {{ justify-content: stretch; }}
+    .wb-value-control input {{ width: 100%; }}
     .wb-command-head, .wb-command-row {{ grid-template-columns: 1fr; }}
   }}
 </style>
@@ -1479,7 +1631,7 @@ def generate_settings_html(
   <header class="wb-windowbar">
     <div class="wb-title"><span class="wb-logo">WB</span><span>{escape(tr("settings.title"))}</span></div>
     <div class="wb-actions">
-      <span id="settings-message" class="wb-message"></span>
+      <span id="settings-message" class="wb-message" role="status" aria-live="polite"></span>
       <button id="settings-cancel" class="wb-button" type="button">{escape(tr("settings.cancel"))}</button>
       <button id="settings-save" class="wb-button primary" type="button">{escape(tr("settings.save"))}</button>
     </div>
@@ -1488,7 +1640,7 @@ def generate_settings_html(
     <aside class="wb-sidebar">
       <div class="wb-nav-label">{escape(tr("settings.nav_label"))}</div>
       <nav class="wb-nav" aria-label="{escape(tr("settings.nav_label"))}">
-        <button class="wb-nav-item active" type="button" data-page="general"><span class="wb-icon"></span><span>{escape(tr("settings.general"))}</span><span class="wb-count">2</span></button>
+        <button class="wb-nav-item active" type="button" data-page="general" aria-current="page"><span class="wb-icon"></span><span>{escape(tr("settings.general"))}</span><span class="wb-count">2</span></button>
         <button class="wb-nav-item" type="button" data-page="recording"><span class="wb-icon"></span><span>{escape(tr("settings.recording"))}</span><span class="wb-count">2</span></button>
         <button class="wb-nav-item" type="button" data-page="transcription"><span class="wb-icon"></span><span>{escape(tr("settings.transcription"))}</span><span class="wb-count">3</span></button>
         <button class="wb-nav-item" type="button" data-page="flow"><span class="wb-icon"></span><span>{escape(tr("settings.flow"))}</span><span class="wb-count">5</span></button>
@@ -1619,9 +1771,38 @@ def generate_settings_html(
     button.addEventListener('click', () => {{
       const page = button.dataset.page;
       navButtons.forEach(item => item.classList.toggle('active', item === button));
+      navButtons.forEach(item => item.setAttribute('aria-current', item === button ? 'page' : 'false'));
       pages.forEach(item => item.classList.toggle('active', item.dataset.pageId === page));
     }});
   }}
+
+  function controlValue(name) {{
+    const control = document.querySelector(`[name="${{name}}"]`);
+    if (!control) {{
+      return '';
+    }}
+    if (control.type === 'checkbox') {{
+      return control.checked ? 'true' : 'false';
+    }}
+    return control.value;
+  }}
+
+  function visibleConditionMatches(condition) {{
+    const parts = String(condition || '').split('=');
+    if (parts.length !== 2) {{
+      return true;
+    }}
+    return controlValue(parts[0]) === parts[1];
+  }}
+
+  function syncDependentRows() {{
+    document.querySelectorAll('[data-visible-when]').forEach((row) => {{
+      row.classList.toggle('is-hidden', !visibleConditionMatches(row.dataset.visibleWhen));
+    }});
+  }}
+
+  document.addEventListener('input', syncDependentRows);
+  document.addEventListener('change', syncDependentRows);
 
   function postSettingsMessage(message) {{
     if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.settings) {{
@@ -1673,9 +1854,9 @@ def generate_settings_html(
     const row = document.createElement('div');
     row.className = 'wb-table-row';
     if (tableName === 'dictionary') {{
-      row.innerHTML = '<input data-col="spoken" placeholder="whisper bar"><input data-col="written" placeholder="WhisprBar"><button type="button" data-remove-row>-</button>';
+      row.innerHTML = '<input data-col="spoken" placeholder="whisper bar"><input data-col="written" placeholder="WhisprBar"><button type="button" data-remove-row aria-label="Remove row">-</button>';
     }} else {{
-      row.innerHTML = '<input data-col="trigger" placeholder="my signature"><input data-col="text" placeholder="Best regards, Rik"><button type="button" data-remove-row>-</button>';
+      row.innerHTML = '<input data-col="trigger" placeholder="my signature"><input data-col="text" placeholder="Best regards, Rik"><button type="button" data-remove-row aria-label="Remove row">-</button>';
     }}
     return row;
   }}
@@ -1722,6 +1903,8 @@ def generate_settings_html(
       postSettingsMessage({{ action: 'preview_indicator', payload: collectPayload() }});
     }});
   }});
+
+  syncDependentRows();
 
   window.whisprbarSettings = {{
     setHotkey(action, value, label) {{

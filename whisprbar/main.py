@@ -720,6 +720,14 @@ def dispatch_transcript_text(
     show_indicator_func=None,
 ):
     """Process, persist, and paste a completed transcript."""
+    if (
+        show_indicator_func is not None
+        and cfg.get("flow_mode_enabled")
+        and cfg.get("flow_rewrite_enabled")
+    ):
+        from whisprbar.ui.recording_indicator import PHASE_REWRITING
+        show_indicator_func(PHASE_REWRITING, cfg)
+
     flow_output = process_flow_text(text, cfg.get("language", "de"), cfg)
     final_text = flow_output.final_text
     state.last_transcript = final_text
@@ -740,10 +748,18 @@ def dispatch_transcript_text(
         if show_indicator_func is not None:
             from whisprbar.ui.recording_indicator import PHASE_PASTING
             show_indicator_func(PHASE_PASTING, cfg)
-        auto_paste(final_text, policy=flow_output.paste_policy)
+        paste_result = auto_paste(final_text, policy=flow_output.paste_policy)
+        paste_status = getattr(paste_result, "status", "inserted")
         if show_indicator_func is not None:
-            from whisprbar.ui.recording_indicator import PHASE_COMPLETE
-            show_indicator_func(PHASE_COMPLETE, cfg, info=word_info)
+            if paste_status == "failed":
+                from whisprbar.ui.recording_indicator import PHASE_ERROR
+                show_indicator_func(PHASE_ERROR, cfg, info=t("main.copy_clipboard_failed", cfg))
+            else:
+                from whisprbar.ui.recording_indicator import PHASE_COMPLETE
+                info = word_info
+                if paste_status == "clipboard_only":
+                    info = t("main.copied_clipboard", cfg)
+                show_indicator_func(PHASE_COMPLETE, cfg, info=info)
     else:
         copy_to_clipboard(final_text)
         notify(t("main.transcription_preview", cfg).format(preview=final_text[:50]))
@@ -806,6 +822,7 @@ def on_recording_stop() -> None:
 
     # Transcribe in background thread
     def transcribe_thread():
+        success_overlay_hide_scheduled = False
         # Acquire semaphore to limit concurrent transcriptions
         if not TRANSCRIPTION_SEMAPHORE.acquire(blocking=False):
             debug("Transcription queue full, dropping request (max 2 concurrent)")
@@ -927,6 +944,7 @@ def on_recording_stop() -> None:
                     debug("[OVERLAY] hide_live_overlay() returned")
 
                 threading.Thread(target=delayed_hide, daemon=True).start()
+                success_overlay_hide_scheduled = True
             else:
                 # Empty or failed transcription - notify but don't paste anything
                 from whisprbar.utils import error as log_error
@@ -945,11 +963,12 @@ def on_recording_stop() -> None:
             notify(f"{t('main.transcription_error', cfg)}: {exc}")
         finally:
             # Always cleanup overlay (indicator auto-hides via its own timers)
-            try:
-                from whisprbar.ui import hide_live_overlay
-                hide_live_overlay()
-            except Exception as cleanup_exc:
-                debug(f"Error during overlay cleanup: {cleanup_exc}")
+            if not success_overlay_hide_scheduled:
+                try:
+                    from whisprbar.ui import hide_live_overlay
+                    hide_live_overlay()
+                except Exception as cleanup_exc:
+                    debug(f"Error during overlay cleanup: {cleanup_exc}")
 
             # Reset transcription state
             state.transcribing = False

@@ -114,6 +114,30 @@ def test_build_icon_custom_colors():
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("size", [16, 22, 64])
+def test_build_icon_state_variants_are_nonblank_and_distinct(size):
+    """Tray icon state variants should remain visible at panel sizes."""
+    icons = {
+        state: utils.build_icon(size=size, state=state)
+        for state in ("ready", "recording", "transcribing")
+    }
+
+    for icon in icons.values():
+        assert isinstance(icon, Image.Image)
+        assert icon.size == (size, size)
+        assert icon.mode == "RGBA"
+        assert any(pixel[3] > 0 for pixel in icon.getdata())
+
+    assert icons["ready"].tobytes() != icons["recording"].tobytes()
+    assert icons["ready"].tobytes() != icons["transcribing"].tobytes()
+    assert icons["recording"].tobytes() != icons["transcribing"].tobytes()
+
+    alpha_masks = {state: icon.getchannel("A").tobytes() for state, icon in icons.items()}
+    assert alpha_masks["ready"] != alpha_masks["recording"]
+    assert alpha_masks["ready"] != alpha_masks["transcribing"]
+
+
+@pytest.mark.unit
 def test_build_notification_icon():
     """Test build_notification_icon creates a valid 64x64 icon."""
     icon = utils.build_notification_icon()

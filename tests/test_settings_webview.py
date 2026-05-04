@@ -128,6 +128,68 @@ def test_generate_settings_html_keeps_settings_sidebar_fixed_while_main_scrolls(
     assert ".wb-main {" in html
 
 
+def test_generate_settings_html_marks_dependent_rows_for_dynamic_visibility():
+    html = generate_settings_html(
+        {
+            "transcription_backend": "openai",
+            "use_vad": False,
+            "noise_reduction_enabled": False,
+            "postprocess_enabled": False,
+            "flow_rewrite_enabled": False,
+            "flow_history_storage": "normal",
+            "live_overlay_enabled": False,
+        },
+        dictionary_entries=[],
+        snippets=[],
+    )
+
+    assert 'name="faster_whisper_model"' in html
+    assert 'data-visible-when="transcription_backend=faster_whisper"' in html
+    assert 'name="streaming_model"' in html
+    assert 'data-visible-when="transcription_backend=streaming"' in html
+    assert 'name="vad_energy_ratio"' in html
+    assert 'data-visible-when="use_vad=true"' in html
+    assert 'name="noise_reduction_strength"' in html
+    assert 'data-visible-when="noise_reduction_enabled=true"' in html
+    assert 'name="postprocess_fix_spacing"' in html
+    assert 'data-visible-when="postprocess_enabled=true"' in html
+    assert 'name="flow_rewrite_model"' in html
+    assert 'data-visible-when="flow_rewrite_enabled=true"' in html
+    assert 'name="flow_history_auto_delete_hours"' in html
+    assert 'data-visible-when="flow_history_storage=auto_delete"' in html
+    assert 'name="live_overlay_width"' in html
+    assert 'data-visible-when="live_overlay_enabled=true"' in html
+    assert "syncDependentRows" in html
+
+
+def test_generate_settings_html_adds_numeric_bounds_and_units():
+    html = generate_settings_html(
+        {"flow_mode_enabled": True},
+        dictionary_entries=[],
+        snippets=[],
+    )
+
+    assert 'name="paste_delay_ms" value="250" min="0" max="5000" step="50"' in html
+    assert '<span class="wb-unit">ms</span>' in html
+    assert 'name="recording_indicator_opacity" value="0.85" min="0.3" max="1" step="0.05"' in html
+    assert '<span class="wb-unit">px</span>' in html
+    assert 'name="flow_rewrite_timeout_seconds" value="12.0" min="1" max="60" step="0.5"' in html
+    assert '<span class="wb-unit">s</span>' in html
+
+
+def test_generate_settings_html_adds_basic_accessibility_affordances():
+    html = generate_settings_html(
+        {"flow_mode_enabled": True},
+        dictionary_entries=[],
+        snippets=[],
+    )
+
+    assert 'id="settings-message" class="wb-message" role="status" aria-live="polite"' in html
+    assert 'data-page="general" aria-current="page"' in html
+    assert 'data-remove-row aria-label=' in html
+    assert "setAttribute('aria-current', item === button ? 'page' : 'false')" in html
+
+
 def test_apply_settings_payload_updates_config_env_and_flow_files():
     config = {
         "hotkeys": {

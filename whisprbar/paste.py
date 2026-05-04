@@ -11,7 +11,8 @@ import shutil
 import subprocess
 import threading
 import time
-from typing import Dict, List, Any, Optional
+from dataclasses import dataclass
+from typing import Dict, List, Any, Optional, TYPE_CHECKING
 
 try:
     from pynput import keyboard
@@ -24,7 +25,18 @@ except Exception as exc:
 from .config import cfg
 from .i18n import t
 from .utils import debug, detect_session_type, notify, copy_to_clipboard
-from whisprbar.flow.models import PastePolicy
+
+if TYPE_CHECKING:  # pragma: no cover - typing only, avoids importing flow during paste import
+    from whisprbar.flow.models import PastePolicy
+
+
+@dataclass(frozen=True)
+class PasteResult:
+    """Outcome from a paste attempt after the transcript reached the clipboard."""
+
+    status: str
+    sequence: str
+    copied: bool = True
 
 # Paste sequence options
 PASTE_OPTIONS = {
@@ -267,7 +279,7 @@ def simulate_typing(text: str, delay_ms: float = 10.0) -> None:
             time.sleep(delay_seconds)
 
 
-def _policy_value(policy: Optional[PastePolicy], attr: str, fallback):
+def _policy_value(policy: Optional["PastePolicy"], attr: str, fallback):
     if policy is not None:
         value = getattr(policy, attr)
         if value is not None:
@@ -275,7 +287,7 @@ def _policy_value(policy: Optional[PastePolicy], attr: str, fallback):
     return fallback
 
 
-def _send_enter_if_requested(policy: Optional[PastePolicy]) -> None:
+def _send_enter_if_requested(policy: Optional["PastePolicy"]) -> None:
     if policy is None or not policy.press_enter_after_paste:
         return
     if not cfg.get("flow_press_enter_enabled", False):
@@ -292,7 +304,7 @@ def _send_enter_if_requested(policy: Optional[PastePolicy]) -> None:
         press_key(keyboard.Key.enter)
 
 
-def perform_auto_paste(text: str, policy: Optional[PastePolicy] = None) -> None:
+def perform_auto_paste(text: str, policy: Optional["PastePolicy"] = None) -> PasteResult:
     """Perform auto-paste of transcribed text.
 
     Chooses paste method based on configuration and environment:
@@ -314,7 +326,7 @@ def perform_auto_paste(text: str, policy: Optional[PastePolicy] = None) -> None:
     success = copy_to_clipboard(text, silent=False)
     if not success:
         # Error already logged by copy_to_clipboard, notification shown to user
-        return
+        return PasteResult(status="failed", sequence="clipboard", copied=False)
 
     # Get configured paste sequence
     sequence = _policy_value(policy, "sequence", cfg.get("paste_sequence", "auto"))
@@ -336,7 +348,7 @@ def perform_auto_paste(text: str, policy: Optional[PastePolicy] = None) -> None:
         if wayland_session:
             notify(t("paste.clipboard_manual", cfg), force=True)
         debug("Clipboard-only paste; skipping key injection")
-        return
+        return PasteResult(status="clipboard_only", sequence="clipboard")
 
     # Handle type simulation
     if sequence == "type":
@@ -345,7 +357,7 @@ def perform_auto_paste(text: str, policy: Optional[PastePolicy] = None) -> None:
             time.sleep(delay)
         simulate_typing(text)
         _send_enter_if_requested(policy)
-        return
+        return PasteResult(status="inserted", sequence="type")
 
     # Apply configured delay before pasting
     delay = get_paste_delay_seconds()
@@ -367,14 +379,14 @@ def perform_auto_paste(text: str, policy: Optional[PastePolicy] = None) -> None:
                 subprocess.run([xdotool, "key", target], check=True, timeout=2.0)
                 debug(f"xdotool sent: {target}")
                 _send_enter_if_requested(policy)
-                return
+                return PasteResult(status="inserted", sequence=sequence)
             except (subprocess.SubprocessError, OSError, subprocess.TimeoutExpired) as exc:
                 debug(f"xdotool failed ({exc}), falling back to pynput")
 
     # Fallback to pynput keyboard simulation
     if _controller is None or not PYNPUT_AVAILABLE:
         notify(t("paste.keyboard_unavailable", cfg), force=True)
-        return
+        return PasteResult(status="failed", sequence=sequence)
 
     if sequence == "ctrl_shift_v":
         with _controller.pressed(keyboard.Key.ctrl):
@@ -390,6 +402,7 @@ def perform_auto_paste(text: str, policy: Optional[PastePolicy] = None) -> None:
 
     _send_enter_if_requested(policy)
     debug("Paste complete")
+    return PasteResult(status="inserted", sequence=sequence)
 
 
 def get_paste_sequence_label(sequence: str) -> str:

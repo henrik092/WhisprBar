@@ -109,3 +109,71 @@ def test_on_recording_stop_starts_only_one_background_thread_for_transcription(
     main.on_recording_stop()
 
     assert len(created_targets) == 1
+
+
+@pytest.mark.unit
+def test_on_recording_stop_does_not_hide_success_overlay_immediately(monkeypatch, mock_config):
+    """Successful transcripts should remain visible until the delayed overlay hide runs."""
+    created_targets = []
+    hide_calls = []
+
+    class ImmediateTranscriptionThreadOnly:
+        def __init__(self, target=None, daemon=None, **_kwargs):
+            self._target = target
+            self.daemon = daemon
+            created_targets.append(target)
+
+        def start(self):
+            if getattr(self._target, "__name__", "") == "transcribe_thread":
+                self._target()
+
+    mock_config.update(
+        {
+            "noise_reduction_enabled": False,
+            "auto_paste_enabled": False,
+            "min_audio_energy": 0.0,
+            "live_overlay_display_duration": 2.0,
+            "language": "de",
+        }
+    )
+    config.cfg.clear()
+    config.cfg.update(mock_config)
+
+    monkeypatch.setattr(main.threading, "Thread", ImmediateTranscriptionThreadOnly)
+    monkeypatch.setattr(main, "refresh_tray_indicator", lambda _state: None)
+    monkeypatch.setattr(main, "refresh_menu", lambda _callbacks, _state: None)
+    monkeypatch.setattr(main, "get_callbacks", lambda: {})
+    monkeypatch.setattr(main, "notify", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "copy_to_clipboard", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(main, "play_audio_feedback", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "write_history", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main,
+        "get_recording_state",
+        lambda: {"audio_data": np.ones(SAMPLE_RATE, dtype=np.float32)},
+    )
+    monkeypatch.setattr(main, "transcribe_audio", lambda *_args, **_kwargs: "Hallo Welt")
+    monkeypatch.setattr(main, "TRANSCRIPTION_SEMAPHORE", threading.Semaphore(2))
+
+    from whisprbar import audio, ui
+    from whisprbar.ui import recording_indicator
+
+    monkeypatch.setattr(audio, "apply_noise_reduction", lambda audio_data: audio_data)
+    monkeypatch.setattr(audio, "apply_vad", lambda audio_data: audio_data)
+    monkeypatch.setattr(ui, "show_live_overlay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ui, "update_live_overlay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ui, "hide_live_overlay", lambda: hide_calls.append("hide"))
+    monkeypatch.setattr(recording_indicator, "show_recording_indicator", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(recording_indicator, "hide_recording_indicator", lambda *_args, **_kwargs: None)
+
+    main.state.recording = True
+    main.state.transcribing = False
+
+    main.on_recording_stop()
+
+    delayed_targets = [
+        target for target in created_targets
+        if getattr(target, "__name__", "") == "delayed_hide"
+    ]
+    assert delayed_targets
+    assert hide_calls == []

@@ -166,11 +166,13 @@ def test_perform_auto_paste_clipboard_only(monkeypatch, mock_config):
 
     with patch("whisprbar.paste.copy_to_clipboard", return_value=True):
         with patch("whisprbar.paste.notify") as mock_notify:
-            paste.perform_auto_paste("Test text")
+            result = paste.perform_auto_paste("Test text")
 
             # Should show notification on Wayland
             mock_notify.assert_called_once()
             assert "clipboard" in mock_notify.call_args[0][0].lower()
+            assert result.status == "clipboard_only"
+            assert result.sequence == "clipboard"
 
 
 @pytest.mark.unit
@@ -205,7 +207,7 @@ def test_perform_auto_paste_ctrl_v_with_xdotool(monkeypatch, mock_config):
     with patch("whisprbar.paste.copy_to_clipboard", return_value=True):
         with patch("shutil.which", return_value="/usr/bin/xdotool"):
             with patch("subprocess.run", return_value=mock_run) as mock_subprocess:
-                paste.perform_auto_paste("Test")
+                result = paste.perform_auto_paste("Test")
 
                 # Should call xdotool
                 mock_subprocess.assert_called_once()
@@ -213,6 +215,8 @@ def test_perform_auto_paste_ctrl_v_with_xdotool(monkeypatch, mock_config):
                 assert "xdotool" in args[0]
                 assert "key" in args
                 assert "ctrl+v" in args
+                assert result.status == "inserted"
+                assert result.sequence == "ctrl_v"
 
 
 @pytest.mark.unit
@@ -247,9 +251,31 @@ def test_perform_auto_paste_policy_clipboard_only(monkeypatch, mock_config):
 
     with patch("whisprbar.paste.copy_to_clipboard", return_value=True):
         with patch("subprocess.run") as mock_run:
-            paste.perform_auto_paste("Test", policy=PastePolicy(clipboard_only=True))
+            result = paste.perform_auto_paste("Test", policy=PastePolicy(clipboard_only=True))
 
     mock_run.assert_not_called()
+    assert result.status == "clipboard_only"
+
+
+@pytest.mark.unit
+def test_perform_auto_paste_reports_failed_keyboard_injection(monkeypatch, mock_config):
+    """A copied transcript with no injection backend should report clipboard fallback."""
+    monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    mock_config["paste_sequence"] = "ctrl_v"
+    mock_config["paste_delay_ms"] = 0
+    paste.cfg = mock_config
+
+    monkeypatch.setattr(paste, "_controller", None)
+    monkeypatch.setattr(paste, "PYNPUT_AVAILABLE", False)
+
+    with patch("whisprbar.paste.copy_to_clipboard", return_value=True):
+        with patch("shutil.which", return_value=None):
+            with patch("whisprbar.paste.notify") as mock_notify:
+                result = paste.perform_auto_paste("Test")
+
+    mock_notify.assert_called_once()
+    assert result.status == "failed"
+    assert result.sequence == "ctrl_v"
 
 
 @pytest.mark.unit
