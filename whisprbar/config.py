@@ -6,7 +6,9 @@ and environment variables from ~/.config/whisprbar.env.
 
 import json
 import os
+import re
 import sys
+from copy import deepcopy
 from pathlib import Path
 from typing import Dict
 
@@ -116,7 +118,12 @@ DEFAULT_CFG = {
 }
 
 # Global config instance (loaded from disk + defaults)
-cfg = DEFAULT_CFG.copy()
+cfg = deepcopy(DEFAULT_CFG)
+
+
+def _default_config_copy() -> dict:
+    """Return an isolated copy of the default configuration."""
+    return deepcopy(DEFAULT_CFG)
 
 
 def get_env_file_path() -> Path:
@@ -182,7 +189,7 @@ def reset_config() -> None:
     WARNING: Only use this for testing. In production, use load_config().
     """
     cfg.clear()
-    cfg.update(DEFAULT_CFG.copy())
+    cfg.update(_default_config_copy())
     if os.getenv("WHISPRBAR_DEBUG"):
         print(f"[DEBUG] Config reset to defaults ({len(cfg)} keys)", file=sys.stderr)
 
@@ -428,6 +435,8 @@ def load_config() -> dict:
         The global cfg dict (for convenience and explicit API)
     """
     ensure_directories()
+    cfg.clear()
+    cfg.update(_default_config_copy())
     try:
         if CONFIG_PATH.exists():
             with CONFIG_PATH.open("r", encoding="utf-8") as handle:
@@ -448,11 +457,31 @@ def save_config() -> None:
 
     Writes the global `cfg` dict to ~/.config/whisprbar.json as JSON.
     """
+    tmp_path = CONFIG_PATH.with_name(f"{CONFIG_PATH.name}.tmp")
     try:
-        with CONFIG_PATH.open("w", encoding="utf-8") as handle:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with tmp_path.open("w", encoding="utf-8") as handle:
             json.dump(cfg, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+        os.replace(tmp_path, CONFIG_PATH)
     except (IOError, TypeError) as exc:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
         print(f"[WARN] Failed to write config: {exc}", file=sys.stderr)
+
+
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_env_assignment(key: str, value: str) -> None:
+    """Validate an env-file assignment before writing it."""
+    if not _ENV_KEY_RE.match(key):
+        raise ValueError(f"Invalid environment variable name: {key!r}")
+    if "\n" in value or "\r" in value:
+        raise ValueError(f"Environment variable {key} must be a single line")
 
 
 def save_env_file_value(key: str, value: str) -> None:
@@ -462,8 +491,10 @@ def save_env_file_value(key: str, value: str) -> None:
         key: Environment variable name (e.g., "OPENAI_API_KEY")
         value: Value to save (empty string removes the key)
     """
+    _validate_env_assignment(key, value)
     env_path = get_env_file_path()
     env_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = env_path.with_name(f"{env_path.name}.tmp")
 
     # Read existing values
     existing_values = load_env_file_values()
@@ -476,7 +507,7 @@ def save_env_file_value(key: str, value: str) -> None:
 
     # Write back to file
     try:
-        with env_path.open("w", encoding="utf-8") as handle:
+        with tmp_path.open("w", encoding="utf-8") as handle:
             handle.write("# WhisprBar environment variables\n")
             handle.write("# API keys and secrets\n\n")
             for env_key, env_value in existing_values.items():
@@ -486,12 +517,18 @@ def save_env_file_value(key: str, value: str) -> None:
                 else:
                     handle.write(f'{env_key}={env_value}\n')
 
-        # Set restrictive permissions (600 = rw-------)
-        env_path.chmod(0o600)
+        # Set restrictive permissions (600 = rw-------) before atomic replace.
+        tmp_path.chmod(0o600)
+        os.replace(tmp_path, env_path)
 
         if os.getenv("WHISPRBAR_DEBUG"):
             print(f"[DEBUG] Saved {key} to {env_path}", file=sys.stderr)
     except Exception as exc:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
         print(f"[WARN] Failed to save {key} to env file: {exc}", file=sys.stderr)
 
 

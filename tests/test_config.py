@@ -79,6 +79,47 @@ def test_load_config_with_defaults(monkeypatch_home, monkeypatch):
 
 
 @pytest.mark.unit
+def test_reset_config_does_not_share_mutable_defaults():
+    """Runtime edits to nested config values must not mutate DEFAULT_CFG."""
+    config.reset_config()
+
+    config.cfg["hotkeys"]["open_settings"] = "F11"
+    config.cfg["flow_preferred_languages"].append("fr")
+    config.cfg["flow_profiles"]["custom"] = {"rewrite_mode": "clean"}
+
+    assert config.DEFAULT_CFG["hotkeys"]["open_settings"] == "F12"
+    assert config.DEFAULT_CFG["flow_preferred_languages"] == ["de", "en"]
+    assert config.DEFAULT_CFG["flow_profiles"] == {}
+
+    config.reset_config()
+
+    assert config.cfg["hotkeys"]["open_settings"] == "F12"
+    assert config.cfg["flow_preferred_languages"] == ["de", "en"]
+    assert config.cfg["flow_profiles"] == {}
+
+
+@pytest.mark.unit
+def test_load_config_resets_stale_runtime_values_when_file_missing(
+    monkeypatch_home, monkeypatch
+):
+    """Reloading without a config file should restore defaults, not stale runtime state."""
+    data_dir = monkeypatch_home / ".local" / "share" / "whisprbar"
+    hist_file = data_dir / "history.jsonl"
+    config_path = monkeypatch_home / ".config" / "whisprbar.json"
+    monkeypatch.setattr(config, "DATA_DIR", data_dir)
+    monkeypatch.setattr(config, "HIST_FILE", hist_file)
+    monkeypatch.setattr(config, "CONFIG_PATH", config_path)
+
+    config.cfg["language"] = "en"
+    config.cfg["hotkeys"]["open_settings"] = "F11"
+
+    loaded = config.load_config()
+
+    assert loaded["language"] == "de"
+    assert loaded["hotkeys"]["open_settings"] == "F12"
+
+
+@pytest.mark.unit
 def test_load_config_merges_with_defaults(mock_config_file, monkeypatch):
     """Test that load_config merges file config with defaults."""
     # Monkeypatch CONFIG_PATH to use our test file
@@ -115,6 +156,31 @@ def test_save_config_creates_file(monkeypatch_home, tmp_path, monkeypatch):
 
     assert saved_data["language"] == "fr"
     assert saved_data["hotkey"] == "F10"
+
+
+@pytest.mark.unit
+def test_save_config_creates_parent_directory(tmp_path, monkeypatch):
+    """Saving settings should work even when the config directory is missing."""
+    config_path = tmp_path / "missing" / "whisprbar.json"
+    monkeypatch.setattr(config, "CONFIG_PATH", config_path)
+    config.cfg["language"] = "en"
+
+    config.save_config()
+
+    assert config_path.exists()
+    assert json.loads(config_path.read_text(encoding="utf-8"))["language"] == "en"
+
+
+@pytest.mark.unit
+def test_save_env_file_value_rejects_newline_in_value(tmp_path, monkeypatch):
+    """A pasted secret must not be able to inject additional env-file keys."""
+    env_path = tmp_path / "whisprbar.env"
+    monkeypatch.setattr(config, "get_env_file_path", lambda: env_path)
+
+    with pytest.raises(ValueError):
+        config.save_env_file_value("OPENAI_API_KEY", "sk-test\nEVIL_KEY=1")
+
+    assert not env_path.exists()
 
 
 @pytest.mark.unit

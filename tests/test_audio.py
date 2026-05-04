@@ -1,6 +1,7 @@
 """Unit tests for whisprbar.audio module."""
 
 import queue
+import threading
 import time
 from unittest.mock import MagicMock, patch
 
@@ -241,6 +242,68 @@ def test_set_recording_callbacks():
     # Callbacks should be stored
     assert audio._recording_callbacks["on_start"] is on_start
     assert audio._recording_callbacks["on_stop"] is on_stop
+
+
+@pytest.mark.unit
+def test_start_recording_ignores_concurrent_start_while_stream_initializes(monkeypatch):
+    """A second start request during stream setup must not open another stream."""
+    from whisprbar.audio import recorder
+
+    created_streams = 0
+    first_stream_entered = threading.Event()
+    release_first_stream = threading.Event()
+
+    class FakeStream:
+        def __init__(self, **_kwargs):
+            nonlocal created_streams
+            created_streams += 1
+            if created_streams == 1:
+                first_stream_entered.set()
+                release_first_stream.wait(timeout=2.0)
+
+        def start(self):
+            return None
+
+        def stop(self):
+            return None
+
+        def close(self):
+            return None
+
+    class FakeSoundDevice:
+        InputStream = FakeStream
+
+    with recorder._recording_state_lock:
+        recorder.recording_state.update(
+            {
+                "recording": False,
+                "stream": None,
+                "device_idx": None,
+                "audio_data": None,
+                "generation": 0,
+            }
+        )
+        recorder.recording_state.pop("starting", None)
+
+    monkeypatch.setitem(recorder.cfg, "flow_mode_enabled", False)
+    monkeypatch.setitem(recorder.cfg, "vad_auto_stop_enabled", False)
+    monkeypatch.setattr(recorder, "_get_sounddevice", lambda: FakeSoundDevice())
+    monkeypatch.setattr(recorder, "update_device_index", lambda: None)
+    monkeypatch.setattr(recorder, "_recording_callbacks", {"on_start": None, "on_stop": None, "on_audio_level": None})
+
+    first_start = threading.Thread(target=recorder.start_recording)
+    first_start.start()
+    assert first_stream_entered.wait(timeout=1.0)
+
+    recorder.start_recording()
+
+    release_first_stream.set()
+    first_start.join(timeout=2.0)
+
+    try:
+        assert created_streams == 1
+    finally:
+        recorder.stop_recording()
 
 
 @pytest.mark.unit

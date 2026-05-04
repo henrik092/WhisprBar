@@ -22,6 +22,7 @@ audio_queue_lock = threading.Lock()
 _recording_state_lock = threading.Lock()  # Protects recording_state from concurrent access
 recording_state = {
     "recording": False,
+    "starting": False,
     "stream": None,
     "device_idx": None,
     "audio_data": None,
@@ -221,8 +222,10 @@ def start_recording() -> None:
     """
     global AUDIO_QUEUE
 
-    if recording_state.get("recording"):
-        return
+    with _recording_state_lock:
+        if recording_state.get("recording") or recording_state.get("starting"):
+            return
+        recording_state["starting"] = True
 
     update_device_index()
 
@@ -262,6 +265,7 @@ def start_recording() -> None:
         with _recording_state_lock:
             recording_state["stream"] = stream
             recording_state["recording"] = True
+            recording_state["starting"] = False
             recording_state["audio_data"] = None
             recording_state["generation"] = int(recording_state.get("generation", 0)) + 1
             generation = recording_state["generation"]
@@ -281,6 +285,10 @@ def start_recording() -> None:
             threading.Thread(target=vad_auto_stop_monitor, daemon=True).start()
 
     except Exception as exc:
+        with _recording_state_lock:
+            recording_state["starting"] = False
+            recording_state["recording"] = False
+            recording_state["stream"] = None
         with audio_queue_lock:
             AUDIO_QUEUE = None
         import whisprbar.audio.vad as _vad_module

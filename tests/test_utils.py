@@ -1,6 +1,7 @@
 """Unit tests for whisprbar.utils module."""
 
 import json
+import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -338,6 +339,47 @@ def test_collect_diagnostics_wayland_warning(monkeypatch):
 
 
 @pytest.mark.unit
+def test_collect_diagnostics_uses_selected_cloud_backend_key(monkeypatch):
+    """Deepgram diagnostics should check DEEPGRAM_API_KEY, not OPENAI_API_KEY."""
+    monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    monkeypatch.setitem(utils.cfg, "language", "en")
+    monkeypatch.setitem(utils.cfg, "transcription_backend", "deepgram")
+    monkeypatch.setattr(utils, "command_exists", lambda cmd: cmd in {"xdotool", "notify-send"})
+
+    from whisprbar import config
+
+    monkeypatch.setattr(config, "load_env_file_values", lambda: {"DEEPGRAM_API_KEY": "dg-test"})
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPGRAM_API_KEY", raising=False)
+
+    results = utils.collect_diagnostics()
+
+    api_diag = next(result for result in results if result.key == "api_key")
+    assert api_diag.status == utils.STATUS_OK
+    assert "DEEPGRAM_API_KEY" in api_diag.detail
+
+
+@pytest.mark.unit
+def test_collect_diagnostics_local_backend_does_not_require_cloud_key(monkeypatch):
+    """Offline backends should not report a missing OpenAI key as a failure."""
+    monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    monkeypatch.setitem(utils.cfg, "language", "en")
+    monkeypatch.setitem(utils.cfg, "transcription_backend", "faster_whisper")
+    monkeypatch.setattr(utils, "command_exists", lambda cmd: cmd in {"xdotool", "notify-send"})
+
+    from whisprbar import config
+
+    monkeypatch.setattr(config, "load_env_file_values", lambda: {})
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    results = utils.collect_diagnostics()
+
+    api_diag = next(result for result in results if result.key == "api_key")
+    assert api_diag.status == utils.STATUS_OK
+    assert "not required" in api_diag.detail.lower()
+
+
+@pytest.mark.unit
 def test_play_audio_feedback_handles_invalid_volume(monkeypatch):
     """Invalid audio feedback volume should fall back without raising."""
     utils._audio_feedback_cache.clear()
@@ -425,6 +467,24 @@ def test_play_audio_feedback_falls_back_from_canberra_to_paplay(monkeypatch):
     second_command = utils.subprocess.Popen.call_args_list[1].args[0]
     assert first_command[0] == "canberra-gtk-play"
     assert second_command[0] == "paplay"
+
+
+@pytest.mark.unit
+def test_get_whisprbar_temp_dir_repairs_existing_permissions(monkeypatch):
+    """The per-user temp directory should not remain world-readable/writable."""
+    temp_dir = Path("/tmp") / "whisprbar-987654"
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    temp_dir.mkdir(mode=0o777)
+    temp_dir.chmod(0o777)
+    monkeypatch.setattr(utils.os, "getuid", lambda: 987654)
+
+    try:
+        result = utils.get_whisprbar_temp_dir()
+
+        assert result == temp_dir
+        assert (temp_dir.stat().st_mode & 0o777) == 0o700
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @pytest.mark.unit

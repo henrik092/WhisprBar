@@ -56,6 +56,14 @@ STATUS_ICON_NAME = {
     STATUS_ERROR: "dialog-error",
 }
 
+CLOUD_BACKEND_API_KEYS = {
+    "openai": "OPENAI_API_KEY",
+    "deepgram": "DEEPGRAM_API_KEY",
+    "elevenlabs": "ELEVENLABS_API_KEY",
+}
+
+LOCAL_TRANSCRIPTION_BACKENDS = {"faster_whisper", "streaming"}
+
 # Debug mode
 DEBUG = bool(os.environ.get("WHISPRBAR_DEBUG")) or sys.stdout.isatty()
 
@@ -531,19 +539,47 @@ def collect_diagnostics() -> List[DiagnosticResult]:
             )
         )
 
-    # API key check
-    env_api_key = os.getenv("OPENAI_API_KEY") or env_values.get("OPENAI_API_KEY", "")
-    if env_api_key:
-        masked = tr("diagnostics.configured_chars").format(count=len(env_api_key))
-        results.append(DiagnosticResult("api_key", tr("diagnostics.api_key"), STATUS_OK, masked))
+    # API key check for the selected transcription backend.
+    backend = str(cfg.get("transcription_backend", "openai") or "openai")
+    required_api_key = CLOUD_BACKEND_API_KEYS.get(backend)
+    if backend in LOCAL_TRANSCRIPTION_BACKENDS:
+        results.append(
+            DiagnosticResult(
+                "api_key",
+                tr("diagnostics.api_key"),
+                STATUS_OK,
+                f"{backend}: cloud API key not required",
+            )
+        )
+    elif required_api_key:
+        env_api_key = os.getenv(required_api_key) or env_values.get(required_api_key, "")
+        if env_api_key:
+            masked = tr("diagnostics.configured_chars").format(count=len(env_api_key))
+            results.append(
+                DiagnosticResult(
+                    "api_key",
+                    tr("diagnostics.api_key"),
+                    STATUS_OK,
+                    f"{required_api_key}: {masked}",
+                )
+            )
+        else:
+            results.append(
+                DiagnosticResult(
+                    "api_key",
+                    tr("diagnostics.api_key"),
+                    STATUS_ERROR,
+                    f"{required_api_key}: {tr('diagnostics.missing')}",
+                    remedy=f"Add {required_api_key} to ~/.config/whisprbar.env.",
+                )
+            )
     else:
         results.append(
             DiagnosticResult(
                 "api_key",
                 tr("diagnostics.api_key"),
-                STATUS_ERROR,
-                tr("diagnostics.missing"),
-                remedy=tr("diagnostics.add_openai_key"),
+                STATUS_WARN,
+                f"{backend}: unknown backend; no API key check available",
             )
         )
 
@@ -1017,7 +1053,12 @@ def get_whisprbar_temp_dir() -> Path:
     # Use user ID to avoid conflicts in multi-user systems
     uid = os.getuid()
     temp_dir = Path("/tmp") / f"whisprbar-{uid}"
+    if temp_dir.is_symlink():
+        raise RuntimeError(f"Refusing to use symlinked temp directory: {temp_dir}")
+    if temp_dir.exists() and not temp_dir.is_dir():
+        raise RuntimeError(f"WhisprBar temp path is not a directory: {temp_dir}")
     temp_dir.mkdir(mode=0o700, exist_ok=True)
+    temp_dir.chmod(0o700)
     return temp_dir
 
 

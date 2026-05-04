@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Aligned `pyproject.toml` with the runtime package version and added regression coverage so packaging metadata cannot drift silently.
 - Removed stale installation documentation references to missing development-log files.
+- Hardened configuration loading and saving: nested defaults no longer leak runtime mutations, reloads reset stale values, config writes create missing parents atomically, and env-file writes reject multiline secret injection.
+- Prevented concurrent recording-start races from opening more than one audio stream while the first stream is still initializing.
+- Made diagnostics check the API key required by the selected transcription backend and treat local/offline backends as key-free.
+- Repaired permissions on the per-user WhisprBar temp directory and rejected unsafe temp-path collisions before writing temporary audio files.
 
 ## [1.3.1] - 2026-04-30
 
