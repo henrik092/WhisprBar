@@ -162,6 +162,26 @@ def _start_max_recording_monitor(generation: int) -> None:
     ).start()
 
 
+def _audio_rms_to_indicator_level(rms: float) -> float:
+    """Map microphone RMS to a perceptual 0.0-1.0 indicator level."""
+    try:
+        value = float(rms)
+    except (TypeError, ValueError):
+        return 0.0
+
+    if value <= 0:
+        return 0.0
+
+    noise_floor = 0.002
+    speech_ceiling = 0.075
+    if value <= noise_floor:
+        return 0.0
+
+    normalized = (value - noise_floor) / (speech_ceiling - noise_floor)
+    normalized = max(0.0, min(1.0, normalized))
+    return min(1.0, normalized ** 0.55)
+
+
 def recording_callback(indata, frames, time_info, status):
     """Sounddevice callback for audio recording.
 
@@ -196,8 +216,7 @@ def recording_callback(indata, frames, time_info, status):
         try:
             import numpy as np
             rms = float(np.sqrt(np.mean(data_copy.astype(np.float32) ** 2)))
-            # Normalize: typical speech RMS ~0.01-0.1, scale to 0.0-1.0
-            level = min(1.0, rms * 10.0)
+            level = _audio_rms_to_indicator_level(rms)
             _recording_callbacks["on_audio_level"](level)
         except Exception:
             pass

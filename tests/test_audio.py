@@ -245,6 +245,18 @@ def test_set_recording_callbacks():
 
 
 @pytest.mark.unit
+def test_indicator_level_mapping_makes_normal_speech_visible():
+    """Typical speech RMS should drive the recording indicator clearly."""
+    from whisprbar.audio.recorder import _audio_rms_to_indicator_level
+
+    assert _audio_rms_to_indicator_level(0.0) == 0.0
+    assert _audio_rms_to_indicator_level(0.0015) < 0.08
+    assert _audio_rms_to_indicator_level(0.015) >= 0.35
+    assert _audio_rms_to_indicator_level(0.05) >= 0.70
+    assert _audio_rms_to_indicator_level(0.40) == 1.0
+
+
+@pytest.mark.unit
 def test_start_recording_ignores_concurrent_start_while_stream_initializes(monkeypatch):
     """A second start request during stream setup must not open another stream."""
     from whisprbar.audio import recorder

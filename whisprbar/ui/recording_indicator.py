@@ -74,6 +74,54 @@ POSITION_BOTTOM_RIGHT = "bottom-right"
 POSITION_DRAGGABLE = "draggable"
 
 
+def _voice_activity_intensity(level: float) -> float:
+    """Return a visually exaggerated activity value for speech-reactive drawing."""
+    try:
+        value = float(level)
+    except (TypeError, ValueError):
+        return 0.0
+    value = max(0.0, min(1.0, value))
+    if value <= 0:
+        return 0.0
+    return min(1.0, value ** 0.70)
+
+
+def _listening_capsule_metrics(activity: float, height: float) -> dict:
+    """Return warm capsule visual metrics for the current speech activity."""
+    try:
+        value = float(activity)
+    except (TypeError, ValueError):
+        value = 0.0
+    value = max(0.0, min(1.0, value))
+    h = max(10.0, float(height or 10.0))
+
+    return {
+        "border_alpha": 0.16 + 0.48 * value,
+        "border_width": max(1.0, h * (0.035 + 0.035 * value)),
+        "outer_glow_alpha": 0.04 + 0.20 * value,
+        "inner_sheen_alpha": 0.04 + 0.16 * value,
+        "label_alpha": 0.58 + 0.30 * value,
+    }
+
+
+def _flow_wave_metrics(activity: float, height: float) -> dict:
+    """Return stronger Flow-Bar waveform metrics for speech activity."""
+    try:
+        value = float(activity)
+    except (TypeError, ValueError):
+        value = 0.0
+    value = max(0.0, min(1.0, value))
+    h = max(10.0, float(height or 10.0))
+
+    return {
+        "line_width": 2.0 + 3.2 * value,
+        "glow_width": 5.0 + 5.0 * value,
+        "amplitude": h * (0.28 + 0.34 * value),
+        "glow_alpha": 0.12 + 0.34 * value,
+        "shadow_alpha": 0.06 + 0.22 * value,
+    }
+
+
 def _is_flow_indicator_enabled(cfg: Optional[dict]) -> bool:
     """Return whether Flow Mode should use the Flow-Bar renderer."""
     return bool((cfg or {}).get("flow_mode_enabled", False))
@@ -491,35 +539,144 @@ class RecordingIndicator:
 
     def _draw_recording(self, cr, w, h, alpha) -> None:
         """Draw premium recording animation: Siri waves + gradient bars + text."""
-        t = self._tick_count / FPS  # Time in seconds
+        anim_time = self._tick_count / FPS
         level = self._smooth_level
-
-        # Layout: [animation area ~80%] [timer ~20%]
-        anim_w = w * 0.78
+        activity = _voice_activity_intensity(level)
+        metrics = _listening_capsule_metrics(activity, h)
         cy = h / 2
 
-        # Save state and clip animation area to pill shape
-        cr.save()
-        self._draw_rounded_rect(cr, 0, 0, anim_w, h, min(h // 2, 12))
-        cr.clip()
+        self._draw_listening_capsule_chrome(cr, w, h, activity, alpha, metrics)
 
-        # === Layer 1: Siri-style flowing sine curves (background atmosphere) ===
-        self._draw_siri_waves(cr, anim_w, h, t, level, alpha)
+        # Layout: [label] [animation area] [timer]
+        label = t("indicator.listening", self._cfg)
+        label_font_size = max(9.0, min(12.0, h * 0.30))
+        show_label = w >= 190 and h >= 24
+        label_w = 0.0
+        if show_label:
+            cr.select_font_face("Sans", 0, 1)
+            cr.set_font_size(label_font_size)
+            label_extents = cr.text_extents(label)
+            label_w = min(w * 0.32, label_extents.width + h * 0.82)
 
-        # === Layer 2: Gradient bars with glow (foreground) ===
-        self._draw_gradient_bars(cr, anim_w, h, t, level, alpha)
-
-        cr.restore()
-
-        # === Layer 3: Timer only (compact, right-aligned) ===
         elapsed = self._get_elapsed_str()
         timer_font_size = self._height * 0.28
         cr.select_font_face("Sans", 0, 0)
         cr.set_font_size(timer_font_size)
         timer_extents = cr.text_extents(elapsed)
+        timer_reserved = max(w * 0.19, timer_extents.width + w * 0.08)
+        anim_x = label_w if show_label else 0.0
+        anim_w = max(44.0, w - anim_x - timer_reserved)
+        cy = h / 2
+
+        # Save state and clip animation area to pill shape
+        cr.save()
+        cr.translate(anim_x, 0)
+        self._draw_rounded_rect(cr, 0, 0, anim_w, h, min(h // 2, 12))
+        cr.clip()
+
+        # === Layer 1: Siri-style flowing sine curves (background atmosphere) ===
+        self._draw_voice_reactive_backdrop(cr, anim_w, h, activity, alpha)
+        self._draw_siri_waves(cr, anim_w, h, anim_time, level, alpha)
+
+        # === Layer 2: Gradient bars with glow (foreground) ===
+        self._draw_gradient_bars(cr, anim_w, h, anim_time, level, alpha)
+
+        cr.restore()
+
+        if show_label:
+            self._draw_text(
+                cr,
+                label,
+                h * 0.42,
+                cy,
+                alpha * metrics["label_alpha"],
+                color=(1.0, 0.72, 0.52, 1.0),
+                font_size=label_font_size,
+                bold=True,
+            )
+
+        # === Layer 3: Timer only (compact, right-aligned) ===
         timer_x = w - timer_extents.width - w * 0.04
         self._draw_text(cr, elapsed, timer_x, cy, alpha,
                         color=COLOR_TEXT_DIM, font_size=timer_font_size)
+
+    def _draw_listening_capsule_chrome(self, cr, w, h, activity, alpha, metrics) -> None:
+        """Draw the full warm capsule border and subtle speech glow."""
+        radius = min(h // 2, 12)
+
+        if metrics["outer_glow_alpha"] > 0.01:
+            cr.set_line_width(max(2.0, metrics["border_width"] * 2.7))
+            self._draw_rounded_rect(cr, 1.0, 1.0, w - 2.0, h - 2.0, radius)
+            cr.set_source_rgba(1.0, 0.42, 0.25, alpha * metrics["outer_glow_alpha"])
+            cr.stroke()
+
+        try:
+            import cairo as _cairo
+            pat = _cairo.LinearGradient(0, 0, w, h)
+            pat.add_color_stop_rgba(
+                0.0, 1.0, 0.34, 0.20, alpha * metrics["border_alpha"] * 0.78
+            )
+            pat.add_color_stop_rgba(
+                0.55, 1.0, 0.62, 0.36, alpha * metrics["border_alpha"]
+            )
+            pat.add_color_stop_rgba(
+                1.0, 0.72, 0.28, 0.68, alpha * metrics["border_alpha"] * 0.74
+            )
+            cr.set_source(pat)
+        except Exception:
+            cr.set_source_rgba(1.0, 0.50, 0.30, alpha * metrics["border_alpha"])
+
+        cr.set_line_width(metrics["border_width"])
+        self._draw_rounded_rect(
+            cr,
+            metrics["border_width"] / 2,
+            metrics["border_width"] / 2,
+            w - metrics["border_width"],
+            h - metrics["border_width"],
+            radius,
+        )
+        cr.stroke()
+
+        if activity <= 0.01:
+            return
+
+        try:
+            import cairo as _cairo
+            pat = _cairo.LinearGradient(0, 0, w, 0)
+            pat.add_color_stop_rgba(0.0, 1.0, 0.46, 0.27, 0.0)
+            pat.add_color_stop_rgba(
+                0.42, 1.0, 0.54, 0.30, alpha * metrics["inner_sheen_alpha"]
+            )
+            pat.add_color_stop_rgba(1.0, 0.88, 0.30, 0.72, 0.0)
+            cr.set_source(pat)
+        except Exception:
+            cr.set_source_rgba(1.0, 0.46, 0.28, alpha * metrics["inner_sheen_alpha"])
+        self._draw_rounded_rect(cr, 2, 2, w - 4, h - 4, radius)
+        cr.fill()
+
+    def _draw_voice_reactive_backdrop(self, cr, w, h, activity, alpha) -> None:
+        """Draw a speech-reactive glow behind the recording waveform."""
+        if activity <= 0.01:
+            return
+
+        glow_alpha = alpha * (0.10 + 0.34 * activity)
+        try:
+            import cairo as _cairo
+            pat = _cairo.LinearGradient(0, 0, w, 0)
+            pat.add_color_stop_rgba(0.0, 1.0, 0.30, 0.18, glow_alpha * 0.35)
+            pat.add_color_stop_rgba(0.42, 1.0, 0.48, 0.28, glow_alpha)
+            pat.add_color_stop_rgba(1.0, 0.72, 0.25, 0.70, glow_alpha * 0.50)
+            cr.set_source(pat)
+        except Exception:
+            cr.set_source_rgba(1.0, 0.38, 0.26, glow_alpha)
+
+        self._draw_rounded_rect(cr, 1, 1, w - 2, h - 2, min(h // 2, 12))
+        cr.fill()
+
+        cr.set_line_width(max(1.0, h * 0.06 + h * 0.07 * activity))
+        self._draw_rounded_rect(cr, 1.5, 1.5, w - 3, h - 3, min(h // 2, 12))
+        cr.set_source_rgba(1.0, 0.62, 0.40, alpha * (0.12 + 0.42 * activity))
+        cr.stroke()
 
     def _draw_siri_waves(self, cr, w, h, t, level, alpha) -> None:
         """Draw overlapping Siri-style sine curves as background atmosphere."""
@@ -576,7 +733,8 @@ class RecordingIndicator:
         """Draw center-aligned gradient bars with glow effect."""
         cy = h / 2
         num_bars = self._num_bars
-        max_bar_h = h * 0.75
+        activity = _voice_activity_intensity(level)
+        max_bar_h = h * (0.68 + 0.16 * activity)
         min_bar_h = h * 0.06
 
         # Bar geometry
@@ -594,7 +752,7 @@ class RecordingIndicator:
             wave3 = math.sin(t * 5.2 + phase * 0.7) * 0.2 + 0.5
             combined = (wave1 * 0.5 + wave2 * 0.3 + wave3 * 0.2)
 
-            target_h = min_bar_h + (max_bar_h - min_bar_h) * (0.08 + 0.92 * level) * combined
+            target_h = min_bar_h + (max_bar_h - min_bar_h) * (0.05 + 0.95 * level) * combined
             # Smooth lerp toward target
             self._bar_heights[i] += (target_h - self._bar_heights[i]) * 0.18
 
@@ -614,7 +772,7 @@ class RecordingIndicator:
 
             cap_r = glow_w / 2
             self._draw_rounded_rect(cr, glow_x, glow_y, glow_w, glow_h, cap_r)
-            cr.set_source_rgba(r, g, b, alpha * 0.12)
+            cr.set_source_rgba(r, g, b, alpha * (0.10 + 0.16 * activity))
             cr.fill()
 
         # Draw crisp bars on top
@@ -629,7 +787,7 @@ class RecordingIndicator:
             cap_r = bar_width / 2
             self._draw_rounded_rect(cr, x, y, bar_width, bar_h, cap_r)
             # Brightness varies slightly with height for depth
-            brightness = 0.7 + 0.3 * (bar_h / max_bar_h)
+            brightness = 0.64 + 0.36 * (bar_h / max_bar_h) + 0.12 * activity
             cr.set_source_rgba(r, g, b, alpha * brightness)
             cr.fill()
 
@@ -665,20 +823,27 @@ class RecordingIndicator:
             return (0.67, 0.56, 0.96, 1.0)
         if self._phase in (PHASE_TRANSCRIBING, PHASE_REWRITING):
             return (0.38, 0.68, 1.0, 1.0)
+        if self._phase == PHASE_RECORDING:
+            return (1.0, 0.58, 0.34, 1.0)
         return (0.24, 0.82, 0.66, 1.0)
 
     def _draw_flow_bar(self, cr, w, h, alpha) -> None:
         """Draw the compact Soft Dark Flow-Bar."""
         radius = h / 2
+        activity = _voice_activity_intensity(self._smooth_level)
         self._draw_rounded_rect(cr, 0, 0, w, h, radius)
         cr.set_source_rgba(0.09, 0.11, 0.14, alpha * 0.97)
         cr.fill()
 
-        # Soft inner border keeps the dark pill readable on dark windows.
-        self._draw_rounded_rect(cr, 0.6, 0.6, w - 1.2, h - 1.2, radius - 0.6)
-        cr.set_line_width(1.0)
-        cr.set_source_rgba(1.0, 1.0, 1.0, alpha * 0.08)
-        cr.stroke()
+        if self._phase == PHASE_RECORDING:
+            metrics = _listening_capsule_metrics(activity, h)
+            self._draw_listening_capsule_chrome(cr, w, h, activity, alpha, metrics)
+        else:
+            # Soft inner border keeps the dark pill readable on dark windows.
+            self._draw_rounded_rect(cr, 0.6, 0.6, w - 1.2, h - 1.2, radius - 0.6)
+            cr.set_line_width(1.0)
+            cr.set_source_rgba(1.0, 1.0, 1.0, alpha * 0.08)
+            cr.stroke()
 
         badge_w = min(34, h * 0.70)
         badge_h = min(26, h * 0.56)
@@ -707,11 +872,19 @@ class RecordingIndicator:
         try:
             import cairo as _cairo
             pat = _cairo.LinearGradient(x, y, x + w, y + h)
-            pat.add_color_stop_rgba(0.0, 0.22, 0.54, 0.95, alpha)
-            pat.add_color_stop_rgba(1.0, 0.14, 0.76, 0.52, alpha)
+            if self._phase == PHASE_RECORDING:
+                activity = _voice_activity_intensity(self._smooth_level)
+                pat.add_color_stop_rgba(0.0, 1.0, 0.34, 0.20, alpha)
+                pat.add_color_stop_rgba(1.0, 1.0, 0.64, 0.36, alpha * (0.90 + 0.10 * activity))
+            else:
+                pat.add_color_stop_rgba(0.0, 0.22, 0.54, 0.95, alpha)
+                pat.add_color_stop_rgba(1.0, 0.14, 0.76, 0.52, alpha)
             cr.set_source(pat)
         except Exception:
-            cr.set_source_rgba(0.22, 0.54, 0.95, alpha)
+            if self._phase == PHASE_RECORDING:
+                cr.set_source_rgba(1.0, 0.48, 0.28, alpha)
+            else:
+                cr.set_source_rgba(0.22, 0.54, 0.95, alpha)
         cr.fill()
 
         cr.select_font_face("Sans", 0, 1)
@@ -744,8 +917,8 @@ class RecordingIndicator:
             hint_x = w - right_pad - max(timer_ext.width, hint_ext.width)
 
         wave_x = min(label_x + h * 2.45, w * 0.43)
-        wave_w = max(72.0, hint_x - wave_x - h * 0.28)
-        wave_h = min(24.0, h * 0.52)
+        wave_w = max(82.0, hint_x - wave_x - h * 0.28)
+        wave_h = min(30.0, h * 0.66)
         wave_y = (h - wave_h) / 2
         self._draw_flow_wave(cr, wave_x, wave_y, wave_w, wave_h, alpha)
 
@@ -763,38 +936,77 @@ class RecordingIndicator:
             cr.show_text(hint)
 
     def _draw_flow_wave(self, cr, x, y, w, h, alpha) -> None:
-        """Draw a restrained blue/green waveform strip."""
+        """Draw a prominent warm waveform strip."""
+        activity = _voice_activity_intensity(self._smooth_level)
+        metrics = _flow_wave_metrics(activity, h)
         self._draw_rounded_rect(cr, x, y, w, h, h / 2)
-        cr.set_source_rgba(0.13, 0.16, 0.21, alpha * 0.92)
+        cr.set_source_rgba(
+            0.13 + 0.05 * activity,
+            0.13 + 0.03 * activity,
+            0.16 + 0.03 * activity,
+            alpha * (0.92 + 0.06 * activity),
+        )
         cr.fill()
 
         t = self._tick_count / FPS
         level = max(0.10, self._smooth_level)
         center_y = y + h / 2
-        steps = max(16, int(w / 3))
-        cr.set_line_width(2.0)
-        cr.set_line_cap(1)
-        try:
-            import cairo as _cairo
-            pat = _cairo.LinearGradient(x, 0, x + w, 0)
-            pat.add_color_stop_rgba(0.0, 0.48, 0.83, 1.0, alpha * 0.75)
-            pat.add_color_stop_rgba(0.5, 0.21, 0.82, 0.65, alpha * 0.92)
-            pat.add_color_stop_rgba(1.0, 0.72, 0.64, 1.0, alpha * 0.75)
-            cr.set_source(pat)
-        except Exception:
-            cr.set_source_rgba(0.21, 0.82, 0.65, alpha * 0.90)
+        steps = max(22, int(w / 2.4))
 
-        cr.new_path()
+        points = []
         for i in range(steps + 1):
             nx = i / steps
             px = x + nx * w
-            amp = h * 0.30 * level * (math.sin(nx * math.pi) ** 0.75)
-            py = center_y + math.sin(nx * math.pi * 4.0 - t * 4.0) * amp
-            if i == 0:
-                cr.move_to(px, py)
-            else:
-                cr.line_to(px, py)
+            edge_fade = math.sin(nx * math.pi) ** 0.72
+            primary = math.sin(nx * math.pi * 4.0 - t * 4.2)
+            overtone = math.sin(nx * math.pi * 8.0 - t * 2.4) * 0.25
+            amp = metrics["amplitude"] * level * edge_fade
+            py = center_y + (primary + overtone) * amp
+            points.append((px, py))
+
+        def draw_wave_path() -> None:
+            cr.new_path()
+            for idx, (px, py) in enumerate(points):
+                if idx == 0:
+                    cr.move_to(px, py)
+                else:
+                    cr.line_to(px, py)
+
+        try:
+            import cairo as _cairo
+            pat = _cairo.LinearGradient(x, 0, x + w, 0)
+            pat.add_color_stop_rgba(
+                0.0, 1.0, 0.38, 0.24, alpha * (0.62 + 0.28 * activity)
+            )
+            pat.add_color_stop_rgba(
+                0.48, 1.0, 0.58, 0.34, alpha * (0.78 + 0.22 * activity)
+            )
+            pat.add_color_stop_rgba(
+                1.0, 0.78, 0.28, 0.68, alpha * (0.62 + 0.28 * activity)
+            )
+            cr.set_source(pat)
+        except Exception:
+            cr.set_source_rgba(1.0, 0.50, 0.30, alpha * 0.90)
+
+        cr.set_line_cap(1)
+        draw_wave_path()
+        cr.set_line_width(metrics["glow_width"])
+        cr.set_source_rgba(1.0, 0.38, 0.22, alpha * metrics["shadow_alpha"])
         cr.stroke()
+
+        draw_wave_path()
+        cr.set_line_width(metrics["line_width"])
+        try:
+            cr.set_source(pat)
+        except Exception:
+            cr.set_source_rgba(1.0, 0.50, 0.30, alpha * 0.94)
+        cr.stroke()
+
+        if activity > 0.02:
+            self._draw_rounded_rect(cr, x + 0.6, y + 0.6, w - 1.2, h - 1.2, h / 2)
+            cr.set_line_width(max(1.0, metrics["line_width"] * 0.24))
+            cr.set_source_rgba(1.0, 0.66, 0.42, alpha * metrics["glow_alpha"])
+            cr.stroke()
 
     def _draw_flow_status(self, cr, w, h, alpha) -> None:
         """Draw compact non-listening progress or result state."""
