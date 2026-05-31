@@ -7,6 +7,14 @@ import pytest
 from whisprbar.flow.models import FlowOutput, PastePolicy
 
 
+@pytest.fixture(autouse=True)
+def isolate_transcript_database(monkeypatch):
+    """Keep main-flow tests from writing to the user's real transcript DB."""
+    from whisprbar import main
+
+    monkeypatch.setattr(main, "save_transcript_record", MagicMock())
+
+
 @pytest.mark.unit
 def test_dispatch_transcript_uses_flow_final_text(monkeypatch):
     from whisprbar import main
@@ -35,6 +43,37 @@ def test_dispatch_transcript_uses_flow_final_text(monkeypatch):
     assert mock_history.call_args.args[:3] == ("Final text", 2.0, 2)
     assert mock_history.call_args.kwargs["metadata"]["profile_id"] == "email"
     mock_paste.assert_called_once_with("Final text", policy=flow_output.paste_policy)
+
+
+@pytest.mark.unit
+def test_dispatch_transcript_persists_analysis_record(monkeypatch):
+    from whisprbar import main
+
+    flow_output = FlowOutput(
+        raw_text="raw text",
+        final_text="Final text",
+        profile_id="email",
+        rewrite_status="applied",
+        metadata={"raw_text": "raw text", "profile_id": "email", "rewrite_status": "applied"},
+        paste_policy=PastePolicy(sequence="clipboard"),
+    )
+    mock_store = MagicMock()
+    monkeypatch.setattr(main, "process_flow_text", lambda text, language, cfg: flow_output)
+    monkeypatch.setattr(main, "write_history", MagicMock())
+    monkeypatch.setattr(main, "save_transcript_record", mock_store, raising=False)
+    monkeypatch.setattr(main, "auto_paste", MagicMock())
+    main.cfg["auto_paste_enabled"] = True
+    main.cfg["language"] = "en"
+    main.cfg["transcription_backend"] = "deepgram"
+
+    main.dispatch_transcript_text("raw text", output_seconds=2.0)
+
+    mock_store.assert_called_once()
+    assert mock_store.call_args.args[:3] == ("Final text", 2.0, 2)
+    assert mock_store.call_args.kwargs["metadata"]["raw_text"] == "raw text"
+    assert mock_store.call_args.kwargs["metadata"]["profile_id"] == "email"
+    assert mock_store.call_args.kwargs["metadata"]["rewrite_status"] == "applied"
+    assert mock_store.call_args.kwargs["config"] is main.cfg
 
 
 @pytest.mark.unit
@@ -78,7 +117,7 @@ def test_dispatch_transcript_uses_german_status_labels(monkeypatch):
     )
 
     assert overlay_updates == [("Hallo Welt", "Fertig")]
-    assert phases == [("complete", "(2 Wörter)")]
+    assert phases == [("complete", "(2 Wörter · 2.0 W/s)")]
     mock_notify.assert_called_once_with("Transkription: Hallo Welt...")
 
 

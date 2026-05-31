@@ -35,6 +35,7 @@ from whisprbar.audio import (
     get_recording_state,
 )
 from whisprbar.transcription import transcribe_audio, get_transcriber
+from whisprbar.transcript_store import save_transcript_record
 from whisprbar.flow import process_flow_text
 from whisprbar.hotkeys import get_hotkey_manager
 from whisprbar.i18n import t
@@ -740,9 +741,18 @@ def dispatch_transcript_text(
     history_metadata.setdefault("raw_text", flow_output.raw_text)
     history_metadata.setdefault("final_text", flow_output.final_text)
     write_history(final_text, output_seconds, word_count, metadata=history_metadata)
+    save_transcript_record(
+        final_text,
+        output_seconds,
+        word_count,
+        metadata=history_metadata,
+        config=cfg,
+    )
 
     word_label_key = "main.word" if word_count == 1 else "main.words"
-    word_info = f"({word_count} {t(word_label_key, cfg)})"
+    words_per_second = round(word_count / output_seconds, 1) if output_seconds > 0 else 0.0
+    speed_label = t("main.words_per_second", cfg)
+    word_info = f"({word_count} {t(word_label_key, cfg)} · {words_per_second:.1f} {speed_label})"
 
     if cfg.get("auto_paste_enabled"):
         if show_indicator_func is not None:

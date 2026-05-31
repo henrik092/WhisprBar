@@ -11,6 +11,12 @@ from whisprbar import config, main
 from whisprbar.audio import SAMPLE_RATE
 
 
+@pytest.fixture(autouse=True)
+def isolate_transcript_database(monkeypatch):
+    """Audio-flow tests should not write successful transcripts to the real DB."""
+    monkeypatch.setattr(main, "save_transcript_record", MagicMock())
+
+
 @pytest.mark.unit
 def test_on_recording_stop_plays_stop_feedback_without_audio(monkeypatch):
     """Stopping a recording should still play stop feedback before early return."""

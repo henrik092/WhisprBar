@@ -1,4 +1,5 @@
 from whisprbar.flow.models import DictionaryEntry, Snippet
+import whisprbar.ui.settings_webview as settings_webview
 from whisprbar.ui.settings_webview import apply_settings_payload, generate_settings_html
 
 
@@ -111,6 +112,49 @@ def test_generate_settings_html_shows_voice_commands_from_command_specs():
     assert "Nutzt AI-Umschreiben" in html
     assert "Keine KI" in html
     assert "settings.command_mode" not in html
+
+
+def test_generate_settings_html_shows_analysis_database_stats():
+    html = generate_settings_html(
+        {"language": "de", "flow_mode_enabled": True},
+        dictionary_entries=[],
+        snippets=[],
+        transcript_stats={
+            "total": 153,
+            "live_sqlite_write": 6,
+            "history_jsonl": 34,
+            "copyq": 113,
+            "oldest_created_at": "2026-05-27T14:30:09+00:00",
+            "newest_created_at": "2026-05-30T08:50:00+00:00",
+            "database_path": "/home/rik/.local/share/whisprbar/transcripts.sqlite3",
+        },
+    )
+
+    assert 'data-page="analysis"' in html
+    assert 'data-page-id="analysis"' in html
+    assert "Analyse" in html
+    assert "153" in html
+    assert "Live gespeichert" in html
+    assert "Alter Verlauf" in html
+    assert "CopyQ-Import" in html
+    assert "/home/rik/.local/share/whisprbar/transcripts.sqlite3" in html
+
+
+def test_generate_settings_html_preserves_empty_transcript_stats(monkeypatch):
+    def fail_live_stats_read():
+        raise AssertionError("empty transcript_stats should not trigger live DB stats")
+
+    monkeypatch.setattr(settings_webview, "get_transcript_stats", fail_live_stats_read)
+
+    html = generate_settings_html(
+        {"language": "de", "flow_mode_enabled": True},
+        dictionary_entries=[],
+        snippets=[],
+        transcript_stats={},
+    )
+
+    assert 'data-page="analysis"' in html
+    assert "Gespeicherte Nachrichten" in html
 
 
 def test_generate_settings_html_keeps_settings_sidebar_fixed_while_main_scrolls():
