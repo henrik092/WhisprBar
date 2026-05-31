@@ -24,6 +24,7 @@ from whisprbar.hotkey_actions import HOTKEY_SETTINGS_LABELS
 from whisprbar.hotkeys import cancel_hotkey_capture, capture_hotkey
 from whisprbar.i18n import get_language, hotkey_action_labels, t
 from whisprbar.paste import PASTE_OPTIONS, is_wayland_session
+from whisprbar.transcript_store import get_transcript_stats
 from whisprbar.ui_hotkeys import (
     build_hotkey_conflict_message,
     build_pending_hotkeys,
@@ -368,6 +369,38 @@ def _voice_command_rows(command_specs: Iterable[CommandSpec], config: Mapping[st
     return "\n".join(rows)
 
 
+def _stat_value(value: object) -> str:
+    if value in {None, ""}:
+        return "-"
+    if isinstance(value, int):
+        return f"{value:,}".replace(",", ".")
+    return str(value)
+
+
+def _analysis_rows(stats: Mapping[str, object], config: Mapping[str, object]) -> str:
+    rows = [
+        (t("settings.analysis_total", config), stats.get("total", 0)),
+        (t("settings.analysis_live", config), stats.get("live_sqlite_write", 0)),
+        (t("settings.analysis_history", config), stats.get("history_jsonl", 0)),
+        (t("settings.analysis_copyq", config), stats.get("copyq", 0)),
+        (t("settings.analysis_oldest", config), stats.get("oldest_created_at")),
+        (t("settings.analysis_newest", config), stats.get("newest_created_at")),
+        (t("settings.analysis_database_path", config), stats.get("database_path")),
+    ]
+    if stats.get("error"):
+        rows.append((t("settings.analysis_error", config), stats.get("error")))
+
+    return "\n".join(
+        f"""
+        <div class="wb-stat-row">
+          <span>{escape(label)}</span>
+          <b>{escape(_stat_value(value))}</b>
+        </div>
+        """
+        for label, value in rows
+    )
+
+
 def _device_options(
     devices: Iterable[Mapping[str, object]],
     active_device_name: Optional[object],
@@ -704,6 +737,7 @@ def generate_settings_html(
     *,
     devices: Optional[Iterable[Mapping[str, object]]] = None,
     api_keys: Optional[Mapping[str, str]] = None,
+    transcript_stats: Optional[Mapping[str, object]] = None,
 ) -> str:
     """Generate the experimental WebKit settings HTML."""
 
@@ -717,8 +751,10 @@ def generate_settings_html(
     else:
         preferred_languages_text = str(preferred_languages or "")
     api_keys = api_keys or {}
+    transcript_stats = transcript_stats or get_transcript_stats()
     devices = list(devices or [])
     paste_options = [(value, tr(f"paste.{value}")) for value in PASTE_OPTIONS]
+    analysis_rows = _analysis_rows(transcript_stats, config)
 
     general_rows = (
         _select(
@@ -1578,6 +1614,26 @@ def generate_settings_html(
     font-size: 12px;
     line-height: 1.45;
   }}
+  .wb-stat-list {{ display: grid; }}
+  .wb-stat-row {{
+    min-height: 46px;
+    display: grid;
+    grid-template-columns: minmax(0, 0.75fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 16px;
+    padding: 10px 16px;
+    border-top: 1px solid rgba(255,255,255,0.055);
+  }}
+  .wb-stat-row:first-child {{ border-top: 0; }}
+  .wb-stat-row span {{ color: #8d9cac; font-size: 12px; }}
+  .wb-stat-row b {{
+    min-width: 0;
+    color: #e7f3ff;
+    font-size: 13px;
+    font-weight: 650;
+    overflow-wrap: anywhere;
+    text-align: right;
+  }}
   .wb-row.is-hidden {{ display: none; }}
   .wb-command-list {{
     display: grid;
@@ -1645,6 +1701,7 @@ def generate_settings_html(
         <button class="wb-nav-item" type="button" data-page="transcription"><span class="wb-icon"></span><span>{escape(tr("settings.transcription"))}</span><span class="wb-count">3</span></button>
         <button class="wb-nav-item" type="button" data-page="flow"><span class="wb-icon"></span><span>{escape(tr("settings.flow"))}</span><span class="wb-count">5</span></button>
         <button class="wb-nav-item" type="button" data-page="voice-commands"><span class="wb-icon"></span><span>{escape(tr("settings.voice_commands"))}</span><span class="wb-count">{len(COMMAND_SPECS)}</span></button>
+        <button class="wb-nav-item" type="button" data-page="analysis"><span class="wb-icon"></span><span>{escape(tr("settings.analysis"))}</span><span class="wb-count">{escape(_stat_value(transcript_stats.get("total", 0)))}</span></button>
         <button class="wb-nav-item" type="button" data-page="privacy"><span class="wb-icon"></span><span>{escape(tr("settings.privacy"))}</span><span class="wb-count">1</span></button>
         <button class="wb-nav-item" type="button" data-page="advanced"><span class="wb-icon"></span><span>{escape(tr("settings.advanced"))}</span><span class="wb-count">4</span></button>
       </nav>
@@ -1746,6 +1803,20 @@ def generate_settings_html(
           <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.local_files"))}</span>
         </div>
         <div class="wb-stack">{_section(tr("settings.storage"), tr("settings.history_local_helpers"), privacy_rows, hero=True)}</div>
+      </section>
+
+      <section class="wb-page" data-page-id="analysis">
+        <div class="wb-page-head">
+          <div><h2>{escape(tr("settings.analysis"))}</h2><p>{escape(tr("settings.analysis_desc"))}</p></div>
+          <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.local_database"))}</span>
+        </div>
+        <div class="wb-stack">
+          <section class="wb-section wb-hero">
+            <div class="wb-section-head"><h3>{escape(tr("settings.analysis_collection"))}</h3><span>{escape(tr("settings.analysis_collection_desc"))}</span></div>
+            <div class="wb-stat-list">{analysis_rows}</div>
+          </section>
+          <section class="wb-section"><div class="wb-note">{escape(tr("settings.analysis_note"))}</div></section>
+        </div>
       </section>
 
       <section class="wb-page" data-page-id="advanced">
