@@ -8,11 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Stored successful dictations in a local SQLite transcript database with analysis-friendly metadata for future AI workflows.
+- Store successful dictations in a local SQLite transcript database with structured metadata.
 - Added a read-only Analysis tab in settings showing transcript database collection counts and sources.
 
 ### Changed
-- Kept transcript database retention aligned with Flow history privacy settings, including auto-delete.
+- Aligned transcript database retention with Flow history privacy settings, including auto-delete.
 - Moved the new-PC setup note into `docs/`, added a docs index, and documented the repository layout in the README for a cleaner GitHub landing page.
 - Kept local/offline transcription backends out of the default `requirements.txt` install and documented `faster-whisper` and `sherpa-onnx` as optional packaging extras.
 

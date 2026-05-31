@@ -90,6 +90,8 @@ def get_transcript_stats(database_path: Path = DATABASE_PATH) -> dict[str, Any]:
                     metadata = json.loads(metadata_json or "{}")
                 except json.JSONDecodeError:
                     metadata = {}
+                if not isinstance(metadata, dict):
+                    metadata = {}
                 source = metadata.get("import_source") or "live_sqlite_write"
                 if source not in {"live_sqlite_write", "history_jsonl", "copyq"}:
                     source = "live_sqlite_write"

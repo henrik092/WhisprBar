@@ -751,7 +751,8 @@ def generate_settings_html(
     else:
         preferred_languages_text = str(preferred_languages or "")
     api_keys = api_keys or {}
-    transcript_stats = transcript_stats or get_transcript_stats()
+    if transcript_stats is None:
+        transcript_stats = get_transcript_stats()
     devices = list(devices or [])
     paste_options = [(value, tr(f"paste.{value}")) for value in PASTE_OPTIONS]
     analysis_rows = _analysis_rows(transcript_stats, config)

@@ -160,3 +160,29 @@ def test_get_transcript_stats_counts_sources_and_date_range(tmp_path):
     assert stats["oldest_created_at"] == "2026-05-30T09:00:00+00:00"
     assert stats["newest_created_at"] == "2026-05-30T10:00:00+00:00"
     assert stats["database_path"] == str(database_path)
+
+
+@pytest.mark.unit
+def test_get_transcript_stats_handles_non_object_metadata_json(tmp_path):
+    database_path = tmp_path / "transcripts.sqlite3"
+    save_transcript_record(
+        "Live text",
+        1.0,
+        2,
+        metadata={"raw_text": "Live text"},
+        config={"language": "de", "transcription_backend": "deepgram"},
+        database_path=database_path,
+        created_at="2026-05-30T09:00:00+00:00",
+    )
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute("UPDATE transcripts SET metadata_json = '[]'")
+        connection.commit()
+    finally:
+        connection.close()
+
+    stats = get_transcript_stats(database_path)
+
+    assert stats["error"] is None
+    assert stats["total"] == 1
+    assert stats["live_sqlite_write"] == 1

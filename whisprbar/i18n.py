@@ -83,7 +83,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.analysis_newest": "Neuester Eintrag",
         "settings.analysis_database_path": "Datenbankpfad",
         "settings.analysis_error": "Lesefehler",
-        "settings.analysis_note": "Diese Ansicht ist nur lesend. Sie zeigt, wie viel Material fuer spaetere Sprach- und Arbeitsstil-Reports gesammelt ist.",
+        "settings.analysis_note": "Diese Ansicht ist nur lesend. Sie zeigt, wie viel Material für spätere Sprach- und Arbeitsstil-Reports gesammelt ist.",
         "settings.dictionary": "Wörterbuch",
         "settings.spoken_written": "Gesprochen -> geschrieben",
         "settings.recognized": "Erkannt",
