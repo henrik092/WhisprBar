@@ -35,6 +35,8 @@ docs/fixes/
 docs/dev-artifacts/local-notes/
 
 # Development/Release temporary files
+.superpowers/
+.playwright-mcp/
 .claude-flow/
 .hive-mind/
 .release-*.txt
@@ -57,6 +59,8 @@ DOCUMENTATION_UPDATE_*.md
 MULTIPLE_HOTKEYS_IMPLEMENTATION.md
 UI_ENHANCEMENTS_SUMMARY.md
 VISUAL_CONTENT_GUIDE.md
+*-settings.png
+*-settings.html
 
 # Test coverage
 .coverage
