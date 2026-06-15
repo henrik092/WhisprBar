@@ -163,6 +163,12 @@ def test_generate_settings_html_shows_analysis_database_stats():
             "live_sqlite_write": 6,
             "history_jsonl": 34,
             "copyq": 113,
+            "word_count": 2048,
+            "duration_seconds": 512.5,
+            "words_per_minute": 239.8,
+            "raw_final_changed": 56,
+            "dictionary_hit_rows": 4,
+            "snippet_hit_rows": 2,
             "oldest_created_at": "2026-05-27T14:30:09+00:00",
             "newest_created_at": "2026-05-30T08:50:00+00:00",
             "database_path": "/home/rik/.local/share/whisprbar/transcripts.sqlite3",
@@ -177,7 +183,29 @@ def test_generate_settings_html_shows_analysis_database_stats():
     assert "Live gespeichert" in html
     assert "Alter Verlauf" in html
     assert "CopyQ-Import" in html
+    assert "Wörter gesamt" in html
+    assert "2.048" in html
+    assert "Rohtext geändert" in html
+    assert "56" in html
+    assert "Wörterbuch-Treffer" in html
+    assert "Snippet-Treffer" in html
     assert "/home/rik/.local/share/whisprbar/transcripts.sqlite3" in html
+
+
+def test_generate_settings_html_shows_confirm_gated_cleanup_controls():
+    html = generate_settings_html(
+        {"language": "en", "flow_mode_enabled": True},
+        dictionary_entries=[],
+        snippets=[],
+        transcript_stats={"total": 3, "copyq": 1},
+    )
+
+    assert "Cleanup stored dictation data" in html
+    assert 'data-cleanup-scope="copyq"' in html
+    assert 'data-cleanup-scope="sqlite_all"' in html
+    assert 'data-cleanup-scope="history_all"' in html
+    assert "DELETE TRANSCRIPTS" in html
+    assert "action: 'transcript_cleanup'" in html
 
 
 def test_generate_settings_html_shows_learning_inbox_without_transcript_bodies(monkeypatch):

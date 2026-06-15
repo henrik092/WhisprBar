@@ -165,6 +165,8 @@ def test_write_history_creates_jsonl(monkeypatch_home, tmp_path, monkeypatch):
     utils.write_history("Test transcript 1", 2.5, 3)
 
     assert hist_file.exists()
+    assert data_dir.stat().st_mode & 0o777 == 0o700
+    assert hist_file.stat().st_mode & 0o777 == 0o600
 
     # Write second entry
     utils.write_history("Test transcript 2", 5.0, 5)
@@ -188,7 +190,7 @@ def test_write_history_creates_jsonl(monkeypatch_home, tmp_path, monkeypatch):
 
 @pytest.mark.unit
 def test_write_history_preserves_metadata(tmp_path, monkeypatch):
-    """Flow metadata is stored with history entries."""
+    """Flow metadata is stored without duplicating transcript content."""
     from whisprbar import config
 
     hist_file = tmp_path / "history.jsonl"
@@ -200,13 +202,42 @@ def test_write_history_preserves_metadata(tmp_path, monkeypatch):
         "Final text",
         1.25,
         2,
-        metadata={"raw_text": "raw text", "profile_id": "email"},
+        metadata={"raw_text": "raw text", "final_text": "Final text", "profile_id": "email"},
     )
 
     entry = json.loads(hist_file.read_text(encoding="utf-8").strip())
     assert entry["text"] == "Final text"
-    assert entry["metadata"]["raw_text"] == "raw text"
+    assert "raw_text" not in entry["metadata"]
+    assert "final_text" not in entry["metadata"]
     assert entry["metadata"]["profile_id"] == "email"
+    assert hist_file.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.unit
+def test_write_history_normal_mode_prunes_oversized_file_immediately(tmp_path, monkeypatch):
+    """Normal history mode enforces the documented 30-entry cap on every write."""
+    from whisprbar import config
+
+    hist_file = tmp_path / "history.jsonl"
+    monkeypatch.setattr(utils, "HIST_FILE", hist_file)
+    monkeypatch.setattr(utils, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "cfg", {"language": "en", "flow_history_storage": "normal"})
+    existing = [
+        {"timestamp": f"2026-06-15T10:{minute:02d}:00+00:00", "text": f"old-{minute}"}
+        for minute in range(35)
+    ]
+    hist_file.write_text(
+        "".join(json.dumps(entry) + "\n" for entry in existing),
+        encoding="utf-8",
+    )
+
+    utils.write_history("new", 1.0, 1)
+
+    entries = [json.loads(line) for line in hist_file.read_text(encoding="utf-8").splitlines()]
+    assert len(entries) == 30
+    assert entries[0]["text"] == "old-6"
+    assert entries[-1]["text"] == "new"
+    assert hist_file.stat().st_mode & 0o777 == 0o600
 
 
 @pytest.mark.unit
@@ -259,6 +290,22 @@ def test_write_history_auto_delete_prunes_old_entries(tmp_path, monkeypatch):
 
     entries = [json.loads(line) for line in hist_file.read_text(encoding="utf-8").splitlines()]
     assert [entry["text"] for entry in entries] == ["recent", "new"]
+    assert hist_file.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.unit
+def test_clear_history_recreates_private_file(tmp_path, monkeypatch):
+    """Cleared history remains a private local transcript file."""
+    hist_file = tmp_path / "history.jsonl"
+    monkeypatch.setattr(utils, "HIST_FILE", hist_file)
+    hist_file.write_text("{}\n", encoding="utf-8")
+    hist_file.chmod(0o644)
+
+    utils.clear_history()
+
+    assert hist_file.exists()
+    assert hist_file.read_text(encoding="utf-8") == ""
+    assert hist_file.stat().st_mode & 0o777 == 0o600
 
 
 @pytest.mark.unit

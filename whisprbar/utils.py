@@ -339,9 +339,32 @@ def notify(message: str, title: str = None, *, force: bool = False) -> None:
         print(f"[NOTICE] {title}: {message}", file=sys.stderr)
 
 
-# Counter for history cleanup optimization (only cleanup every N writes)
-_history_write_count = 0
-_HISTORY_CLEANUP_INTERVAL = 10  # Cleanup every 10 writes instead of every write
+_CONTENT_METADATA_KEYS = {"raw_text", "final_text"}
+
+
+def _chmod_private(path: Path) -> None:
+    """Best-effort owner-only permissions for private local transcript files."""
+    try:
+        path.chmod(0o600)
+    except OSError as exc:
+        debug(f"Failed to set private permissions for {path}: {exc}")
+
+
+def _chmod_private_dir(path: Path) -> None:
+    try:
+        path.chmod(0o700)
+    except OSError as exc:
+        debug(f"Failed to set private directory permissions for {path}: {exc}")
+
+
+def _content_free_metadata(metadata: Optional[Dict[str, any]]) -> Dict[str, any]:
+    if not metadata:
+        return {}
+    return {
+        str(key): value
+        for key, value in metadata.items()
+        if str(key) not in _CONTENT_METADATA_KEYS
+    }
 
 
 def write_history(
@@ -363,7 +386,6 @@ def write_history(
         word_count: Number of words in transcript
         metadata: Optional metadata for Flow Mode and future features
     """
-    global _history_write_count
     from .config import cfg
 
     if cfg.get("flow_history_storage") == "never":
@@ -371,6 +393,7 @@ def write_history(
         return
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _chmod_private_dir(DATA_DIR)
     payload = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "language": cfg.get("language"),
@@ -378,14 +401,16 @@ def write_history(
         "duration_seconds": round(duration, 3),
         "word_count": word_count,
     }
-    if metadata:
-        payload["metadata"] = metadata
+    safe_metadata = _content_free_metadata(metadata)
+    if safe_metadata:
+        payload["metadata"] = safe_metadata
     try:
         with HIST_FILE.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        _chmod_private(HIST_FILE)
 
-        # Cleanup old entries periodically, except auto-delete mode where age
-        # retention is the explicit privacy contract and must run immediately.
+        # Enforce retention after every write so restarts cannot leave an
+        # oversized private history file around indefinitely.
         storage_mode = cfg.get("flow_history_storage")
         if storage_mode == "auto_delete":
             cleanup_history(
@@ -393,10 +418,7 @@ def write_history(
                 max_age_hours=int(cfg.get("flow_history_auto_delete_hours", 24)),
             )
         else:
-            _history_write_count += 1
-            if _history_write_count >= _HISTORY_CLEANUP_INTERVAL:
-                cleanup_history(max_entries=30)
-                _history_write_count = 0
+            cleanup_history(max_entries=30)
     except Exception as exc:
         print(f"[WARN] Failed to write history: {exc}", file=sys.stderr)
 
@@ -689,7 +711,9 @@ def clear_history() -> None:
     try:
         if HIST_FILE.exists():
             HIST_FILE.unlink()
-        HIST_FILE.touch()
+        HIST_FILE.parent.mkdir(parents=True, exist_ok=True)
+        HIST_FILE.touch(mode=0o600)
+        _chmod_private(HIST_FILE)
         debug("History cleared")
     except Exception as exc:
         debug(f"Failed to clear history: {exc}")
@@ -750,6 +774,7 @@ def cleanup_history(max_entries: int = 30, max_age_hours: Optional[int] = None) 
             with HIST_FILE.open("w", encoding="utf-8") as handle:
                 for entry in entries:
                     handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        _chmod_private(HIST_FILE)
     except Exception as exc:
         debug(f"Failed to cleanup history: {exc}")
 

@@ -313,6 +313,29 @@ def test_ensure_directories_creates_paths(monkeypatch_home, tmp_path, monkeypatc
     assert data_dir.exists()
     assert hist_file.exists()
     assert config_dir.exists()
+    assert data_dir.stat().st_mode & 0o777 == 0o700
+    assert hist_file.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.unit
+def test_ensure_directories_repairs_private_modes(monkeypatch_home, tmp_path, monkeypatch):
+    """Existing transcript storage paths are repaired to private permissions."""
+    data_dir = tmp_path / ".local" / "share" / "whisprbar"
+    hist_file = data_dir / "history.jsonl"
+    config_dir = tmp_path / ".config"
+    data_dir.mkdir(parents=True)
+    hist_file.write_text("", encoding="utf-8")
+    data_dir.chmod(0o755)
+    hist_file.chmod(0o644)
+
+    monkeypatch.setattr(config, "DATA_DIR", data_dir)
+    monkeypatch.setattr(config, "HIST_FILE", hist_file)
+    monkeypatch.setattr(config, "CONFIG_PATH", config_dir / "whisprbar.json")
+
+    config.ensure_directories()
+
+    assert data_dir.stat().st_mode & 0o777 == 0o700
+    assert hist_file.stat().st_mode & 0o777 == 0o600
 
 
 @pytest.mark.unit

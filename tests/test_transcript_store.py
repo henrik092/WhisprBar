@@ -6,7 +6,12 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from whisprbar.transcript_store import get_transcript_stats, save_transcript_record
+from whisprbar.transcript_store import (
+    cleanup_transcript_data,
+    get_transcript_stats,
+    preview_transcript_cleanup,
+    save_transcript_record,
+)
 
 
 def _transcript_rows(database_path):
@@ -56,7 +61,10 @@ def test_save_transcript_record_creates_analysis_row(tmp_path):
     assert row["profile_id"] == "email"
     assert row["rewrite_status"] == "applied"
     assert row["schema_version"] == 1
-    assert row["metadata"]["final_text"] == "Final text"
+    assert "raw_text" not in row["metadata"]
+    assert "final_text" not in row["metadata"]
+    assert database_path.stat().st_mode & 0o777 == 0o600
+    assert database_path.parent.stat().st_mode & 0o777 == 0o700
 
 
 @pytest.mark.unit
@@ -64,6 +72,7 @@ def test_save_transcript_record_keeps_complete_metadata_json(tmp_path):
     database_path = tmp_path / "transcripts.sqlite3"
     metadata = {
         "raw_text": "roh",
+        "final_text": "Fertiger Text",
         "profile_id": "default",
         "nested": {"source": "flow", "flags": ["a", "b"]},
     }
@@ -79,7 +88,11 @@ def test_save_transcript_record_keeps_complete_metadata_json(tmp_path):
     )
 
     row = _transcript_rows(database_path)[0]
-    assert row["metadata"] == metadata
+    assert row["raw_text"] == "roh"
+    assert row["metadata"] == {
+        "profile_id": "default",
+        "nested": {"source": "flow", "flags": ["a", "b"]},
+    }
     assert row["backend"] == "deepgram"
 
 
@@ -136,7 +149,13 @@ def test_get_transcript_stats_counts_sources_and_date_range(tmp_path):
         "Live text",
         1.0,
         2,
-        metadata={"raw_text": "Live text"},
+        metadata={
+            "raw_text": "live text",
+            "dictionary_hits": ["github"],
+            "snippet_hits": [],
+            "profile_id": "chat",
+            "rewrite_status": "not_requested",
+        },
         config={"language": "de", "transcription_backend": "deepgram"},
         database_path=database_path,
         created_at="2026-05-30T09:00:00+00:00",
@@ -145,7 +164,7 @@ def test_get_transcript_stats_counts_sources_and_date_range(tmp_path):
         "Imported text",
         2.0,
         2,
-        metadata={"raw_text": "Imported text", "import_source": "copyq"},
+        metadata={"raw_text": "Imported text", "import_source": "copyq", "snippet_hits": ["sig"]},
         config={"language": "de"},
         database_path=database_path,
         created_at="2026-05-30T10:00:00+00:00",
@@ -160,6 +179,15 @@ def test_get_transcript_stats_counts_sources_and_date_range(tmp_path):
     assert stats["oldest_created_at"] == "2026-05-30T09:00:00+00:00"
     assert stats["newest_created_at"] == "2026-05-30T10:00:00+00:00"
     assert stats["database_path"] == str(database_path)
+    assert stats["word_count"] == 4
+    assert stats["duration_seconds"] == 3.0
+    assert stats["words_per_minute"] == 80.0
+    assert stats["raw_final_changed"] == 1
+    assert stats["dictionary_hit_rows"] == 1
+    assert stats["snippet_hit_rows"] == 1
+    assert stats["languages"] == {"de": 2}
+    assert stats["backends"] == {"deepgram": 1, "unknown": 1}
+    assert stats["profiles"] == {"chat": 1, "unknown": 1}
 
 
 @pytest.mark.unit
@@ -186,3 +214,67 @@ def test_get_transcript_stats_handles_non_object_metadata_json(tmp_path):
     assert stats["error"] is None
     assert stats["total"] == 1
     assert stats["live_sqlite_write"] == 1
+
+
+@pytest.mark.unit
+def test_preview_transcript_cleanup_counts_rows_without_deleting(tmp_path):
+    database_path = tmp_path / "transcripts.sqlite3"
+    save_transcript_record(
+        "Imported text",
+        1.0,
+        2,
+        metadata={"raw_text": "Imported text", "import_source": "copyq"},
+        config={"language": "de"},
+        database_path=database_path,
+    )
+
+    preview = preview_transcript_cleanup(database_path=database_path, scope="copyq")
+
+    assert preview == {"scope": "copyq", "sqlite_rows": 1, "history_rows": 0}
+    assert len(_transcript_rows(database_path)) == 1
+
+
+@pytest.mark.unit
+def test_cleanup_transcript_data_rejects_missing_confirmation(tmp_path):
+    database_path = tmp_path / "transcripts.sqlite3"
+    save_transcript_record(
+        "Live text",
+        1.0,
+        2,
+        metadata={"raw_text": "Live text"},
+        config={"language": "de"},
+        database_path=database_path,
+    )
+
+    result = cleanup_transcript_data(
+        database_path=database_path,
+        scope="sqlite_all",
+        confirm_phrase="wrong",
+    )
+
+    assert result["ok"] is False
+    assert result["deleted_sqlite_rows"] == 0
+    assert len(_transcript_rows(database_path)) == 1
+
+
+@pytest.mark.unit
+def test_cleanup_transcript_data_deletes_temp_database_with_confirmation(tmp_path):
+    database_path = tmp_path / "transcripts.sqlite3"
+    save_transcript_record(
+        "Live text",
+        1.0,
+        2,
+        metadata={"raw_text": "Live text"},
+        config={"language": "de"},
+        database_path=database_path,
+    )
+
+    result = cleanup_transcript_data(
+        database_path=database_path,
+        scope="sqlite_all",
+        confirm_phrase="DELETE TRANSCRIPTS",
+    )
+
+    assert result["ok"] is True
+    assert result["deleted_sqlite_rows"] == 1
+    assert _transcript_rows(database_path) == []

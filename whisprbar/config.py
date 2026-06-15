@@ -176,7 +176,9 @@ def ensure_directories() -> None:
     - ~/.config/ (parent for config file)
     """
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    HIST_FILE.touch(exist_ok=True)
+    DATA_DIR.chmod(0o700)
+    HIST_FILE.touch(mode=0o600, exist_ok=True)
+    HIST_FILE.chmod(0o600)
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 

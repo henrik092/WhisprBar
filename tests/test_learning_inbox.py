@@ -13,6 +13,7 @@ from whisprbar.flow.learning_inbox import (
     set_learning_candidate_status,
 )
 from whisprbar.flow.dictionary import load_dictionary
+from whisprbar.flow.models import Snippet
 from whisprbar.transcript_store import save_transcript_record
 
 
@@ -20,6 +21,7 @@ from whisprbar.transcript_store import save_transcript_record
 def test_learning_inbox_suggests_repeated_short_dictionary_candidates(tmp_path):
     database_path = tmp_path / "transcripts.sqlite3"
     state_path = tmp_path / "learning_inbox.json"
+    dictionary_path = tmp_path / "dictionary.json"
     private_body = "github bitte im privaten kundensatz behalten"
 
     for created_at in ("2026-06-15T10:00:00+00:00", "2026-06-15T10:01:00+00:00"):
@@ -45,6 +47,7 @@ def test_learning_inbox_suggests_repeated_short_dictionary_candidates(tmp_path):
     summary = get_learning_inbox_summary(
         database_path=database_path,
         state_path=state_path,
+        dictionary_path=dictionary_path,
         min_evidence=2,
     )
 
@@ -65,6 +68,7 @@ def test_learning_inbox_suggests_repeated_short_dictionary_candidates(tmp_path):
 def test_learning_inbox_state_filters_dismissed_and_never_suggestions(tmp_path):
     database_path = tmp_path / "transcripts.sqlite3"
     state_path = tmp_path / "learning_inbox.json"
+    dictionary_path = tmp_path / "dictionary.json"
 
     for created_at in ("2026-06-15T10:00:00+00:00", "2026-06-15T10:01:00+00:00"):
         save_transcript_record(
@@ -80,6 +84,7 @@ def test_learning_inbox_state_filters_dismissed_and_never_suggestions(tmp_path):
     summary = get_learning_inbox_summary(
         database_path=database_path,
         state_path=state_path,
+        dictionary_path=dictionary_path,
         min_evidence=2,
     )
     candidate_id = summary["candidates"][0]["id"]
@@ -88,6 +93,7 @@ def test_learning_inbox_state_filters_dismissed_and_never_suggestions(tmp_path):
     updated = get_learning_inbox_summary(
         database_path=database_path,
         state_path=state_path,
+        dictionary_path=dictionary_path,
         min_evidence=2,
     )
 
@@ -163,6 +169,64 @@ def test_approve_learning_candidate_adds_dictionary_entry_and_records_state(tmp_
     assert [(entry.spoken, entry.written) for entry in entries] == [("github", "GitHub")]
     state = load_learning_state(state_path)
     assert state["items"][candidate_id]["status"] == "approved"
+
+
+@pytest.mark.unit
+def test_learning_inbox_suggests_repeated_output_without_transcript_body(tmp_path):
+    database_path = tmp_path / "transcripts.sqlite3"
+    state_path = tmp_path / "learning_inbox.json"
+    repeated_private_text = "Bitte diese private Antwort nicht im Vorschlag anzeigen"
+
+    for created_at in ("2026-06-15T10:00:00+00:00", "2026-06-15T10:01:00+00:00"):
+        save_transcript_record(
+            repeated_private_text,
+            1.0,
+            8,
+            metadata={"raw_text": repeated_private_text, "profile_id": "chat"},
+            config={"language": "de", "transcription_backend": "deepgram"},
+            database_path=database_path,
+            created_at=created_at,
+        )
+
+    summary = get_learning_inbox_summary(
+        database_path=database_path,
+        state_path=state_path,
+        existing_snippets=[],
+        min_evidence=2,
+    )
+
+    candidates = [item for item in summary["candidates"] if item["kind"] == "snippet_hint"]
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate["evidence_count"] == 2
+    assert "Repeated chat output" in candidate["written"]
+    assert repeated_private_text not in json.dumps(summary, ensure_ascii=False)
+
+
+@pytest.mark.unit
+def test_learning_inbox_ignores_existing_snippet_text_and_terminal_outputs(tmp_path):
+    database_path = tmp_path / "transcripts.sqlite3"
+    state_path = tmp_path / "learning_inbox.json"
+    repeated_text = "Danke fuer die schnelle Rueckmeldung"
+
+    for profile in ("chat", "chat", "terminal", "terminal"):
+        save_transcript_record(
+            repeated_text,
+            1.0,
+            5,
+            metadata={"raw_text": repeated_text, "profile_id": profile},
+            config={"language": "de", "transcription_backend": "deepgram"},
+            database_path=database_path,
+        )
+
+    summary = get_learning_inbox_summary(
+        database_path=database_path,
+        state_path=state_path,
+        existing_snippets=[Snippet(trigger="thanks", text=repeated_text)],
+        min_evidence=2,
+    )
+
+    assert [item for item in summary["candidates"] if item["kind"] == "snippet_hint"] == []
 
 
 @pytest.mark.unit

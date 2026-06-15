@@ -15,7 +15,8 @@ from typing import Any, Iterable, Mapping, Optional
 
 from whisprbar.config import DATA_DIR
 from whisprbar.flow.dictionary import DICTIONARY_PATH, load_dictionary, save_dictionary
-from whisprbar.flow.models import DictionaryEntry
+from whisprbar.flow.models import DictionaryEntry, Snippet
+from whisprbar.flow.snippets import load_snippets
 from whisprbar.transcript_store import DATABASE_PATH
 from whisprbar.utils import debug
 
@@ -24,6 +25,8 @@ LEARNING_INBOX_PATH = DATA_DIR / "learning_inbox.json"
 VALID_STATUSES = {"approved", "dismissed", "never"}
 _TOKEN_PATTERN = re.compile(r"[\w][\w'-]*", re.UNICODE)
 _KNOWN_REVIEW_TERMS = {"Codex", "GitHub", "OpenAI", "WhisprBar"}
+_SNIPPET_HINT_PROFILES = {"default", "chat", "email", "notes"}
+_MAX_SNIPPET_HINT_WORDS = 20
 
 
 @dataclass(frozen=True)
@@ -214,6 +217,7 @@ def build_learning_candidates(
     *,
     database_path: Path = DATABASE_PATH,
     existing_dictionary: Optional[Iterable[DictionaryEntry]] = None,
+    existing_snippets: Optional[Iterable[Snippet]] = None,
     min_evidence: int = 2,
 ) -> list[LearningCandidate]:
     """Build conservative local suggestions without returning transcript bodies."""
@@ -236,7 +240,78 @@ def build_learning_candidates(
         for (spoken, written), count in counts.items()
         if count >= min_evidence
     ]
+    candidates.extend(
+        _snippet_hint_candidates(
+            database_path=Path(database_path),
+            existing_snippets=existing_snippets if existing_snippets is not None else load_snippets(),
+            min_evidence=min_evidence,
+        )
+    )
     return sorted(candidates, key=lambda item: (-item.evidence_count, item.written, item.spoken))
+
+
+def _snippet_hint_candidates(
+    *,
+    database_path: Path,
+    existing_snippets: Iterable[Snippet],
+    min_evidence: int,
+) -> list[LearningCandidate]:
+    if not database_path.exists():
+        return []
+    existing_texts = {
+        snippet.text.strip()
+        for snippet in existing_snippets
+        if snippet.text.strip()
+    }
+    groups: dict[str, dict[str, object]] = {}
+    connection = sqlite3.connect(f"file:{database_path}?mode=ro", uri=True)
+    try:
+        for text, profile_id, created_at, word_count in connection.execute(
+            "SELECT text, profile_id, created_at, word_count FROM transcripts WHERE text != ''"
+        ):
+            body = str(text or "").strip()
+            if not body or body in existing_texts:
+                continue
+            profile = str(profile_id or "unknown")
+            if profile not in _SNIPPET_HINT_PROFILES:
+                continue
+            try:
+                words = int(word_count or len(body.split()))
+            except (TypeError, ValueError):
+                words = len(body.split())
+            if words <= 1 or words > _MAX_SNIPPET_HINT_WORDS:
+                continue
+            fingerprint = hashlib.sha256(body.encode("utf-8")).hexdigest()[:12]
+            item = groups.setdefault(
+                fingerprint,
+                {
+                    "count": 0,
+                    "profile": profile,
+                    "last_seen": "",
+                    "words": words,
+                },
+            )
+            item["count"] = int(item["count"]) + 1
+            if str(created_at or "") > str(item.get("last_seen") or ""):
+                item["last_seen"] = str(created_at or "")
+    finally:
+        connection.close()
+
+    candidates = []
+    for fingerprint, item in groups.items():
+        count = int(item["count"])
+        if count < min_evidence:
+            continue
+        profile = str(item["profile"])
+        candidates.append(
+            LearningCandidate(
+                kind="snippet_hint",
+                spoken=f"{profile} repeated output",
+                written=f"Repeated {profile} output ({fingerprint})",
+                evidence_count=count,
+            )
+        )
+    return candidates
 
 
 def get_learning_inbox_summary(
@@ -244,6 +319,7 @@ def get_learning_inbox_summary(
     database_path: Path = DATABASE_PATH,
     state_path: Optional[Path] = None,
     dictionary_path: Optional[Path] = None,
+    existing_snippets: Optional[Iterable[Snippet]] = None,
     min_evidence: int = 2,
     include_reviewed: bool = False,
     enabled: bool = True,
@@ -268,6 +344,7 @@ def get_learning_inbox_summary(
         candidates = build_learning_candidates(
             database_path=Path(database_path),
             existing_dictionary=load_dictionary(dictionary_path) if dictionary_path else None,
+            existing_snippets=existing_snippets,
             min_evidence=min_evidence,
         )
     except Exception as exc:

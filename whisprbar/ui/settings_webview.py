@@ -28,7 +28,7 @@ from whisprbar.hotkey_actions import HOTKEY_SETTINGS_LABELS
 from whisprbar.hotkeys import cancel_hotkey_capture, capture_hotkey
 from whisprbar.i18n import get_language, hotkey_action_labels, t
 from whisprbar.paste import PASTE_OPTIONS, is_wayland_session
-from whisprbar.transcript_store import get_transcript_stats
+from whisprbar.transcript_store import cleanup_transcript_data, get_transcript_stats
 from whisprbar.ui_hotkeys import (
     build_hotkey_conflict_message,
     build_pending_hotkeys,
@@ -387,6 +387,12 @@ def _analysis_rows(stats: Mapping[str, object], config: Mapping[str, object]) ->
         (t("settings.analysis_live", config), stats.get("live_sqlite_write", 0)),
         (t("settings.analysis_history", config), stats.get("history_jsonl", 0)),
         (t("settings.analysis_copyq", config), stats.get("copyq", 0)),
+        (t("settings.analysis_words", config), stats.get("word_count", 0)),
+        (t("settings.analysis_duration", config), stats.get("duration_seconds", 0)),
+        (t("settings.analysis_wpm", config), stats.get("words_per_minute", 0)),
+        (t("settings.analysis_raw_final_changed", config), stats.get("raw_final_changed", 0)),
+        (t("settings.analysis_dictionary_hits", config), stats.get("dictionary_hit_rows", 0)),
+        (t("settings.analysis_snippet_hits", config), stats.get("snippet_hit_rows", 0)),
         (t("settings.analysis_oldest", config), stats.get("oldest_created_at")),
         (t("settings.analysis_newest", config), stats.get("newest_created_at")),
         (t("settings.analysis_database_path", config), stats.get("database_path")),
@@ -403,6 +409,17 @@ def _analysis_rows(stats: Mapping[str, object], config: Mapping[str, object]) ->
         """
         for label, value in rows
     )
+
+
+def _cleanup_controls(config: Mapping[str, object]) -> str:
+    return f"""
+      <div class="wb-cleanup-actions">
+        <button class="wb-button secondary" type="button" data-cleanup-scope="copyq">{escape(t("settings.cleanup_copyq", config))}</button>
+        <button class="wb-button secondary" type="button" data-cleanup-scope="history_all">{escape(t("settings.cleanup_history", config))}</button>
+        <button class="wb-button danger" type="button" data-cleanup-scope="sqlite_all">{escape(t("settings.cleanup_sqlite", config))}</button>
+      </div>
+      <div class="wb-note">{escape(t("settings.cleanup_confirm_note", config))} <code>DELETE TRANSCRIPTS</code></div>
+    """
 
 
 def _learning_inbox_rows(summary: Mapping[str, object], config: Mapping[str, object]) -> str:
@@ -837,6 +854,7 @@ def generate_settings_html(
     devices = list(devices or [])
     paste_options = [(value, tr(f"paste.{value}")) for value in PASTE_OPTIONS]
     analysis_rows = _analysis_rows(transcript_stats, config)
+    cleanup_rows = _cleanup_controls(config)
     learning_rows = _learning_inbox_rows(learning_inbox_summary, config)
 
     general_rows = (
@@ -1798,6 +1816,17 @@ def generate_settings_html(
     justify-content: flex-end;
     gap: 6px;
   }}
+  .wb-cleanup-actions {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 16px;
+  }}
+  .wb-button.danger {{
+    color: #ffd5d9;
+    border-color: rgba(255, 120, 132, 0.38);
+    background: rgba(155, 42, 55, 0.24);
+  }}
   @media (max-width: 760px) {{
     .wb-shell {{ grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 52px); overflow: visible; }}
     .wb-sidebar {{ position: static; height: auto; border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.08); }}
@@ -1901,6 +1930,10 @@ def generate_settings_html(
           <section class="wb-section wb-hero">
             <div class="wb-section-head"><h3>{escape(tr("settings.analysis_collection"))}</h3><span>{escape(tr("settings.analysis_collection_desc"))}</span></div>
             <div class="wb-stat-list">{analysis_rows}</div>
+          </section>
+          <section class="wb-section">
+            <div class="wb-section-head"><h3>{escape(tr("settings.cleanup_data"))}</h3><span>{escape(tr("settings.cleanup_data_desc"))}</span></div>
+            {cleanup_rows}
           </section>
           <section class="wb-section"><div class="wb-note">{escape(tr("settings.analysis_note"))}</div></section>
         </div>
@@ -2082,6 +2115,19 @@ def generate_settings_html(
         action: 'learning_review',
         candidate_id: learningButton.dataset.learningCandidate,
         status: learningButton.dataset.learningAction,
+      }});
+      return;
+    }}
+    const cleanupButton = event.target.closest('[data-cleanup-scope]');
+    if (cleanupButton) {{
+      const phrase = window.prompt({json.dumps(tr("settings.cleanup_prompt"))}, '');
+      if (phrase === null) {{
+        return;
+      }}
+      postSettingsMessage({{
+        action: 'transcript_cleanup',
+        scope: cleanupButton.dataset.cleanupScope,
+        confirm_phrase: phrase,
       }});
       return;
     }}
@@ -2318,6 +2364,35 @@ def open_settings_window(
                 _set_webview_message(webview, t("settings.learning_updated", config), "ok")
             except Exception as exc:
                 _set_webview_message(webview, f"{t('settings.save_failed', config)}: {exc}", "error")
+            return
+        if action == "transcript_cleanup":
+            try:
+                result = cleanup_transcript_data(
+                    scope=str(data.get("scope") or ""),
+                    confirm_phrase=str(data.get("confirm_phrase") or ""),
+                )
+                if not result.get("ok"):
+                    _set_webview_message(
+                        webview,
+                        f"{t('settings.cleanup_failed', config)}: {result.get('error')}",
+                        "error",
+                    )
+                    return
+                refreshed_html = generate_settings_html(
+                    config,
+                    dictionary_entries=load_dictionary(),
+                    snippets=load_snippets(),
+                    devices=list_input_devices(),
+                    api_keys={
+                        "DEEPGRAM_API_KEY": get_env_value("DEEPGRAM_API_KEY"),
+                        "OPENAI_API_KEY": get_env_value("OPENAI_API_KEY"),
+                        "ELEVENLABS_API_KEY": get_env_value("ELEVENLABS_API_KEY"),
+                    },
+                )
+                webview.load_html(refreshed_html, "file:///")
+                _set_webview_message(webview, t("settings.cleanup_done", config), "ok")
+            except Exception as exc:
+                _set_webview_message(webview, f"{t('settings.cleanup_failed', config)}: {exc}", "error")
             return
         if action != "save":
             return
