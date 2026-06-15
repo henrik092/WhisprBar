@@ -18,6 +18,10 @@ from whisprbar.audio import list_input_devices, update_device_index
 from whisprbar.config import get_env_value, save_config, save_env_file_value
 from whisprbar.flow.commands import COMMAND_SPECS, CommandSpec
 from whisprbar.flow.dictionary import load_dictionary, save_dictionary
+from whisprbar.flow.learning_inbox import (
+    apply_learning_candidate_status,
+    get_learning_inbox_summary,
+)
 from whisprbar.flow.models import DictionaryEntry, Snippet
 from whisprbar.flow.snippets import load_snippets, save_snippets
 from whisprbar.hotkey_actions import HOTKEY_SETTINGS_LABELS
@@ -401,6 +405,77 @@ def _analysis_rows(stats: Mapping[str, object], config: Mapping[str, object]) ->
     )
 
 
+def _learning_inbox_rows(summary: Mapping[str, object], config: Mapping[str, object]) -> str:
+    candidates = summary.get("candidates")
+    if not isinstance(candidates, list):
+        candidates = []
+    rows = [
+        (t("settings.learning_pending", config), summary.get("pending_count", 0)),
+        (t("settings.learning_approved", config), summary.get("approved_count", 0)),
+        (t("settings.learning_dismissed", config), summary.get("dismissed_count", 0)),
+        (t("settings.learning_never", config), summary.get("never_count", 0)),
+        (t("settings.learning_state_path", config), summary.get("state_path")),
+    ]
+    if summary.get("error"):
+        rows.append((t("settings.analysis_error", config), summary.get("error")))
+
+    stat_rows = "\n".join(
+        f"""
+        <div class="wb-stat-row">
+          <span>{escape(label)}</span>
+          <b>{escape(_stat_value(value))}</b>
+        </div>
+        """
+        for label, value in rows
+    )
+
+    preview_rows = []
+    for item in candidates[:3]:
+        if not isinstance(item, Mapping):
+            continue
+        spoken = str(item.get("spoken") or "")
+        written = str(item.get("written") or "")
+        candidate_id = str(item.get("id") or "")
+        evidence_count = _stat_value(item.get("evidence_count"))
+        preview_rows.append(
+            f"""
+            <div class="wb-learning-row">
+              <code>{escape(spoken)} -> {escape(written)}</code>
+              <span>{escape(t("settings.learning_examples", config).format(count=evidence_count))}</span>
+              <div class="wb-learning-actions">
+                <button class="wb-button compact" type="button" data-learning-action="approved" data-learning-candidate="{escape(candidate_id)}">{escape(t("settings.learning_approve", config))}</button>
+                <button class="wb-button compact secondary" type="button" data-learning-action="dismissed" data-learning-candidate="{escape(candidate_id)}">{escape(t("settings.learning_dismiss", config))}</button>
+                <button class="wb-button compact secondary" type="button" data-learning-action="never" data-learning-candidate="{escape(candidate_id)}">{escape(t("settings.learning_never_action", config))}</button>
+              </div>
+            </div>
+            """
+        )
+    if not preview_rows:
+        preview_rows.append(
+            f"""
+            <div class="wb-note">{escape(t("settings.learning_empty", config))}</div>
+            """
+        )
+
+    return f"""
+      <div class="wb-stat-list">{stat_rows}</div>
+      <div class="wb-learning-list">{"".join(preview_rows)}</div>
+    """
+
+
+def _empty_learning_inbox_summary() -> dict[str, object]:
+    return {
+        "state_path": "",
+        "total_candidates": 0,
+        "pending_count": 0,
+        "approved_count": 0,
+        "dismissed_count": 0,
+        "never_count": 0,
+        "candidates": [],
+        "error": None,
+    }
+
+
 def _device_options(
     devices: Iterable[Mapping[str, object]],
     active_device_name: Optional[object],
@@ -738,6 +813,7 @@ def generate_settings_html(
     devices: Optional[Iterable[Mapping[str, object]]] = None,
     api_keys: Optional[Mapping[str, str]] = None,
     transcript_stats: Optional[Mapping[str, object]] = None,
+    learning_inbox_summary: Optional[Mapping[str, object]] = None,
 ) -> str:
     """Generate the experimental WebKit settings HTML."""
 
@@ -753,9 +829,15 @@ def generate_settings_html(
     api_keys = api_keys or {}
     if transcript_stats is None:
         transcript_stats = get_transcript_stats()
+    if learning_inbox_summary is None:
+        if config.get("flow_history_storage") == "never":
+            learning_inbox_summary = _empty_learning_inbox_summary()
+        else:
+            learning_inbox_summary = get_learning_inbox_summary()
     devices = list(devices or [])
     paste_options = [(value, tr(f"paste.{value}")) for value in PASTE_OPTIONS]
     analysis_rows = _analysis_rows(transcript_stats, config)
+    learning_rows = _learning_inbox_rows(learning_inbox_summary, config)
 
     general_rows = (
         _select(
@@ -1686,6 +1768,36 @@ def generate_settings_html(
     font-size: 12px;
     line-height: 1.35;
   }}
+  .wb-learning-list {{
+    display: grid;
+    border-top: 1px solid rgba(255,255,255,0.055);
+  }}
+  .wb-learning-row {{
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 16px;
+    border-top: 1px solid rgba(255,255,255,0.055);
+  }}
+  .wb-learning-row:first-child {{ border-top: 0; }}
+  .wb-learning-row code {{
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    border-radius: 6px;
+    background: rgba(0,0,0,0.18);
+    color: #dce5ee;
+    padding: 5px 7px;
+    line-height: 1.3;
+  }}
+  .wb-learning-row span {{ color: #8d9cac; font-size: 12px; }}
+  .wb-learning-actions {{
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }}
   @media (max-width: 760px) {{
     .wb-shell {{ grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 52px); overflow: visible; }}
     .wb-sidebar {{ position: static; height: auto; border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.08); }}
@@ -1746,6 +1858,7 @@ def generate_settings_html(
         <div class="wb-layout">
           <div class="wb-stack">
             {_section(tr("settings.personalization"), tr("settings.history_local_helpers"), words_toggle_rows, hero=True)}
+            {_section(tr("settings.learning_inbox"), tr("settings.learning_review"), learning_rows)}
           </div>
           <div class="wb-stack">
             <section class="wb-section">
@@ -1961,6 +2074,16 @@ def generate_settings_html(
     const flowTestButton = event.target.closest('[data-flow-test]');
     if (flowTestButton) {{
       postSettingsMessage({{ action: 'flow_test', payload: collectPayload() }});
+      return;
+    }}
+    const learningButton = event.target.closest('[data-learning-action]');
+    if (learningButton) {{
+      postSettingsMessage({{
+        action: 'learning_review',
+        candidate_id: learningButton.dataset.learningCandidate,
+        status: learningButton.dataset.learningAction,
+      }});
+      return;
     }}
   }});
 
@@ -2173,6 +2296,28 @@ def open_settings_window(
             payload = data.get("payload") if isinstance(data.get("payload"), Mapping) else {}
             handle_preview_indicator(payload)
             _set_webview_message(webview, t("settings.flow_test_ready", config), "ok")
+            return
+        if action == "learning_review":
+            try:
+                apply_learning_candidate_status(
+                    str(data.get("candidate_id") or ""),
+                    str(data.get("status") or ""),
+                )
+                refreshed_html = generate_settings_html(
+                    config,
+                    dictionary_entries=load_dictionary(),
+                    snippets=load_snippets(),
+                    devices=list_input_devices(),
+                    api_keys={
+                        "DEEPGRAM_API_KEY": get_env_value("DEEPGRAM_API_KEY"),
+                        "OPENAI_API_KEY": get_env_value("OPENAI_API_KEY"),
+                        "ELEVENLABS_API_KEY": get_env_value("ELEVENLABS_API_KEY"),
+                    },
+                )
+                webview.load_html(refreshed_html, "file:///")
+                _set_webview_message(webview, t("settings.learning_updated", config), "ok")
+            except Exception as exc:
+                _set_webview_message(webview, f"{t('settings.save_failed', config)}: {exc}", "error")
             return
         if action != "save":
             return

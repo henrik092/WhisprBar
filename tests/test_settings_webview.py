@@ -180,6 +180,69 @@ def test_generate_settings_html_shows_analysis_database_stats():
     assert "/home/rik/.local/share/whisprbar/transcripts.sqlite3" in html
 
 
+def test_generate_settings_html_shows_learning_inbox_without_transcript_bodies(monkeypatch):
+    def fail_live_inbox_read():
+        raise AssertionError("explicit learning_inbox_summary should not trigger live reads")
+
+    monkeypatch.setattr(settings_webview, "get_learning_inbox_summary", fail_live_inbox_read)
+
+    html = generate_settings_html(
+        {"language": "en", "flow_mode_enabled": True},
+        dictionary_entries=[],
+        snippets=[],
+        learning_inbox_summary={
+            "pending_count": 2,
+            "dismissed_count": 1,
+            "never_count": 3,
+            "approved_count": 0,
+            "state_path": "/home/rik/.local/share/whisprbar/learning_inbox.json",
+            "candidates": [
+                {
+                    "id": "candidate-id",
+                    "kind": "dictionary",
+                    "spoken": "github",
+                    "written": "GitHub",
+                    "evidence_count": 4,
+                    "status": "pending",
+                }
+            ],
+        },
+    )
+
+    assert "Learning Inbox" in html
+    assert "Review suggestions" in html
+    assert "Pending suggestions" in html
+    assert 'data-learning-action="approved"' in html
+    assert 'data-learning-action="dismissed"' in html
+    assert 'data-learning-action="never"' in html
+    assert "action: 'learning_review'" in html
+    assert "2" in html
+    assert "github -> GitHub" in html
+    assert "4 examples" in html
+    assert "/home/rik/.local/share/whisprbar/learning_inbox.json" in html
+    assert "private transcript body" not in html
+
+
+def test_generate_settings_html_disables_learning_inbox_when_history_storage_is_never(monkeypatch):
+    def fail_live_inbox_read():
+        raise AssertionError("history_storage=never should not mine transcript data")
+
+    monkeypatch.setattr(settings_webview, "get_learning_inbox_summary", fail_live_inbox_read)
+
+    html = generate_settings_html(
+        {
+            "language": "en",
+            "flow_mode_enabled": True,
+            "flow_history_storage": "never",
+        },
+        dictionary_entries=[],
+        snippets=[],
+    )
+
+    assert "Learning Inbox" in html
+    assert "No pending suggestions." in html
+
+
 def test_generate_settings_html_preserves_empty_transcript_stats(monkeypatch):
     def fail_live_stats_read():
         raise AssertionError("empty transcript_stats should not trigger live DB stats")
