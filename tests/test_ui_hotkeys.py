@@ -2,6 +2,7 @@
 
 import pytest
 
+from whisprbar import hotkeys
 from whisprbar.ui_hotkeys import (
     build_hotkey_conflict_message,
     build_pending_hotkeys,
@@ -62,6 +63,14 @@ def test_build_hotkey_conflict_message_formats_readable_label():
 
 
 @pytest.mark.unit
+def test_key_to_label_formats_side_specific_token_string():
+    """Side-specific modifier tokens should be readable without pynput maps."""
+    assert hotkeys.key_to_label("CTRL_R") == "Right Ctrl"
+    assert hotkeys.key_to_label("RIGHT_CTRL") == "Right Ctrl"
+    assert hotkeys.key_to_label("ALT_L") == "Left Alt"
+
+
+@pytest.mark.unit
 def test_build_hotkey_conflict_message_none_when_no_conflicts():
     """No conflicts should yield no user message."""
     message = build_hotkey_conflict_message(
@@ -69,4 +78,3 @@ def test_build_hotkey_conflict_message_none_when_no_conflicts():
         {"toggle_recording": "Aufnahme umschalten"},
     )
     assert message is None
-

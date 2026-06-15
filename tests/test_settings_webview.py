@@ -18,8 +18,11 @@ def test_generate_settings_html_contains_selected_settings_shell():
     )
 
     assert "WhisprBar Einstellungen" in html
-    assert "data-page=\"general\"" in html
     assert "data-page=\"flow\"" in html
+    assert "data-page=\"words\"" in html
+    assert "data-page=\"shortcuts\"" in html
+    assert "data-page=\"history\"" in html
+    assert "data-page=\"advanced\"" in html
     assert "Flow-Modus" in html
     assert "Deepgram Nova-3" in html
     assert "checked" in html
@@ -37,9 +40,10 @@ def test_generate_settings_html_uses_english_ui_when_language_is_english():
 
     assert "WhisprBar Settings" in html
     assert "Save Changes" in html
-    assert "Recording" in html
-    assert "Transcription" in html
-    assert "Privacy" in html
+    assert "Flow" in html
+    assert "Words" in html
+    assert "Shortcuts" in html
+    assert "History" in html
     assert "Einstellungen" not in html
     assert "Speichern" not in html
 
@@ -56,11 +60,45 @@ def test_generate_settings_html_uses_german_ui_when_language_is_german():
 
     assert "WhisprBar Einstellungen" in html
     assert "Änderungen speichern" in html
-    assert "Aufnahme" in html
-    assert "Transkription" in html
-    assert "Datenschutz" in html
+    assert "Flow" in html
+    assert "Wörter" in html
+    assert "Kurzbefehle" in html
+    assert "Verlauf" in html
     assert "WhisprBar Settings" not in html
     assert "Save Changes" not in html
+
+
+def test_generate_settings_html_uses_simple_flow_navigation():
+    html = generate_settings_html(
+        {
+            "language": "en",
+            "flow_mode_enabled": True,
+            "flow_preferred_languages": ["de", "en"],
+        },
+        dictionary_entries=[],
+        snippets=[],
+        transcript_stats={"total": 7},
+    )
+
+    nav_flow = html.index('data-page="flow"')
+    nav_words = html.index('data-page="words"')
+    nav_shortcuts = html.index('data-page="shortcuts"')
+    nav_history = html.index('data-page="history"')
+    nav_advanced = html.index('data-page="advanced"')
+
+    assert nav_flow < nav_words < nav_shortcuts < nav_history < nav_advanced
+    assert 'data-page="flow" aria-current="page"' in html
+    assert 'data-page-id="flow"' in html
+    assert 'class="wb-page active" data-page-id="flow"' in html
+    assert 'data-page-id="words"' in html
+    assert 'data-page-id="shortcuts"' in html
+    assert 'data-page-id="history"' in html
+    assert "Words" in html
+    assert "Shortcuts" in html
+    assert "History" in html
+    nav_html = html.split('<nav class="wb-nav"', 1)[1].split("</nav>", 1)[0]
+    assert "Recording" not in nav_html
+    assert "Transcription" not in nav_html
 
 
 def test_generate_settings_html_escapes_dictionary_and_snippet_values():
@@ -101,8 +139,9 @@ def test_generate_settings_html_shows_voice_commands_from_command_specs():
         snippets=[],
     )
 
-    assert "data-page=\"voice-commands\"" in html
-    assert "data-page-id=\"voice-commands\"" in html
+    assert "data-page=\"voice-commands\"" not in html
+    assert "data-page-id=\"voice-commands\"" not in html
+    assert "data-page-id=\"advanced\"" in html
     assert "Sprachbefehle" in html
     assert "KI-Bearbeitung" in html
     assert "Einfüge- und Steuerbefehle" in html
@@ -130,9 +169,10 @@ def test_generate_settings_html_shows_analysis_database_stats():
         },
     )
 
-    assert 'data-page="analysis"' in html
-    assert 'data-page-id="analysis"' in html
-    assert "Analyse" in html
+    assert 'data-page="analysis"' not in html
+    assert 'data-page-id="analysis"' not in html
+    assert 'data-page-id="history"' in html
+    assert "History" in html or "Verlauf" in html
     assert "153" in html
     assert "Live gespeichert" in html
     assert "Alter Verlauf" in html
@@ -153,7 +193,7 @@ def test_generate_settings_html_preserves_empty_transcript_stats(monkeypatch):
         transcript_stats={},
     )
 
-    assert 'data-page="analysis"' in html
+    assert 'data-page-id="history"' in html
     assert "Gespeicherte Nachrichten" in html
 
 
@@ -206,6 +246,19 @@ def test_generate_settings_html_marks_dependent_rows_for_dynamic_visibility():
     assert "syncDependentRows" in html
 
 
+def test_generate_settings_html_wires_flow_test_button_to_preview_message():
+    html = generate_settings_html(
+        {"language": "en", "flow_mode_enabled": True},
+        dictionary_entries=[],
+        snippets=[],
+    )
+
+    assert "data-flow-test" in html
+    assert "Test Flow bar" in html
+    assert "action: 'flow_test'" in html
+    assert "settings.flow_test_ready" not in html
+
+
 def test_generate_settings_html_adds_numeric_bounds_and_units():
     html = generate_settings_html(
         {"flow_mode_enabled": True},
@@ -229,7 +282,7 @@ def test_generate_settings_html_adds_basic_accessibility_affordances():
     )
 
     assert 'id="settings-message" class="wb-message" role="status" aria-live="polite"' in html
-    assert 'data-page="general" aria-current="page"' in html
+    assert 'data-page="flow" aria-current="page"' in html
     assert 'data-remove-row aria-label=' in html
     assert "setAttribute('aria-current', item === button ? 'page' : 'false')" in html
 

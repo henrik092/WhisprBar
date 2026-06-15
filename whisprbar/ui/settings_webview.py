@@ -1079,19 +1079,8 @@ def generate_settings_html(
         config,
     )
 
-    privacy_rows = (
-        _select(
-            "flow_history_storage",
-            tr("setting.history_storage"),
-            tr("setting.history_storage_desc"),
-            [
-                ("normal", tr("option.normal")),
-                ("auto_delete", tr("option.auto_delete_24h")),
-                ("never", tr("option.never_store")),
-            ],
-            config.get("flow_history_storage", "normal"),
-        )
-        + _switch(
+    words_toggle_rows = (
+        _switch(
             "flow_dictionary_enabled",
             tr("settings.dictionary"),
             tr("setting.dictionary_desc"),
@@ -1102,6 +1091,20 @@ def generate_settings_html(
             tr("settings.snippets"),
             tr("setting.snippets_desc"),
             config.get("flow_snippets_enabled", True),
+        )
+    )
+
+    history_storage_rows = (
+        _select(
+            "flow_history_storage",
+            tr("setting.history_storage"),
+            tr("setting.history_storage_desc"),
+            [
+                ("normal", tr("option.normal")),
+                ("auto_delete", tr("option.auto_delete_24h")),
+                ("never", tr("option.never_store")),
+            ],
+            config.get("flow_history_storage", "normal"),
         )
         + _number_field(
             "flow_history_auto_delete_hours",
@@ -1114,6 +1117,20 @@ def generate_settings_html(
             unit="h",
             visible_when="flow_history_storage=auto_delete",
         )
+    )
+
+    flow_test_rows = """
+      <div class="wb-row">
+        <span class="wb-row-label">
+          <b>{flow_test}</b>
+          <span>{flow_test_desc}</span>
+        </span>
+        <button class="wb-button compact" type="button" data-flow-test>{flow_test_button}</button>
+      </div>
+    """.format(
+        flow_test=escape(tr("settings.flow_test")),
+        flow_test_desc=escape(tr("settings.flow_test_desc")),
+        flow_test_button=escape(tr("settings.flow_test_button")),
     )
 
     advanced_rows = (
@@ -1697,61 +1714,38 @@ def generate_settings_html(
     <aside class="wb-sidebar">
       <div class="wb-nav-label">{escape(tr("settings.nav_label"))}</div>
       <nav class="wb-nav" aria-label="{escape(tr("settings.nav_label"))}">
-        <button class="wb-nav-item active" type="button" data-page="general" aria-current="page"><span class="wb-icon"></span><span>{escape(tr("settings.general"))}</span><span class="wb-count">2</span></button>
-        <button class="wb-nav-item" type="button" data-page="recording"><span class="wb-icon"></span><span>{escape(tr("settings.recording"))}</span><span class="wb-count">2</span></button>
-        <button class="wb-nav-item" type="button" data-page="transcription"><span class="wb-icon"></span><span>{escape(tr("settings.transcription"))}</span><span class="wb-count">3</span></button>
-        <button class="wb-nav-item" type="button" data-page="flow"><span class="wb-icon"></span><span>{escape(tr("settings.flow"))}</span><span class="wb-count">5</span></button>
-        <button class="wb-nav-item" type="button" data-page="voice-commands"><span class="wb-icon"></span><span>{escape(tr("settings.voice_commands"))}</span><span class="wb-count">{len(COMMAND_SPECS)}</span></button>
-        <button class="wb-nav-item" type="button" data-page="analysis"><span class="wb-icon"></span><span>{escape(tr("settings.analysis"))}</span><span class="wb-count">{escape(_stat_value(transcript_stats.get("total", 0)))}</span></button>
-        <button class="wb-nav-item" type="button" data-page="privacy"><span class="wb-icon"></span><span>{escape(tr("settings.privacy"))}</span><span class="wb-count">1</span></button>
-        <button class="wb-nav-item" type="button" data-page="advanced"><span class="wb-icon"></span><span>{escape(tr("settings.advanced"))}</span><span class="wb-count">4</span></button>
+        <button class="wb-nav-item active" type="button" data-page="flow" aria-current="page"><span class="wb-icon"></span><span>{escape(tr("settings.flow"))}</span><span class="wb-count">4</span></button>
+        <button class="wb-nav-item" type="button" data-page="words"><span class="wb-icon"></span><span>{escape(tr("settings.words"))}</span><span class="wb-count">2</span></button>
+        <button class="wb-nav-item" type="button" data-page="shortcuts"><span class="wb-icon"></span><span>{escape(tr("settings.shortcuts"))}</span><span class="wb-count">1</span></button>
+        <button class="wb-nav-item" type="button" data-page="history"><span class="wb-icon"></span><span>{escape(tr("settings.history"))}</span><span class="wb-count">{escape(_stat_value(transcript_stats.get("total", 0)))}</span></button>
+        <button class="wb-nav-item" type="button" data-page="advanced"><span class="wb-icon"></span><span>{escape(tr("settings.advanced"))}</span><span class="wb-count">8</span></button>
       </nav>
     </aside>
     <main class="wb-main">
-      <section class="wb-page active" data-page-id="general">
-        <div class="wb-page-head">
-          <div><h2>{escape(tr("settings.general"))}</h2><p>{escape(tr("settings.general_desc"))}</p></div>
-          <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.local_preview"))}</span>
-        </div>
-        <div class="wb-stack">
-          {_section(tr("settings.app_behavior"), tr("settings.daily_use"), general_rows, hero=True)}
-          {_section(tr("settings.hotkeys"), tr("settings.all_actions"), hotkey_rows)}
-        </div>
-      </section>
-
-      <section class="wb-page" data-page-id="recording">
-        <div class="wb-page-head">
-          <div><h2>{escape(tr("settings.recording"))}</h2><p>{escape(tr("settings.recording_desc"))}</p></div>
-          <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.audio"))}</span>
-        </div>
-        <div class="wb-stack">
-          {_section(tr("settings.capture"), tr("settings.input_feedback"), recording_rows, hero=True)}
-          {_section(tr("settings.silence_handling"), tr("settings.expert_vad"), vad_rows)}
-        </div>
-      </section>
-
-      <section class="wb-page" data-page-id="transcription">
-        <div class="wb-page-head">
-          <div><h2>{escape(tr("settings.transcription"))}</h2><p>{escape(tr("settings.transcription_desc"))}</p></div>
-          <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.engine_status"))}</span>
-        </div>
-        <div class="wb-stack">
-          {_section(tr("settings.engine"), tr("setting.backend"), transcription_rows, hero=True)}
-          {_section(tr("settings.api_keys"), tr("settings.local_env_file"), api_rows)}
-          {_section(tr("settings.post_processing"), tr("settings.cleanup"), postprocess_rows)}
-        </div>
-      </section>
-
-      <section class="wb-page" data-page-id="flow">
+      <section class="wb-page active" data-page-id="flow">
         <div class="wb-page-head">
           <div><h2>{escape(tr("settings.flow"))}</h2><p>{escape(tr("settings.flow_desc"))}</p></div>
           <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.flow_ready"))}</span>
         </div>
         <div class="wb-layout">
           <div class="wb-stack">
-            {_section(tr("settings.flow_mode"), tr("settings.behavior"), flow_primary_rows, hero=True)}
+            {_section(tr("settings.flow_mode"), tr("settings.everyday"), flow_primary_rows, hero=True)}
             {_section(tr("settings.profiles"), tr("settings.context"), flow_controls_rows)}
-            {_section(tr("settings.ai_rewrite"), tr("settings.optional"), rewrite_rows)}
+          </div>
+          <div class="wb-stack">
+            {_section(tr("settings.flow_test"), tr("settings.local_preview"), flow_test_rows, hero=True)}
+          </div>
+        </div>
+      </section>
+
+      <section class="wb-page" data-page-id="words">
+        <div class="wb-page-head">
+          <div><h2>{escape(tr("settings.words"))}</h2><p>{escape(tr("settings.words_desc"))}</p></div>
+          <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.personalization"))}</span>
+        </div>
+        <div class="wb-layout">
+          <div class="wb-stack">
+            {_section(tr("settings.personalization"), tr("settings.history_local_helpers"), words_toggle_rows, hero=True)}
           </div>
           <div class="wb-stack">
             <section class="wb-section">
@@ -1774,44 +1768,23 @@ def generate_settings_html(
         </div>
       </section>
 
-      <section class="wb-page" data-page-id="voice-commands">
+      <section class="wb-page" data-page-id="shortcuts">
         <div class="wb-page-head">
-          <div><h2>{escape(tr("settings.voice_commands"))}</h2><p>{escape(tr("settings.voice_commands_desc"))}</p></div>
-          <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("setting.command_mode"))}</span>
+          <div><h2>{escape(tr("settings.shortcuts"))}</h2><p>{escape(tr("settings.shortcuts_desc"))}</p></div>
+          <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.hotkeys"))}</span>
         </div>
         <div class="wb-stack">
-          <section class="wb-section wb-hero">
-            <div class="wb-section-head"><h3>{escape(tr("settings.ai_commands"))}</h3><span>{escape(tr("settings.uses_ai_rewrite"))}</span></div>
-            <div class="wb-command-list">
-              <div class="wb-command-head"><span>{escape(tr("settings.command_phrase"))}</span><span>{escape(tr("settings.command_action"))}</span><span>{escape(tr("settings.command_requirement"))}</span></div>
-              {ai_command_rows}
-            </div>
-          </section>
-          <section class="wb-section">
-            <div class="wb-section-head"><h3>{escape(tr("settings.paste_commands"))}</h3><span>{escape(tr("settings.no_ai"))}</span></div>
-            <div class="wb-command-list">
-              <div class="wb-command-head"><span>{escape(tr("settings.command_phrase"))}</span><span>{escape(tr("settings.command_action"))}</span><span>{escape(tr("settings.command_requirement"))}</span></div>
-              {local_command_rows}
-            </div>
-          </section>
-          <section class="wb-section"><div class="wb-note">{escape(tr("settings.voice_commands_note"))}</div></section>
+          {_section(tr("settings.hotkeys"), tr("settings.all_actions"), hotkey_rows, hero=True)}
         </div>
       </section>
 
-      <section class="wb-page" data-page-id="privacy">
+      <section class="wb-page" data-page-id="history">
         <div class="wb-page-head">
-          <div><h2>{escape(tr("settings.privacy"))}</h2><p>{escape(tr("settings.privacy_desc"))}</p></div>
-          <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.local_files"))}</span>
-        </div>
-        <div class="wb-stack">{_section(tr("settings.storage"), tr("settings.history_local_helpers"), privacy_rows, hero=True)}</div>
-      </section>
-
-      <section class="wb-page" data-page-id="analysis">
-        <div class="wb-page-head">
-          <div><h2>{escape(tr("settings.analysis"))}</h2><p>{escape(tr("settings.analysis_desc"))}</p></div>
+          <div><h2>{escape(tr("settings.history"))}</h2><p>{escape(tr("settings.history_desc"))}</p></div>
           <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.local_database"))}</span>
         </div>
         <div class="wb-stack">
+          {_section(tr("settings.storage"), tr("settings.history_local_helpers"), history_storage_rows, hero=True)}
           <section class="wb-section wb-hero">
             <div class="wb-section-head"><h3>{escape(tr("settings.analysis_collection"))}</h3><span>{escape(tr("settings.analysis_collection_desc"))}</span></div>
             <div class="wb-stat-list">{analysis_rows}</div>
@@ -1826,9 +1799,34 @@ def generate_settings_html(
           <span class="wb-status-pill"><span class="wb-dot"></span> {escape(tr("settings.expert"))}</span>
         </div>
         <div class="wb-stack">
-          {_section(tr("settings.runtime"), tr("settings.technical"), advanced_rows, hero=True)}
+          {_section(tr("settings.app_behavior"), tr("settings.daily_use"), general_rows, hero=True)}
+          {_section(tr("settings.capture"), tr("settings.input_feedback"), recording_rows)}
+          {_section(tr("settings.engine"), tr("setting.backend"), transcription_rows)}
+          {_section(tr("settings.api_keys"), tr("settings.local_env_file"), api_rows)}
+          {_section(tr("settings.post_processing"), tr("settings.cleanup"), postprocess_rows)}
+          {_section(tr("settings.ai_rewrite"), tr("settings.optional"), rewrite_rows)}
+          {_section(tr("settings.silence_handling"), tr("settings.expert_vad"), vad_rows)}
+          {_section(tr("settings.runtime"), tr("settings.technical"), advanced_rows)}
           {_section(tr("settings.indicator"), tr("settings.flow_bar"), indicator_rows)}
           {_section(tr("settings.overlay"), tr("settings.floating_transcript"), overlay_rows)}
+          <section class="wb-section">
+            <div class="wb-section-head"><h3>{escape(tr("settings.voice_commands"))}</h3><span>{escape(tr("settings.voice_commands_desc"))}</span></div>
+            <div class="wb-note">{escape(tr("settings.voice_commands_note"))}</div>
+          </section>
+          <section class="wb-section">
+            <div class="wb-section-head"><h3>{escape(tr("settings.ai_commands"))}</h3><span>{escape(tr("settings.uses_ai_rewrite"))}</span></div>
+            <div class="wb-command-list">
+              <div class="wb-command-head"><span>{escape(tr("settings.command_phrase"))}</span><span>{escape(tr("settings.command_action"))}</span><span>{escape(tr("settings.command_requirement"))}</span></div>
+              {ai_command_rows}
+            </div>
+          </section>
+          <section class="wb-section">
+            <div class="wb-section-head"><h3>{escape(tr("settings.paste_commands"))}</h3><span>{escape(tr("settings.no_ai"))}</span></div>
+            <div class="wb-command-list">
+              <div class="wb-command-head"><span>{escape(tr("settings.command_phrase"))}</span><span>{escape(tr("settings.command_action"))}</span><span>{escape(tr("settings.command_requirement"))}</span></div>
+              {local_command_rows}
+            </div>
+          </section>
           <section class="wb-section"><div class="wb-note">{escape(tr("settings.advanced_note"))}</div></section>
         </div>
       </section>
@@ -1958,6 +1956,11 @@ def generate_settings_html(
       const action = captureButton.dataset.captureHotkey;
       setMessage({json.dumps(tr("settings.press_key"))}, '');
       postSettingsMessage({{ action: 'capture_hotkey', hotkey_action: action }});
+      return;
+    }}
+    const flowTestButton = event.target.closest('[data-flow-test]');
+    if (flowTestButton) {{
+      postSettingsMessage({{ action: 'flow_test', payload: collectPayload() }});
     }}
   }});
 
@@ -2165,6 +2168,11 @@ def open_settings_window(
         if action == "preview_indicator":
             payload = data.get("payload") if isinstance(data.get("payload"), Mapping) else {}
             handle_preview_indicator(payload)
+            return
+        if action == "flow_test":
+            payload = data.get("payload") if isinstance(data.get("payload"), Mapping) else {}
+            handle_preview_indicator(payload)
+            _set_webview_message(webview, t("settings.flow_test_ready", config), "ok")
             return
         if action != "save":
             return

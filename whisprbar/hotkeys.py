@@ -225,6 +225,10 @@ def key_to_label(key_obj) -> str:
 
     # Handle direct token strings (used by tray state for configured hotkeys)
     if isinstance(key_obj, str):
+        raw_token = key_obj.strip().upper().replace("-", "_").replace(" ", "_")
+        raw_token = SPECIAL_KEY_ALIASES.get(raw_token, raw_token)
+        if raw_token in SPECIAL_KEY_LABELS:
+            return SPECIAL_KEY_LABELS[raw_token]
         token = normalize_key_token(key_obj)
         if token in SPECIAL_KEY_LABELS:
             return SPECIAL_KEY_LABELS[token]
