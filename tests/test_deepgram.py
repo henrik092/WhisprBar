@@ -247,6 +247,119 @@ def test_deepgram_realtime_session_sends_binary_audio_and_finalizes(monkeypatch)
 
 
 @pytest.mark.unit
+def test_deepgram_realtime_session_supports_legacy_websockets_headers(monkeypatch):
+    """websockets 12.x expects extra_headers before entering the connection context."""
+    attempts = []
+
+    class FailingAdditionalHeadersConnect:
+        async def __aenter__(self):
+            raise TypeError(
+                "BaseEventLoop.create_connection() got an unexpected keyword argument 'additional_headers'"
+            )
+
+        async def __aexit__(self, _exc_type, _exc, _tb):
+            return False
+
+    class WorkingExtraHeadersConnect:
+        async def __aenter__(self):
+            raise RuntimeError("stop before network flow")
+
+        async def __aexit__(self, _exc_type, _exc, _tb):
+            return False
+
+    def fake_connect(uri, **kwargs):
+        attempts.append((uri, kwargs))
+        if "additional_headers" in kwargs:
+            return FailingAdditionalHeadersConnect()
+        if "extra_headers" in kwargs:
+            return WorkingExtraHeadersConnect()
+        raise AssertionError(f"missing websocket headers: {kwargs}")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "websockets",
+        SimpleNamespace(connect=fake_connect),
+    )
+
+    session = DeepgramRealtimeSession("test-key", "wss://api.deepgram.com/v1/listen")
+
+    assert session.finish() is None
+    assert [sorted(kwargs) for _uri, kwargs in attempts] == [
+        ["additional_headers", "open_timeout", "ping_interval"],
+        ["extra_headers", "open_timeout", "ping_interval"],
+    ]
+    assert attempts[1][1]["extra_headers"]["Authorization"] == "Token test-key"
+    assert attempts[1][1]["open_timeout"] == 10
+    assert attempts[1][1]["ping_interval"] == 20
+
+
+@pytest.mark.unit
+def test_deepgram_realtime_session_reads_results_after_close_stream(monkeypatch):
+    """CloseStream can flush final results even when Finalize emits no final event."""
+    from whisprbar.transcription import deepgram as deepgram_module
+
+    sent_payloads = []
+
+    async def immediate_finalize_timeout(awaitable, timeout):
+        if isinstance(awaitable, asyncio.Task):
+            return await awaitable
+        awaitable.close()
+        raise asyncio.TimeoutError
+
+    class FakeWebSocket:
+        def __init__(self):
+            self._messages = asyncio.Queue()
+
+        async def send(self, payload):
+            sent_payloads.append(payload)
+            if isinstance(payload, str) and json.loads(payload).get("type") == "CloseStream":
+                await self._messages.put(
+                    json.dumps(
+                        {
+                            "type": "Results",
+                            "is_final": True,
+                            "channel": {
+                                "alternatives": [{"transcript": "close stream final"}]
+                            },
+                        }
+                    )
+                )
+                await self._messages.put(None)
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            message = await self._messages.get()
+            if message is None:
+                raise StopAsyncIteration
+            return message
+
+    class FakeConnect:
+        async def __aenter__(self):
+            return FakeWebSocket()
+
+        async def __aexit__(self, _exc_type, _exc, _tb):
+            return False
+
+    monkeypatch.setattr(deepgram_module.asyncio, "wait_for", immediate_finalize_timeout)
+    monkeypatch.setitem(
+        sys.modules,
+        "websockets",
+        SimpleNamespace(connect=lambda _uri, **_kwargs: FakeConnect()),
+    )
+
+    session = DeepgramRealtimeSession("test-key", "wss://api.deepgram.com/v1/listen")
+
+    assert session.finish() == "close stream final"
+    assert [
+        json.loads(payload)["type"]
+        for payload in sent_payloads
+        if isinstance(payload, str)
+    ] == ["Finalize", "CloseStream"]
+
+
+@pytest.mark.unit
 def test_deepgram_realtime_session_discards_partial_text_after_queue_overflow(monkeypatch):
     """Dropped live audio chunks must force batch fallback instead of returning partial text."""
     monkeypatch.setattr(DeepgramRealtimeSession, "_run_thread", lambda self: None)
@@ -259,6 +372,42 @@ def test_deepgram_realtime_session_discards_partial_text_after_queue_overflow(mo
     session.push_audio(np.ones(1, dtype=np.float32))
 
     assert session.finish() is None
+
+
+@pytest.mark.unit
+def test_deepgram_realtime_session_discards_partial_text_when_close_drops_audio(monkeypatch):
+    """A full queue at finish means the sentinel displaced live audio."""
+    monkeypatch.setattr(DeepgramRealtimeSession, "_run_thread", lambda self: None)
+    session = DeepgramRealtimeSession("test-key", "wss://api.deepgram.com/v1/listen")
+    session._result_parts.append("partial live text")
+
+    while not session._audio_queue.full():
+        session._audio_queue.put_nowait(np.ones(1, dtype=np.float32))
+
+    assert session.finish() is None
+
+
+@pytest.mark.unit
+def test_deepgram_realtime_session_cancels_worker_after_finish_timeout(monkeypatch):
+    """Timed-out realtime workers should be cancelled before batch fallback."""
+    monkeypatch.setattr(DeepgramRealtimeSession, "_run_thread", lambda self: None)
+    session = DeepgramRealtimeSession("test-key", "wss://api.deepgram.com/v1/listen")
+    joins = []
+    cancelled = []
+
+    class HungThread:
+        def join(self, timeout=None):
+            joins.append(timeout)
+
+        def is_alive(self):
+            return True
+
+    session._thread = HungThread()
+    monkeypatch.setattr(session, "cancel", lambda: cancelled.append(True))
+
+    assert session.finish() is None
+    assert joins == [15.0]
+    assert cancelled == [True]
 
 
 @pytest.mark.unit

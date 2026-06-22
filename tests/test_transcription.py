@@ -407,3 +407,43 @@ def test_elevenlabs_realtime_session_discards_partial_text_after_queue_overflow(
     session.push_audio(np.ones(1, dtype=np.float32))
 
     assert session.finish() is None
+
+
+@pytest.mark.unit
+def test_elevenlabs_realtime_session_discards_partial_text_when_close_drops_audio(monkeypatch):
+    """A full queue at finish means the sentinel displaced live audio."""
+    from whisprbar.transcription.elevenlabs import ElevenLabsRealtimeSession
+
+    monkeypatch.setattr(ElevenLabsRealtimeSession, "_run_thread", lambda self: None)
+    session = ElevenLabsRealtimeSession(object(), "en")
+    session._result_parts.append("partial live text")
+
+    while not session._audio_queue.full():
+        session._audio_queue.put_nowait(np.ones(1, dtype=np.float32))
+
+    assert session.finish() is None
+
+
+@pytest.mark.unit
+def test_elevenlabs_realtime_session_cancels_worker_after_finish_timeout(monkeypatch):
+    """Timed-out realtime workers should be cancelled before batch fallback."""
+    from whisprbar.transcription.elevenlabs import ElevenLabsRealtimeSession
+
+    monkeypatch.setattr(ElevenLabsRealtimeSession, "_run_thread", lambda self: None)
+    session = ElevenLabsRealtimeSession(object(), "en")
+    joins = []
+    cancelled = []
+
+    class HungThread:
+        def join(self, timeout=None):
+            joins.append(timeout)
+
+        def is_alive(self):
+            return True
+
+    session._thread = HungThread()
+    monkeypatch.setattr(session, "cancel", lambda: cancelled.append(True))
+
+    assert session.finish() is None
+    assert joins == [15.0]
+    assert cancelled == [True]

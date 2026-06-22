@@ -70,6 +70,7 @@ class ElevenLabsRealtimeSession(StreamingTranscriptionSession):
         self._thread.join(timeout=15.0)
         if self._thread.is_alive():
             debug("ElevenLabs realtime finish timed out")
+            self.cancel()
             return None
         if self._error is not None:
             debug(f"ElevenLabs realtime session failed: {self._error}")
@@ -93,6 +94,7 @@ class ElevenLabsRealtimeSession(StreamingTranscriptionSession):
         try:
             self._audio_queue.put(_QUEUE_SENTINEL, timeout=1.0)
         except queue.Full:
+            self._overflowed.set()
             with contextlib.suppress(queue.Empty):
                 self._audio_queue.get_nowait()
             with contextlib.suppress(queue.Full):

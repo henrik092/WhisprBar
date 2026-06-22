@@ -8,7 +8,7 @@ import queue
 import sys
 import threading
 import time
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import numpy as np
 
@@ -207,17 +207,21 @@ def recording_callback(indata, frames, time_info, status):
 
     # Use non-blocking put to prevent callback thread blocking (defensive programming)
     # Queue is unbounded so this should never raise queue.Full, but we handle it anyway
+    queued = False
     with audio_queue_lock:
         queue_obj = AUDIO_QUEUE
         if queue_obj is not None:
             try:
                 queue_obj.put_nowait(data_copy)
-                with _recording_state_lock:
-                    if recording_state.get("first_audio_at_monotonic") is None:
-                        recording_state["first_audio_at_monotonic"] = time.monotonic()
+                queued = True
             except queue.Full:
                 # Should never happen with unbounded queue, but handle defensively
                 print("[ERROR] Audio queue unexpectedly full, dropping frame", file=sys.stderr)
+
+    if queued:
+        with _recording_state_lock:
+            if recording_state.get("first_audio_at_monotonic") is None:
+                recording_state["first_audio_at_monotonic"] = time.monotonic()
 
     # Feed audio level to recording indicator
     if _recording_callbacks.get("on_audio_level"):
@@ -450,12 +454,12 @@ def stop_recording() -> Optional[np.ndarray]:
 # =============================================================================
 
 def set_recording_callbacks(
-    on_start=None,
-    on_stop=None,
-    on_audio_level=None,
-    on_audio_chunk=None,
-    on_before_start=None,
-):
+    on_start: Optional[Callable[[], None]] = None,
+    on_stop: Optional[Callable[[], None]] = None,
+    on_audio_level: Optional[Callable[[float], None]] = None,
+    on_audio_chunk: Optional[Callable[[np.ndarray], None]] = None,
+    on_before_start: Optional[Callable[[], None]] = None,
+) -> None:
     """Set callbacks for recording events.
 
     Args:

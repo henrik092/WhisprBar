@@ -2,7 +2,7 @@
 
 [![Version](https://img.shields.io/badge/version-1.3.1-blue.svg)](https://github.com/henrik092/whisprBar/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)](https://www.linux.org/)
 
 A Linux system tray app for voice-to-text transcription. Press a hotkey, speak, release -- your text is automatically pasted into the active window.

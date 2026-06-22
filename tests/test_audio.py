@@ -276,6 +276,46 @@ def test_recording_callback_forwards_audio_chunks_to_streaming_callback(monkeypa
 
 
 @pytest.mark.unit
+def test_recording_callback_does_not_take_state_lock_while_queue_lock_is_held(monkeypatch):
+    """Audio callback lock ordering must stay compatible with stop_recording()."""
+    from whisprbar.audio import recorder
+
+    frame = np.array([[0.1], [0.2]], dtype=np.float32)
+    queue_lock_held = {"value": False}
+
+    class TrackingQueueLock:
+        def __enter__(self):
+            queue_lock_held["value"] = True
+
+        def __exit__(self, _exc_type, _exc, _tb):
+            queue_lock_held["value"] = False
+
+    class AssertStateLock:
+        def __enter__(self):
+            assert queue_lock_held["value"] is False
+
+        def __exit__(self, _exc_type, _exc, _tb):
+            return False
+
+    monkeypatch.setattr(recorder, "AUDIO_QUEUE", queue.Queue())
+    monkeypatch.setattr(recorder, "audio_queue_lock", TrackingQueueLock())
+    monkeypatch.setattr(recorder, "_recording_state_lock", AssertStateLock())
+    monkeypatch.setattr(
+        recorder,
+        "_recording_callbacks",
+        {
+            "on_start": None,
+            "on_stop": None,
+            "on_audio_level": None,
+            "on_audio_chunk": None,
+            "on_before_start": None,
+        },
+    )
+
+    recorder.recording_callback(frame, len(frame), None, None)
+
+
+@pytest.mark.unit
 def test_indicator_level_mapping_makes_normal_speech_visible():
     """Typical speech RMS should drive the recording indicator clearly."""
     from whisprbar.audio.recorder import _audio_rms_to_indicator_level

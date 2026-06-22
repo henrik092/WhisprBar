@@ -178,8 +178,8 @@ def test_dispatch_transcript_shows_paste_before_done(monkeypatch):
 
 
 @pytest.mark.unit
-def test_transcribe_processed_audio_prefers_active_live_session(monkeypatch):
-    """Stop processing should finish an active streaming session before batch ASR."""
+def test_transcribe_processed_audio_prefers_claimed_live_session(monkeypatch):
+    """Stop processing should finish its claimed streaming session before batch ASR."""
     from whisprbar import main
 
     class FakeSession:
@@ -192,15 +192,17 @@ def test_transcribe_processed_audio_prefers_active_live_session(monkeypatch):
 
     session = FakeSession()
     monkeypatch.setattr(main, "_active_live_transcription_session", session, raising=False)
+    live_finish = main._start_live_transcription_finish()
 
     def fail_batch(_processed, _language):
-        raise AssertionError("batch transcription should not run when live session is active")
+        raise AssertionError("batch transcription should not run when live session has text")
 
     monkeypatch.setattr(main, "transcribe_audio", fail_batch)
 
     text, elapsed_ms = main._transcribe_processed_audio(
         np.ones(16000, dtype=np.float32),
         "en",
+        live_finish=live_finish,
     )
 
     assert text == "live transcript"

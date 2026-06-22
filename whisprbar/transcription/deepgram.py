@@ -67,6 +67,7 @@ class DeepgramRealtimeSession(StreamingTranscriptionSession):
         self._thread.join(timeout=15.0)
         if self._thread.is_alive():
             debug("Deepgram realtime finish timed out")
+            self.cancel()
             return None
         if self._error is not None:
             debug(f"Deepgram realtime session failed: {self._error}")
@@ -89,6 +90,7 @@ class DeepgramRealtimeSession(StreamingTranscriptionSession):
         try:
             self._audio_queue.put(_QUEUE_SENTINEL, timeout=1.0)
         except queue.Full:
+            self._overflowed.set()
             with contextlib.suppress(queue.Empty):
                 self._audio_queue.get_nowait()
             with contextlib.suppress(queue.Full):
@@ -108,54 +110,64 @@ class DeepgramRealtimeSession(StreamingTranscriptionSession):
             return
 
         headers = {"Authorization": f"Token {self.api_key}"}
-        connect_kwargs = {
-            "additional_headers": headers,
+        base_connect_kwargs = {
             "open_timeout": 10,
             "ping_interval": 20,
         }
 
-        try:
-            connection_cm = websockets.connect(self.url, **connect_kwargs)
-        except TypeError:
-            connect_kwargs.pop("additional_headers")
-            connect_kwargs["extra_headers"] = headers
-            connection_cm = websockets.connect(self.url, **connect_kwargs)
-
-        async with connection_cm as websocket:
-            finalize_received = asyncio.Event()
-            receiver_task = asyncio.create_task(
-                self._receive_results(websocket, finalize_received)
-            )
-            keepalive_task = asyncio.create_task(self._send_keepalives(websocket))
-
+        for header_arg in ("additional_headers", "extra_headers"):
+            connect_kwargs = dict(base_connect_kwargs)
+            connect_kwargs[header_arg] = headers
             try:
-                while True:
-                    item = await asyncio.to_thread(self._audio_queue.get)
-                    if item is _QUEUE_SENTINEL:
-                        break
-                    if self._cancelled.is_set():
-                        return
-                    payload = _audio_chunk_to_pcm16_bytes(item)
-                    if payload:
-                        await websocket.send(payload)
+                async with websockets.connect(self.url, **connect_kwargs) as websocket:
+                    await self._run_websocket(websocket)
+                return
+            except TypeError as exc:
+                if header_arg == "additional_headers" and "additional_headers" in str(exc):
+                    debug("Deepgram realtime retrying websocket connect with extra_headers")
+                    continue
+                raise
 
+    async def _run_websocket(self, websocket) -> None:
+        finalize_received = asyncio.Event()
+        receiver_task = asyncio.create_task(
+            self._receive_results(websocket, finalize_received)
+        )
+        keepalive_task = asyncio.create_task(self._send_keepalives(websocket))
+
+        try:
+            while True:
+                item = await asyncio.to_thread(self._audio_queue.get)
+                if item is _QUEUE_SENTINEL:
+                    break
                 if self._cancelled.is_set():
                     return
+                payload = _audio_chunk_to_pcm16_bytes(item)
+                if payload:
+                    await websocket.send(payload)
 
-                await websocket.send(json.dumps({"type": "Finalize"}))
-                try:
-                    await asyncio.wait_for(finalize_received.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    debug("Deepgram realtime finalize wait timed out")
-                await websocket.send(json.dumps({"type": "CloseStream"}))
-            finally:
-                keepalive_task.cancel()
+            if self._cancelled.is_set():
+                return
+
+            await websocket.send(json.dumps({"type": "Finalize"}))
+            try:
+                await asyncio.wait_for(finalize_received.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                debug("Deepgram realtime finalize wait timed out")
+            await websocket.send(json.dumps({"type": "CloseStream"}))
+            try:
+                await asyncio.wait_for(receiver_task, timeout=2.0)
+            except asyncio.TimeoutError:
+                debug("Deepgram realtime close wait timed out")
+        finally:
+            keepalive_task.cancel()
+            if not receiver_task.done():
                 receiver_task.cancel()
-                await asyncio.gather(
-                    keepalive_task,
-                    receiver_task,
-                    return_exceptions=True,
-                )
+            await asyncio.gather(
+                keepalive_task,
+                receiver_task,
+                return_exceptions=True,
+            )
 
     async def _send_keepalives(self, websocket) -> None:
         while not self._closed.is_set() and not self._cancelled.is_set():

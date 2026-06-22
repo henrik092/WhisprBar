@@ -182,8 +182,13 @@ def test_on_recording_stop_does_not_lower_process_priority(monkeypatch, mock_con
 def test_on_recording_stop_cancels_live_session_when_queue_full(monkeypatch, mock_config):
     """Dropped transcription requests must not leak an active live session."""
     cancelled = []
+    finished = []
 
     class FakeSession:
+        def finish(self):
+            finished.append(True)
+            return "should not finish"
+
         def cancel(self):
             cancelled.append(True)
 
@@ -222,6 +227,331 @@ def test_on_recording_stop_cancels_live_session_when_queue_full(monkeypatch, moc
     main.state.transcribing = False
 
     main.on_recording_stop()
+
+    assert cancelled == [True]
+    assert finished == []
+    assert main._active_live_transcription_session is None
+
+
+@pytest.mark.unit
+def test_on_recording_stop_claims_live_session_before_publishing_idle(monkeypatch, mock_config):
+    """A stopped recording must own its live session even if another recording starts."""
+    copied = []
+    deferred_transcribe = []
+    finished = []
+
+    class FakeSession:
+        def __init__(self, name):
+            self.name = name
+            self.cancelled = False
+
+        def finish(self):
+            finished.append(self.name)
+            return f"{self.name} transcript"
+
+        def cancel(self):
+            self.cancelled = True
+
+    class ControlledThread:
+        def __init__(self, target=None, daemon=None, **_kwargs):
+            self._target = target
+            self.daemon = daemon
+
+        def start(self):
+            if getattr(self._target, "__name__", "") == "transcribe_thread":
+                deferred_transcribe.append(self._target)
+            elif self._target is not None:
+                self._target()
+
+        def join(self, timeout=None):
+            return None
+
+        def is_alive(self):
+            return False
+
+    mock_config.update(
+        {
+            "noise_reduction_enabled": False,
+            "auto_paste_enabled": False,
+            "min_audio_energy": 0.0,
+            "live_overlay_display_duration": 0.5,
+            "language": "de",
+        }
+    )
+    config.cfg.clear()
+    config.cfg.update(mock_config)
+
+    session_a = FakeSession("first")
+    session_b = FakeSession("second")
+
+    class RaceState:
+        def __init__(self):
+            self._recording = True
+            self.transcribing = False
+            self.last_transcript = ""
+
+        @property
+        def recording(self):
+            return self._recording
+
+        @recording.setter
+        def recording(self, value):
+            self._recording = value
+            if value is False:
+                main._active_live_transcription_session = session_b
+
+        def get(self, key, default=None):
+            return getattr(self, key, default)
+
+        def __getitem__(self, key):
+            return getattr(self, key)
+
+        def __setitem__(self, key, value):
+            setattr(self, key, value)
+
+    monkeypatch.setattr(main.threading, "Thread", ControlledThread)
+    monkeypatch.setattr(main, "refresh_tray_indicator", lambda _state: None)
+    monkeypatch.setattr(main, "refresh_menu", lambda _callbacks, _state: None)
+    monkeypatch.setattr(main, "get_callbacks", lambda: {})
+    monkeypatch.setattr(main, "notify", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "copy_to_clipboard", lambda text: copied.append(text) or True)
+    monkeypatch.setattr(main, "play_audio_feedback", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "write_history", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main,
+        "get_recording_state",
+        lambda: {"audio_data": np.ones(SAMPLE_RATE, dtype=np.float32)},
+    )
+    monkeypatch.setattr(main, "transcribe_audio", lambda *_args, **_kwargs: "batch")
+    monkeypatch.setattr(main, "TRANSCRIPTION_SEMAPHORE", threading.Semaphore(2))
+    monkeypatch.setattr(main, "_active_live_transcription_session", session_a, raising=False)
+    monkeypatch.setattr(main, "state", RaceState())
+
+    from whisprbar import audio, ui
+    from whisprbar.ui import recording_indicator
+
+    monkeypatch.setattr(audio, "apply_noise_reduction", lambda audio_data: audio_data)
+    monkeypatch.setattr(audio, "apply_vad", lambda audio_data: audio_data)
+    monkeypatch.setattr(ui, "show_live_overlay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ui, "update_live_overlay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ui, "hide_live_overlay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(recording_indicator, "show_recording_indicator", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(recording_indicator, "hide_recording_indicator", lambda *_args, **_kwargs: None)
+
+    main.on_recording_stop()
+    assert deferred_transcribe
+
+    deferred_transcribe[0]()
+
+    assert finished == ["first"]
+    assert copied == ["First transcript"]
+    assert main._active_live_transcription_session is session_b
+    assert session_b.cancelled is False
+
+
+@pytest.mark.unit
+def test_on_recording_stop_without_live_session_does_not_claim_new_recording(monkeypatch, mock_config):
+    """A batch-only stopped recording must not steal a later recording's live session."""
+    copied = []
+    deferred_transcribe = []
+    finished = []
+    cancelled = []
+
+    class NewRecordingSession:
+        def finish(self):
+            finished.append(True)
+            return "new recording transcript"
+
+        def cancel(self):
+            cancelled.append(True)
+
+    session_b = NewRecordingSession()
+
+    class RaceState:
+        def __init__(self):
+            self._recording = True
+            self.transcribing = False
+            self.last_transcript = ""
+
+        @property
+        def recording(self):
+            return self._recording
+
+        @recording.setter
+        def recording(self, value):
+            self._recording = value
+            if value is False:
+                main._active_live_transcription_session = session_b
+
+        def get(self, key, default=None):
+            return getattr(self, key, default)
+
+        def __getitem__(self, key):
+            return getattr(self, key)
+
+        def __setitem__(self, key, value):
+            setattr(self, key, value)
+
+    class ControlledThread:
+        def __init__(self, target=None, daemon=None, **_kwargs):
+            self._target = target
+            self.daemon = daemon
+
+        def start(self):
+            if getattr(self._target, "__name__", "") == "transcribe_thread":
+                deferred_transcribe.append(self._target)
+            elif self._target is not None:
+                self._target()
+
+        def join(self, timeout=None):
+            return None
+
+        def is_alive(self):
+            return False
+
+    mock_config.update(
+        {
+            "noise_reduction_enabled": False,
+            "auto_paste_enabled": False,
+            "min_audio_energy": 0.0,
+            "live_overlay_display_duration": 0.5,
+            "language": "de",
+        }
+    )
+    config.cfg.clear()
+    config.cfg.update(mock_config)
+
+    monkeypatch.setattr(main.threading, "Thread", ControlledThread)
+    monkeypatch.setattr(main, "refresh_tray_indicator", lambda _state: None)
+    monkeypatch.setattr(main, "refresh_menu", lambda _callbacks, _state: None)
+    monkeypatch.setattr(main, "get_callbacks", lambda: {})
+    monkeypatch.setattr(main, "notify", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "copy_to_clipboard", lambda text: copied.append(text) or True)
+    monkeypatch.setattr(main, "play_audio_feedback", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "write_history", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main,
+        "get_recording_state",
+        lambda: {"audio_data": np.ones(SAMPLE_RATE, dtype=np.float32)},
+    )
+    monkeypatch.setattr(main, "transcribe_audio", lambda *_args, **_kwargs: "batch transcript")
+    monkeypatch.setattr(main, "TRANSCRIPTION_SEMAPHORE", threading.Semaphore(2))
+    monkeypatch.setattr(main, "_active_live_transcription_session", None, raising=False)
+    monkeypatch.setattr(main, "state", RaceState())
+
+    from whisprbar import audio, ui
+    from whisprbar.ui import recording_indicator
+
+    monkeypatch.setattr(audio, "apply_noise_reduction", lambda audio_data: audio_data)
+    monkeypatch.setattr(audio, "apply_vad", lambda audio_data: audio_data)
+    monkeypatch.setattr(ui, "show_live_overlay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ui, "update_live_overlay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ui, "hide_live_overlay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(recording_indicator, "show_recording_indicator", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(recording_indicator, "hide_recording_indicator", lambda *_args, **_kwargs: None)
+
+    main.on_recording_stop()
+    deferred_transcribe[0]()
+
+    assert copied == ["Batch transcript"]
+    assert finished == []
+    assert cancelled == []
+    assert main._active_live_transcription_session is session_b
+
+
+@pytest.mark.unit
+def test_live_finish_cancels_session_after_finish_error(monkeypatch):
+    """A failed live finish must clean up backend resources before batch fallback."""
+    cancelled = []
+
+    class FailingSession:
+        def finish(self):
+            raise RuntimeError("backend failed")
+
+        def cancel(self):
+            cancelled.append(True)
+
+    class ImmediateThread:
+        def __init__(self, target=None, daemon=None, **_kwargs):
+            self._target = target
+            self.daemon = daemon
+
+        def start(self):
+            if self._target is not None:
+                self._target()
+
+        def join(self, timeout=None):
+            return None
+
+        def is_alive(self):
+            return False
+
+    monkeypatch.setattr(main.threading, "Thread", ImmediateThread)
+
+    live_finish = main._LiveTranscriptionFinish(FailingSession())
+    text, _elapsed_ms = live_finish.result()
+
+    assert text is None
+    assert cancelled == [True]
+
+
+@pytest.mark.unit
+def test_live_finish_cancels_session_after_timeout(monkeypatch):
+    """A timed-out live finish must not leave a backend worker running."""
+    cancelled = []
+
+    class SlowSession:
+        def finish(self):
+            raise AssertionError("finish thread should be deferred by this test")
+
+        def cancel(self):
+            cancelled.append(True)
+
+    class DeferredThread:
+        def __init__(self, target=None, daemon=None, **_kwargs):
+            self._target = target
+            self.daemon = daemon
+
+        def start(self):
+            return None
+
+        def join(self, timeout=None):
+            return None
+
+        def is_alive(self):
+            return True
+
+    monkeypatch.setattr(main.threading, "Thread", DeferredThread)
+
+    live_finish = main._LiveTranscriptionFinish(SlowSession())
+    text, _elapsed_ms = live_finish.result(timeout=0.0)
+
+    assert text is None
+    assert cancelled == [True]
+
+
+@pytest.mark.unit
+def test_start_recording_hotkey_cancels_live_session_when_start_fails(monkeypatch):
+    """A stream startup failure after live startup must not leak a realtime session."""
+    cancelled = []
+
+    class FakeSession:
+        def cancel(self):
+            cancelled.append(True)
+
+    monkeypatch.setattr(
+        main,
+        "start_recording",
+        lambda: (_ for _ in ()).throw(RuntimeError("stream failed")),
+    )
+    monkeypatch.setattr(main, "notify", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "refresh_tray_indicator", lambda _state: None)
+    monkeypatch.setattr(main, "_active_live_transcription_session", FakeSession(), raising=False)
+
+    main.state.recording = False
+    main.state.transcribing = False
+
+    main.start_recording_hotkey()
 
     assert cancelled == [True]
     assert main._active_live_transcription_session is None
