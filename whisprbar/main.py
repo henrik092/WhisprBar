@@ -36,7 +36,7 @@ from whisprbar.audio import (
 )
 from whisprbar.transcription import transcribe_audio, get_transcriber
 from whisprbar.transcript_store import save_transcript_record
-from whisprbar.flow import process_flow_text
+from whisprbar.flow import FlowOutput, process_flow_text
 from whisprbar.hotkeys import get_hotkey_manager
 from whisprbar.i18n import t
 from whisprbar.hotkey_actions import HOTKEY_ACTION_ORDER
@@ -198,6 +198,12 @@ _shutdown_event = threading.Event()
 # Transcription thread pool limiter
 # Limit to 2 concurrent transcriptions to prevent memory/CPU overload
 TRANSCRIPTION_SEMAPHORE = threading.Semaphore(2)
+
+# Active live transcription session for streaming-capable backends. Accessed
+# from audio callback and transcription threads, so keep ownership explicit.
+_live_transcription_lock = threading.Lock()
+_active_live_transcription_session = None
+_UNSET_LIVE_SESSION = object()
 
 # PID file for singleton enforcement
 PID_FILE = Path.home() / ".cache" / "whisprbar" / "whisprbar.pid"
@@ -405,6 +411,7 @@ def toggle_recording() -> None:
     except Exception as exc:
         debug(f"[RECORDING] Toggle failed: {exc}")
         notify(f"{t('main.recording_error', cfg)}: {exc}")
+        _cancel_live_transcription_session()
         # Reset state so the app isn't stuck in a broken recording state
         state.recording = False
         state.transcribing = False
@@ -420,6 +427,7 @@ def start_recording_hotkey() -> None:
     except Exception as exc:
         debug(f"[RECORDING] Start hotkey failed: {exc}")
         notify(f"{t('main.recording_start_failed', cfg)}: {exc}")
+        _cancel_live_transcription_session()
         state.recording = False
         state.transcribing = False
         refresh_tray_indicator(state)
@@ -717,9 +725,10 @@ def prepare_openai_client() -> bool:
 def dispatch_transcript_text(
     text: str,
     output_seconds: float,
-    update_overlay_func=None,
-    show_indicator_func=None,
-):
+    update_overlay_func: Optional[Callable[[str, str], None]] = None,
+    show_indicator_func: Optional[Callable[..., None]] = None,
+    runtime_metadata: Optional[dict[str, Any]] = None,
+) -> FlowOutput:
     """Process, persist, and paste a completed transcript."""
     if (
         show_indicator_func is not None
@@ -729,7 +738,9 @@ def dispatch_transcript_text(
         from whisprbar.ui.recording_indicator import PHASE_REWRITING
         show_indicator_func(PHASE_REWRITING, cfg)
 
+    flow_started_at = time.monotonic()
     flow_output = process_flow_text(text, cfg.get("language", "de"), cfg)
+    flow_ms = (time.monotonic() - flow_started_at) * 1000
     final_text = flow_output.final_text
     state.last_transcript = final_text
 
@@ -740,18 +751,14 @@ def dispatch_transcript_text(
     history_metadata = dict(flow_output.metadata)
     history_metadata.setdefault("raw_text", flow_output.raw_text)
     history_metadata.setdefault("final_text", flow_output.final_text)
-    write_history(final_text, output_seconds, word_count, metadata=history_metadata)
-    save_transcript_record(
-        final_text,
-        output_seconds,
-        word_count,
-        metadata=history_metadata,
-        config=cfg,
-    )
+    history_metadata.setdefault("flow_ms", round(flow_ms, 1))
+    if runtime_metadata:
+        history_metadata.update(runtime_metadata)
 
     word_label_key = "main.word" if word_count == 1 else "main.words"
     words_per_second = round(word_count / output_seconds, 1) if output_seconds > 0 else 0.0
     speed_label = t("main.words_per_second", cfg)
+    paste_started_at = time.monotonic()
     word_info = f"({word_count} {t(word_label_key, cfg)} · {words_per_second:.1f} {speed_label})"
 
     if cfg.get("auto_paste_enabled"):
@@ -777,6 +784,16 @@ def dispatch_transcript_text(
             from whisprbar.ui.recording_indicator import PHASE_COMPLETE
             show_indicator_func(PHASE_COMPLETE, cfg, info=word_info)
 
+    history_metadata.setdefault("paste_ms", round((time.monotonic() - paste_started_at) * 1000, 1))
+    write_history(final_text, output_seconds, word_count, metadata=history_metadata)
+    save_transcript_record(
+        final_text,
+        output_seconds,
+        word_count,
+        metadata=history_metadata,
+        config=cfg,
+    )
+
     return flow_output
 
 
@@ -795,16 +812,189 @@ def on_recording_start() -> None:
     play_audio_feedback("start")
 
 
-def _transcribe_processed_audio(processed, language: str) -> tuple[Optional[str], float]:
+def _start_live_transcription_session() -> None:
+    """Start a live ASR session for streaming-capable backends."""
+    global _active_live_transcription_session
+
+    try:
+        transcriber = get_transcriber()
+        start_streaming = getattr(transcriber, "start_streaming", None)
+        if not callable(start_streaming):
+            return
+        session = start_streaming(cfg.get("language", "de"))
+    except Exception as exc:
+        debug(f"Live transcription startup failed: {exc}")
+        return
+
+    if session is None:
+        return
+
+    old_session = None
+    with _live_transcription_lock:
+        old_session = _active_live_transcription_session
+        _active_live_transcription_session = session
+
+    if old_session is not None and old_session is not session:
+        with contextlib.suppress(Exception):
+            old_session.cancel()
+
+    debug("Live transcription session started")
+
+
+def _push_live_audio_chunk(audio_chunk) -> None:
+    """Forward a captured audio chunk to the active live ASR session."""
+    with _live_transcription_lock:
+        session = _active_live_transcription_session
+
+    if session is None:
+        return
+
+    try:
+        import numpy as np
+
+        audio = np.asarray(audio_chunk, dtype=np.float32).reshape(-1).copy()
+        if audio.size == 0:
+            return
+        session.push_audio(audio)
+    except Exception as exc:
+        debug(f"Live transcription chunk push failed: {exc}; falling back to batch ASR")
+        _cancel_live_transcription_session()
+
+
+def _cancel_live_transcription_session() -> None:
+    """Cancel and clear any active live ASR session."""
+    global _active_live_transcription_session
+
+    with _live_transcription_lock:
+        session = _active_live_transcription_session
+        _active_live_transcription_session = None
+
+    if session is not None:
+        with contextlib.suppress(Exception):
+            session.cancel()
+
+
+def _has_active_live_transcription_session() -> bool:
+    """Return whether a live ASR session is waiting to be finished."""
+    with _live_transcription_lock:
+        return _active_live_transcription_session is not None
+
+
+class _LiveTranscriptionFinish:
+    """Finish a live ASR session while local audio processing continues."""
+
+    def __init__(self, session):
+        self.session = session
+        self.started_at = time.monotonic()
+        self._done = threading.Event()
+        self._cancel_requested = threading.Event()
+        self._text: Optional[str] = None
+        self._error: Optional[BaseException] = None
+
+        def live_finish_thread():
+            self._run()
+
+        self._thread = threading.Thread(target=live_finish_thread, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        try:
+            self._text = self.session.finish()
+        except BaseException as exc:
+            self._error = exc
+        finally:
+            self._done.set()
+
+    def result(self, timeout: float = 15.0) -> tuple[Optional[str], float]:
+        self._done.wait(timeout)
+        elapsed_ms = (time.monotonic() - self.started_at) * 1000
+        if not self._done.is_set():
+            debug("Live transcription finish timed out; falling back to batch ASR")
+            self.cancel()
+            self._thread.join(timeout=0.5)
+            return None, elapsed_ms
+        if self._error is not None:
+            debug(f"Live transcription session failed: {self._error}; falling back to batch ASR")
+            self.cancel()
+            return None, elapsed_ms
+        return self._text, elapsed_ms
+
+    def cancel(self) -> None:
+        if self._cancel_requested.is_set():
+            return
+        self._cancel_requested.set()
+        with contextlib.suppress(Exception):
+            self.session.cancel()
+
+
+def _claim_live_transcription_session():
+    """Detach the current live ASR session from the global recording slot."""
+    global _active_live_transcription_session
+
+    with _live_transcription_lock:
+        live_session = _active_live_transcription_session
+        _active_live_transcription_session = None
+
+    return live_session
+
+
+def _start_live_transcription_finish(session=_UNSET_LIVE_SESSION) -> Optional[_LiveTranscriptionFinish]:
+    """Start finishing a claimed live ASR session in parallel with local processing."""
+    live_session = _claim_live_transcription_session() if session is _UNSET_LIVE_SESSION else session
+
+    if live_session is None:
+        return None
+    return _LiveTranscriptionFinish(live_session)
+
+
+def _elapsed_ms(start, end) -> Optional[float]:
+    """Return rounded milliseconds between two monotonic timestamps."""
+    if start is None or end is None:
+        return None
+    try:
+        return round((float(end) - float(start)) * 1000, 1)
+    except (TypeError, ValueError):
+        return None
+
+
+def _transcribe_processed_audio(
+    processed,
+    language: str,
+    live_finish: Optional[_LiveTranscriptionFinish] = None,
+) -> tuple[Optional[str], float]:
     """Run transcription directly and return result text plus elapsed milliseconds."""
-    started_at = time.monotonic()
+    started_at = live_finish.started_at if live_finish is not None else time.monotonic()
+
+    if live_finish is not None:
+        text, elapsed_ms = live_finish.result()
+        if text:
+            return text, elapsed_ms
+        debug("Live transcription session returned no text; falling back to batch ASR")
+
     text = transcribe_audio(processed, language)
     elapsed_ms = (time.monotonic() - started_at) * 1000
     return text, elapsed_ms
 
 
+def _cancel_live_session(session) -> None:
+    """Cancel a claimed live ASR session."""
+    if session is not None:
+        with contextlib.suppress(Exception):
+            session.cancel()
+
+
+def _cancel_live_finish(live_finish: Optional[_LiveTranscriptionFinish]) -> None:
+    """Cancel a claimed live finish."""
+    if live_finish is not None:
+        try:
+            live_finish.cancel()
+        except Exception as exc:
+            debug(f"Live transcription cancel failed: {exc}")
+
+
 def on_recording_stop() -> None:
     """Handler called when recording stops."""
+    claimed_live_session = _claim_live_transcription_session()
     state.recording = False
     state.transcribing = True
     refresh_tray_indicator(state)
@@ -824,6 +1014,7 @@ def on_recording_stop() -> None:
 
     if audio_data is None:
         debug("No audio data available")
+        _cancel_live_session(claimed_live_session)
         from whisprbar.ui.recording_indicator import hide_recording_indicator
         hide_recording_indicator()
         state.transcribing = False
@@ -833,9 +1024,11 @@ def on_recording_stop() -> None:
     # Transcribe in background thread
     def transcribe_thread():
         success_overlay_hide_scheduled = False
+        live_finish = None
         # Acquire semaphore to limit concurrent transcriptions
         if not TRANSCRIPTION_SEMAPHORE.acquire(blocking=False):
             debug("Transcription queue full, dropping request (max 2 concurrent)")
+            _cancel_live_session(claimed_live_session)
             notify(t("main.transcription_busy", cfg))
             state.transcribing = False
             refresh_tray_indicator(state)
@@ -844,15 +1037,6 @@ def on_recording_stop() -> None:
             return
 
         try:
-            # Mild priority reduction to keep UI responsive, but not so aggressive
-            # that transcription (an interactive action) becomes slow.
-            try:
-                import os
-                os.nice(3)
-                debug("Transcription thread running with nice priority +3")
-            except (OSError, AttributeError) as exc:
-                debug(f"Could not set nice priority: {exc}")
-
             # Import here to avoid circular dependencies
             from whisprbar.ui import show_live_overlay, update_live_overlay, hide_live_overlay
             from whisprbar.audio import apply_vad, apply_noise_reduction, SAMPLE_RATE
@@ -861,17 +1045,30 @@ def on_recording_stop() -> None:
             show_live_overlay(cfg, t("main.processing_audio", cfg))
 
             input_seconds = audio_data.size / SAMPLE_RATE if audio_data.size else 0.0
+            audio_process_started_at = time.monotonic()
+            live_finish = _start_live_transcription_finish(claimed_live_session)
+            live_session_active = live_finish is not None
 
             # Apply noise reduction only for longer recordings where it helps.
             # noisereduce uses FFT (O(n log n)) and takes 1-10 s on long audio.
             # For short recordings (< 8 s) the benefit is negligible; skip it
             # to cut perceived latency dramatically.
             NR_MIN_SECONDS = 8.0
-            if cfg.get("noise_reduction_enabled") and input_seconds >= NR_MIN_SECONDS:
+            if (
+                cfg.get("noise_reduction_enabled")
+                and input_seconds >= NR_MIN_SECONDS
+                and not live_session_active
+            ):
                 debug(f"Applying noise reduction ({input_seconds:.1f}s recording)")
                 audio_nr = apply_noise_reduction(audio_data)
             else:
-                if cfg.get("noise_reduction_enabled") and input_seconds < NR_MIN_SECONDS:
+                if (
+                    cfg.get("noise_reduction_enabled")
+                    and input_seconds >= NR_MIN_SECONDS
+                    and live_session_active
+                ):
+                    debug("Skipping noise reduction because live ASR already has raw audio")
+                elif cfg.get("noise_reduction_enabled") and input_seconds < NR_MIN_SECONDS:
                     debug(f"Skipping noise reduction for short recording ({input_seconds:.1f}s < {NR_MIN_SECONDS}s)")
                 audio_nr = audio_data
 
@@ -879,6 +1076,7 @@ def on_recording_stop() -> None:
             processed = apply_vad(audio_nr)
 
             output_seconds = processed.size / SAMPLE_RATE if processed.size else 0.0
+            audio_process_ms = (time.monotonic() - audio_process_started_at) * 1000
             debug(f"Audio: {input_seconds:.2f}s → {output_seconds:.2f}s after VAD")
 
             # Minimum audio length check (prevent hallucinations on very short/empty audio)
@@ -895,6 +1093,7 @@ def on_recording_stop() -> None:
                     debug(f"Audio too short after VAD ({output_seconds:.2f}s < {MIN_AUDIO_SECONDS}s)")
                     notify(t("main.too_short", cfg))
                     show_recording_indicator(PHASE_ERROR, cfg, info=t("indicator.too_short", cfg))
+                _cancel_live_finish(live_finish)
                 state.transcribing = False
                 refresh_tray_indicator(state)
                 hide_live_overlay()
@@ -912,6 +1111,7 @@ def on_recording_stop() -> None:
                 notify(t("main.only_noise", cfg))
                 from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_ERROR
                 show_recording_indicator(PHASE_ERROR, cfg, info=t("indicator.only_noise", cfg))
+                _cancel_live_finish(live_finish)
                 state.transcribing = False
                 refresh_tray_indicator(state)
                 hide_live_overlay()
@@ -925,11 +1125,32 @@ def on_recording_stop() -> None:
             text, _transcribe_ms = _transcribe_processed_audio(
                 processed,
                 cfg.get("language", "de"),
+                live_finish=live_finish,
             )
 
             debug(f"transcribe_audio() returned in {_transcribe_ms:.0f}ms (text={'yes' if text else 'None'})")
 
             if text:
+                runtime_metadata = {
+                    "backend": cfg.get("transcription_backend", "?"),
+                    "input_seconds": round(input_seconds, 3),
+                    "output_seconds": round(output_seconds, 3),
+                    "audio_process_ms": round(audio_process_ms, 1),
+                    "transcribe_ms": round(_transcribe_ms, 1),
+                }
+                recording_to_first_audio_ms = _elapsed_ms(
+                    recording_state.get("started_at_monotonic"),
+                    recording_state.get("first_audio_at_monotonic"),
+                )
+                if recording_to_first_audio_ms is not None:
+                    runtime_metadata["recording_to_first_audio_ms"] = recording_to_first_audio_ms
+                stop_to_asr_done_ms = _elapsed_ms(
+                    recording_state.get("stopped_at_monotonic"),
+                    time.monotonic(),
+                )
+                if stop_to_asr_done_ms is not None:
+                    runtime_metadata["stop_to_asr_done_ms"] = stop_to_asr_done_ms
+
                 debug(f"Transcription: {text}")
                 from whisprbar.ui.recording_indicator import show_recording_indicator
                 flow_output = dispatch_transcript_text(
@@ -937,6 +1158,7 @@ def on_recording_stop() -> None:
                     output_seconds,
                     update_overlay_func=update_live_overlay,
                     show_indicator_func=show_recording_indicator,
+                    runtime_metadata=runtime_metadata,
                 )
                 debug(f"Final transcript: {flow_output.final_text}")
 
@@ -965,6 +1187,7 @@ def on_recording_stop() -> None:
                 hide_live_overlay()
 
         except Exception as exc:
+            _cancel_live_finish(live_finish)
             from whisprbar.utils import error as log_error
             log_error(f"Transcription thread exception: {type(exc).__name__}: {exc}")
             from whisprbar.ui.recording_indicator import show_recording_indicator, PHASE_ERROR
@@ -1218,7 +1441,13 @@ def main() -> None:
         # Set up recording callbacks (including audio level for indicator)
         from whisprbar.audio import set_recording_callbacks
         from whisprbar.ui.recording_indicator import update_audio_level
-        set_recording_callbacks(on_recording_start, on_recording_stop, on_audio_level=update_audio_level)
+        set_recording_callbacks(
+            on_recording_start,
+            on_recording_stop,
+            on_audio_level=update_audio_level,
+            on_audio_chunk=_push_live_audio_chunk,
+            on_before_start=_start_live_transcription_session,
+        )
 
         # Install signal handlers
         install_signal_handlers()

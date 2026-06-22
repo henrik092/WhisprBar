@@ -357,7 +357,7 @@ def test_generate_settings_html_adds_numeric_bounds_and_units():
         snippets=[],
     )
 
-    assert 'name="paste_delay_ms" value="250" min="0" max="5000" step="50"' in html
+    assert 'name="paste_delay_ms" value="0" min="0" max="5000" step="50"' in html
     assert '<span class="wb-unit">ms</span>' in html
     assert 'name="recording_indicator_opacity" value="0.85" min="0.3" max="1" step="0.05"' in html
     assert '<span class="wb-unit">px</span>' in html

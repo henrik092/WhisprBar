@@ -1,5 +1,8 @@
 """Unit tests for whisprbar.transcription module."""
 
+import base64
+import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
@@ -276,3 +279,171 @@ def test_streaming_transcriber_supports_streaming():
     """Test that StreamingTranscriber.supports_streaming() returns True."""
     transcriber = transcription.StreamingTranscriber()
     assert transcriber.supports_streaming() is True
+
+
+@pytest.mark.unit
+def test_transcriber_start_streaming_default_none():
+    """Batch-only backends should opt out of live streaming by default."""
+
+    class DummyTranscriber(transcription.Transcriber):
+        def transcribe(self, audio, language="de"):
+            return None
+
+        def get_name(self):
+            return "Dummy"
+
+    transcriber = DummyTranscriber()
+
+    assert transcriber.start_streaming("de") is None
+
+
+@pytest.mark.unit
+def test_elevenlabs_start_streaming_creates_live_session(monkeypatch):
+    """ElevenLabs should expose a live session without doing batch transcription."""
+    from whisprbar.transcription import elevenlabs as elevenlabs_module
+
+    created = {}
+
+    class FakeSession:
+        def __init__(self, client, language):
+            created["client"] = client
+            created["language"] = language
+
+    client = object()
+    transcriber = transcription.ElevenLabsTranscriber()
+    transcriber.client = client
+    monkeypatch.setattr(transcriber, "ensure_client", lambda: True)
+    monkeypatch.setattr(elevenlabs_module, "ElevenLabsRealtimeSession", FakeSession)
+
+    session = transcriber.start_streaming("en")
+
+    assert isinstance(session, FakeSession)
+    assert created == {"client": client, "language": "en"}
+
+
+@pytest.mark.unit
+def test_elevenlabs_audio_chunk_to_base64_encodes_pcm16():
+    """Realtime audio chunks should be clipped and encoded as PCM16."""
+    from whisprbar.transcription.elevenlabs import _audio_chunk_to_base64
+
+    encoded = _audio_chunk_to_base64(
+        np.array([-1.0, 0.0, 0.5, 1.0, 2.0], dtype=np.float32)
+    )
+
+    pcm16 = np.frombuffer(base64.b64decode(encoded), dtype=np.int16)
+    assert pcm16.tolist() == [-32767, 0, 16383, 32767, 32767]
+
+
+@pytest.mark.unit
+def test_elevenlabs_realtime_session_sends_chunks_and_commits(monkeypatch):
+    """Live sessions should send pushed audio before committing on finish."""
+    from whisprbar.transcription.elevenlabs import ElevenLabsRealtimeSession
+
+    sent_payloads = []
+    committed = []
+    closed = []
+
+    class FakeRealtimeAudioOptions:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class FakeConnection:
+        def __init__(self):
+            self.handlers = {}
+
+        def on(self, event, callback):
+            self.handlers[event] = callback
+
+        async def send(self, payload):
+            sent_payloads.append(payload)
+
+        async def commit(self):
+            committed.append(True)
+            self.handlers["committed"]({"text": "hello live"})
+
+        async def close(self):
+            closed.append(True)
+
+    connection = FakeConnection()
+
+    class FakeRealtime:
+        async def connect(self, _options):
+            return connection
+
+    client = SimpleNamespace(
+        speech_to_text=SimpleNamespace(realtime=FakeRealtime())
+    )
+    fake_elevenlabs = SimpleNamespace(
+        AudioFormat=SimpleNamespace(PCM_16000="pcm_16000"),
+        CommitStrategy=SimpleNamespace(MANUAL="manual"),
+        RealtimeAudioOptions=FakeRealtimeAudioOptions,
+        RealtimeEvents=SimpleNamespace(COMMITTED_TRANSCRIPT="committed"),
+    )
+    monkeypatch.setitem(sys.modules, "elevenlabs", fake_elevenlabs)
+
+    session = ElevenLabsRealtimeSession(client, "en")
+    session.push_audio(np.array([0.1, 0.2], dtype=np.float32))
+
+    assert session.finish() == "hello live"
+    assert sent_payloads
+    assert sent_payloads[0]["sample_rate"] == 16000
+    assert sent_payloads[0]["audio_base_64"]
+    assert committed == [True]
+    assert closed == [True]
+
+
+@pytest.mark.unit
+def test_elevenlabs_realtime_session_discards_partial_text_after_queue_overflow(monkeypatch):
+    """Dropped live audio chunks must force batch fallback instead of returning partial text."""
+    from whisprbar.transcription.elevenlabs import ElevenLabsRealtimeSession
+
+    monkeypatch.setattr(ElevenLabsRealtimeSession, "_run_thread", lambda self: None)
+    session = ElevenLabsRealtimeSession(object(), "en")
+    session._result_parts.append("partial live text")
+
+    while not session._audio_queue.full():
+        session._audio_queue.put_nowait(np.ones(1, dtype=np.float32))
+
+    session.push_audio(np.ones(1, dtype=np.float32))
+
+    assert session.finish() is None
+
+
+@pytest.mark.unit
+def test_elevenlabs_realtime_session_discards_partial_text_when_close_drops_audio(monkeypatch):
+    """A full queue at finish means the sentinel displaced live audio."""
+    from whisprbar.transcription.elevenlabs import ElevenLabsRealtimeSession
+
+    monkeypatch.setattr(ElevenLabsRealtimeSession, "_run_thread", lambda self: None)
+    session = ElevenLabsRealtimeSession(object(), "en")
+    session._result_parts.append("partial live text")
+
+    while not session._audio_queue.full():
+        session._audio_queue.put_nowait(np.ones(1, dtype=np.float32))
+
+    assert session.finish() is None
+
+
+@pytest.mark.unit
+def test_elevenlabs_realtime_session_cancels_worker_after_finish_timeout(monkeypatch):
+    """Timed-out realtime workers should be cancelled before batch fallback."""
+    from whisprbar.transcription.elevenlabs import ElevenLabsRealtimeSession
+
+    monkeypatch.setattr(ElevenLabsRealtimeSession, "_run_thread", lambda self: None)
+    session = ElevenLabsRealtimeSession(object(), "en")
+    joins = []
+    cancelled = []
+
+    class HungThread:
+        def join(self, timeout=None):
+            joins.append(timeout)
+
+        def is_alive(self):
+            return True
+
+    session._thread = HungThread()
+    monkeypatch.setattr(session, "cancel", lambda: cancelled.append(True))
+
+    assert session.finish() is None
+    assert joins == [15.0]
+    assert cancelled == [True]

@@ -482,13 +482,13 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         paste_row = make_row("  Paste-Modus", paste_combo, tooltip="Methode für Auto-Paste")
         basis_page.pack_start(paste_row, False, False, 0)
 
-        paste_delay_adjustment = Gtk.Adjustment(value=float(cfg.get("paste_delay_ms", 250) or 0), lower=0.0, upper=2000.0, step_increment=25.0, page_increment=100.0)
+        paste_delay_adjustment = Gtk.Adjustment(value=float(cfg.get("paste_delay_ms", 0) or 0), lower=0.0, upper=2000.0, step_increment=25.0, page_increment=100.0)
         paste_delay_spin = Gtk.SpinButton()
         paste_delay_spin.set_adjustment(paste_delay_adjustment)
         paste_delay_spin.set_numeric(True)
-        paste_delay_spin.set_value(float(cfg.get("paste_delay_ms", 250) or 0))
+        paste_delay_spin.set_value(float(cfg.get("paste_delay_ms", 0) or 0))
         paste_delay_spin.set_digits(0)
-        paste_delay_row = make_row("  Paste-Verzögerung (ms)", paste_delay_spin, defaults_text="(Standard: 250)")
+        paste_delay_row = make_row("  Paste-Verzögerung (ms)", paste_delay_spin, defaults_text="(Standard: 0)")
         basis_page.pack_start(paste_delay_row, False, False, 0)
 
         def sync_paste_options(*_args) -> None:
@@ -809,7 +809,8 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         vad_rows.append(auto_stop_duration_row)
         adv_page.pack_start(auto_stop_duration_row, False, False, 0)
 
-        stop_tail_grace = int(cfg.get("stop_tail_grace_ms", 500) or 500)
+        stop_tail_grace = cfg.get("stop_tail_grace_ms", 200)
+        stop_tail_grace = 200 if stop_tail_grace is None else int(stop_tail_grace)
         stop_tail_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 100.0, 2000.0, 100.0)
         stop_tail_scale.set_digits(0)
         stop_tail_scale.set_value(max(100, min(2000, float(stop_tail_grace))))
@@ -818,7 +819,7 @@ def open_settings_window(cfg: dict, state: dict, on_save: Optional[Callable] = N
         stop_tail_scale.set_hexpand(True)
         stop_tail_scale.clear_marks()
         stop_tail_scale.connect("format-value", lambda scale, value: f"{int(value)} ms")
-        stop_tail_row = make_row("  Aufnahme-Puffer (ms)", stop_tail_scale, expand=True, defaults_text="(Standard: 500)")
+        stop_tail_row = make_row("  Aufnahme-Puffer (ms)", stop_tail_scale, expand=True, defaults_text="(Standard: 200)")
         vad_rows.append(stop_tail_row)
         adv_page.pack_start(stop_tail_row, False, False, 0)
 

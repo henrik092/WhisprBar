@@ -28,7 +28,7 @@ class TestAudioConfig:
         assert cfg.vad_energy_ratio == 0.05
         assert cfg.noise_reduction_enabled is True
         assert cfg.min_audio_energy == 0.0008
-        assert cfg.stop_tail_grace_ms == 500
+        assert cfg.stop_tail_grace_ms == 200
 
     def test_frozen(self):
         cfg = AudioConfig()
@@ -75,7 +75,7 @@ class TestPasteConfig:
         cfg = PasteConfig()
         assert cfg.auto_paste_enabled is True
         assert cfg.paste_sequence == "auto"
-        assert cfg.paste_delay_ms == 250
+        assert cfg.paste_delay_ms == 0
 
     def test_frozen(self):
         cfg = PasteConfig()

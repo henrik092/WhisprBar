@@ -8,15 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added streaming transcription sessions for Deepgram and ElevenLabs so supported backends can receive audio while recording is still active.
+- Added runtime latency metadata for audio processing, transcription, Flow processing, paste, and recording-to-first-audio timing.
 - Store successful dictations in a local SQLite transcript database with structured metadata.
 - Added a read-only Analysis tab in settings showing transcript database collection counts and sources.
 
 ### Changed
+- Reduced avoidable local waits by defaulting paste delay to 0 ms and stop-tail grace to 200 ms.
+- Prefer live transcription results before falling back to batch transcription, start live finalization while local audio cleanup runs, and skip expensive noise reduction when live ASR already consumed the raw audio.
+- Force batch fallback instead of returning partial live text when realtime audio chunks are dropped under load.
+- Removed process priority lowering during transcription to keep Linux desktop responsiveness predictable.
 - Aligned transcript database retention with Flow history privacy settings, including auto-delete.
 - Moved the new-PC setup note into `docs/`, added a docs index, and documented the repository layout in the README for a cleaner GitHub landing page.
 - Kept local/offline transcription backends out of the default `requirements.txt` install and documented `faster-whisper` and `sherpa-onnx` as optional packaging extras.
 
 ### Fixed
+- Prevented live ASR session ownership races across rapid recordings, cancelled leaked realtime sessions after startup/finish failures, and preserved Deepgram final results that arrive after `CloseStream`.
+- Aligned package metadata and README support badges with the Python 3.10+ syntax used by the current codebase.
 - Aligned `pyproject.toml` with the runtime package version and added regression coverage so packaging metadata cannot drift silently.
 - Removed stale installation documentation references to missing development-log files.
 - Hardened configuration loading and saving: nested defaults no longer leak runtime mutations, reloads reset stale values, config writes create missing parents atomically, and env-file writes reject multiline secret injection.

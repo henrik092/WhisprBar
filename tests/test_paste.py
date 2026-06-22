@@ -27,11 +27,11 @@ def test_get_paste_delay_seconds_default(mock_config):
     """Test get_paste_delay_seconds with default value."""
     from whisprbar import config
 
-    mock_config["paste_delay_ms"] = 250
+    mock_config["paste_delay_ms"] = 0
     paste.cfg = mock_config
 
     delay = paste.get_paste_delay_seconds()
-    assert delay == 0.25
+    assert delay == 0.0
 
 
 @pytest.mark.unit

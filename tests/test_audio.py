@@ -245,6 +245,77 @@ def test_set_recording_callbacks():
 
 
 @pytest.mark.unit
+def test_recording_callback_forwards_audio_chunks_to_streaming_callback(monkeypatch):
+    """Captured frames should be available to a live transcription session."""
+    from whisprbar.audio import recorder
+
+    chunks = []
+    frame = np.array([[0.1], [0.2], [0.3]], dtype=np.float32)
+
+    monkeypatch.setattr(recorder, "AUDIO_QUEUE", queue.Queue())
+    monkeypatch.setattr(recorder.time, "monotonic", lambda: 123.456)
+    monkeypatch.setattr(
+        recorder,
+        "_recording_callbacks",
+        {
+            "on_start": None,
+            "on_stop": None,
+            "on_audio_level": None,
+            "on_audio_chunk": chunks.append,
+        },
+    )
+    with recorder._recording_state_lock:
+        recorder.recording_state["first_audio_at_monotonic"] = None
+
+    recorder.recording_callback(frame, len(frame), None, None)
+
+    assert len(chunks) == 1
+    np.testing.assert_array_equal(chunks[0], frame)
+    assert chunks[0] is not frame
+    assert recorder.recording_state["first_audio_at_monotonic"] == 123.456
+
+
+@pytest.mark.unit
+def test_recording_callback_does_not_take_state_lock_while_queue_lock_is_held(monkeypatch):
+    """Audio callback lock ordering must stay compatible with stop_recording()."""
+    from whisprbar.audio import recorder
+
+    frame = np.array([[0.1], [0.2]], dtype=np.float32)
+    queue_lock_held = {"value": False}
+
+    class TrackingQueueLock:
+        def __enter__(self):
+            queue_lock_held["value"] = True
+
+        def __exit__(self, _exc_type, _exc, _tb):
+            queue_lock_held["value"] = False
+
+    class AssertStateLock:
+        def __enter__(self):
+            assert queue_lock_held["value"] is False
+
+        def __exit__(self, _exc_type, _exc, _tb):
+            return False
+
+    monkeypatch.setattr(recorder, "AUDIO_QUEUE", queue.Queue())
+    monkeypatch.setattr(recorder, "audio_queue_lock", TrackingQueueLock())
+    monkeypatch.setattr(recorder, "_recording_state_lock", AssertStateLock())
+    monkeypatch.setattr(
+        recorder,
+        "_recording_callbacks",
+        {
+            "on_start": None,
+            "on_stop": None,
+            "on_audio_level": None,
+            "on_audio_chunk": None,
+            "on_before_start": None,
+        },
+    )
+
+    recorder.recording_callback(frame, len(frame), None, None)
+
+
+@pytest.mark.unit
 def test_indicator_level_mapping_makes_normal_speech_visible():
     """Typical speech RMS should drive the recording indicator clearly."""
     from whisprbar.audio.recorder import _audio_rms_to_indicator_level
@@ -314,6 +385,82 @@ def test_start_recording_ignores_concurrent_start_while_stream_initializes(monke
 
     try:
         assert created_streams == 1
+    finally:
+        recorder.stop_recording()
+
+
+@pytest.mark.unit
+def test_start_recording_prepares_live_session_before_stream_callbacks(monkeypatch):
+    """Live streaming setup must run before sounddevice can emit frames."""
+    from whisprbar.audio import recorder
+
+    order = []
+    monotonic_values = [100.0, 100.005]
+    monotonic_current = [100.005]
+
+    def fake_monotonic():
+        if monotonic_values:
+            monotonic_current[0] = monotonic_values.pop(0)
+        else:
+            monotonic_current[0] += 0.05
+        return monotonic_current[0]
+
+    class FakeStream:
+        def __init__(self, **kwargs):
+            self.callback = kwargs["callback"]
+
+        def start(self):
+            order.append("stream_start")
+            self.callback(np.ones((2, 1), dtype=np.float32), 2, None, None)
+
+        def stop(self):
+            return None
+
+        def close(self):
+            return None
+
+    class FakeSoundDevice:
+        InputStream = FakeStream
+
+    with recorder._recording_state_lock:
+        recorder.recording_state.update(
+            {
+                "recording": False,
+                "stream": None,
+                "device_idx": None,
+                "audio_data": None,
+                "generation": 0,
+                "started_at_monotonic": None,
+                "first_audio_at_monotonic": None,
+                "stopped_at_monotonic": None,
+            }
+        )
+        recorder.recording_state.pop("starting", None)
+
+    monkeypatch.setattr(recorder.time, "monotonic", fake_monotonic)
+    monkeypatch.setitem(recorder.cfg, "flow_mode_enabled", False)
+    monkeypatch.setitem(recorder.cfg, "vad_auto_stop_enabled", False)
+    monkeypatch.setattr(recorder, "_get_sounddevice", lambda: FakeSoundDevice())
+    monkeypatch.setattr(recorder, "update_device_index", lambda: None)
+    monkeypatch.setattr(recorder, "_start_max_recording_monitor", lambda _generation: None)
+    monkeypatch.setattr(
+        recorder,
+        "_recording_callbacks",
+        {
+            "on_before_start": lambda: order.append("before_start"),
+            "on_start": lambda: order.append("on_start"),
+            "on_stop": None,
+            "on_audio_level": None,
+            "on_audio_chunk": lambda _chunk: order.append("audio_chunk"),
+        },
+    )
+
+    try:
+        recorder.start_recording()
+
+        assert order == ["before_start", "stream_start", "audio_chunk", "on_start"]
+        assert recorder.recording_state["started_at_monotonic"] == 100.0
+        assert recorder.recording_state["first_audio_at_monotonic"] == 100.005
     finally:
         recorder.stop_recording()
 
