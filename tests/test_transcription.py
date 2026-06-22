@@ -390,3 +390,20 @@ def test_elevenlabs_realtime_session_sends_chunks_and_commits(monkeypatch):
     assert sent_payloads[0]["audio_base_64"]
     assert committed == [True]
     assert closed == [True]
+
+
+@pytest.mark.unit
+def test_elevenlabs_realtime_session_discards_partial_text_after_queue_overflow(monkeypatch):
+    """Dropped live audio chunks must force batch fallback instead of returning partial text."""
+    from whisprbar.transcription.elevenlabs import ElevenLabsRealtimeSession
+
+    monkeypatch.setattr(ElevenLabsRealtimeSession, "_run_thread", lambda self: None)
+    session = ElevenLabsRealtimeSession(object(), "en")
+    session._result_parts.append("partial live text")
+
+    while not session._audio_queue.full():
+        session._audio_queue.put_nowait(np.ones(1, dtype=np.float32))
+
+    session.push_audio(np.ones(1, dtype=np.float32))
+
+    assert session.finish() is None

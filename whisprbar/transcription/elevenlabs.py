@@ -43,6 +43,7 @@ class ElevenLabsRealtimeSession(StreamingTranscriptionSession):
         self._audio_queue: queue.Queue = queue.Queue(maxsize=512)
         self._closed = threading.Event()
         self._cancelled = threading.Event()
+        self._overflowed = threading.Event()
         self._result_parts: list[str] = []
         self._error: Optional[BaseException] = None
         self._thread = threading.Thread(target=self._run_thread, daemon=True)
@@ -50,7 +51,7 @@ class ElevenLabsRealtimeSession(StreamingTranscriptionSession):
 
     def push_audio(self, audio: np.ndarray) -> None:
         """Queue an audio chunk without blocking the sounddevice callback."""
-        if self._closed.is_set():
+        if self._closed.is_set() or self._overflowed.is_set():
             return
 
         chunk = np.asarray(audio, dtype=np.float32).reshape(-1).copy()
@@ -60,6 +61,7 @@ class ElevenLabsRealtimeSession(StreamingTranscriptionSession):
         try:
             self._audio_queue.put_nowait(chunk)
         except queue.Full:
+            self._overflowed.set()
             debug("ElevenLabs realtime queue full; dropping live chunk and relying on batch fallback")
 
     def finish(self) -> Optional[str]:
@@ -71,6 +73,9 @@ class ElevenLabsRealtimeSession(StreamingTranscriptionSession):
             return None
         if self._error is not None:
             debug(f"ElevenLabs realtime session failed: {self._error}")
+            return None
+        if self._overflowed.is_set():
+            debug("ElevenLabs realtime session dropped audio; falling back to batch ASR")
             return None
         transcript = " ".join(self._result_parts).strip()
         return transcript or None

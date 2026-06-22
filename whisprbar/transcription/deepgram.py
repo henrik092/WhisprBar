@@ -42,13 +42,14 @@ class DeepgramRealtimeSession(StreamingTranscriptionSession):
         self._audio_queue: queue.Queue = queue.Queue(maxsize=512)
         self._closed = threading.Event()
         self._cancelled = threading.Event()
+        self._overflowed = threading.Event()
         self._result_parts: List[str] = []
         self._error: Optional[BaseException] = None
         self._thread = threading.Thread(target=self._run_thread, daemon=True)
         self._thread.start()
 
     def push_audio(self, audio: np.ndarray) -> None:
-        if self._closed.is_set():
+        if self._closed.is_set() or self._overflowed.is_set():
             return
 
         chunk = np.asarray(audio, dtype=np.float32).reshape(-1).copy()
@@ -58,6 +59,7 @@ class DeepgramRealtimeSession(StreamingTranscriptionSession):
         try:
             self._audio_queue.put_nowait(chunk)
         except queue.Full:
+            self._overflowed.set()
             debug("Deepgram realtime queue full; dropping live chunk and relying on batch fallback")
 
     def finish(self) -> Optional[str]:
@@ -68,6 +70,9 @@ class DeepgramRealtimeSession(StreamingTranscriptionSession):
             return None
         if self._error is not None:
             debug(f"Deepgram realtime session failed: {self._error}")
+            return None
+        if self._overflowed.is_set():
+            debug("Deepgram realtime session dropped audio; falling back to batch ASR")
             return None
         transcript = " ".join(self._result_parts).strip()
         return transcript or None

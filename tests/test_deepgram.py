@@ -247,6 +247,21 @@ def test_deepgram_realtime_session_sends_binary_audio_and_finalizes(monkeypatch)
 
 
 @pytest.mark.unit
+def test_deepgram_realtime_session_discards_partial_text_after_queue_overflow(monkeypatch):
+    """Dropped live audio chunks must force batch fallback instead of returning partial text."""
+    monkeypatch.setattr(DeepgramRealtimeSession, "_run_thread", lambda self: None)
+    session = DeepgramRealtimeSession("test-key", "wss://api.deepgram.com/v1/listen")
+    session._result_parts.append("partial live text")
+
+    while not session._audio_queue.full():
+        session._audio_queue.put_nowait(np.ones(1, dtype=np.float32))
+
+    session.push_audio(np.ones(1, dtype=np.float32))
+
+    assert session.finish() is None
+
+
+@pytest.mark.unit
 def test_deepgram_unload_closes_registered_connections():
     """Unload should close currently tracked live connections."""
     transcriber = DeepgramTranscriber()

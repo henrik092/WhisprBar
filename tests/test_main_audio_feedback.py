@@ -241,7 +241,7 @@ def test_on_recording_stop_skips_noise_reduction_for_live_session(monkeypatch, m
             self._target = target
 
         def start(self):
-            if getattr(self._target, "__name__", "") == "transcribe_thread":
+            if getattr(self._target, "__name__", "") in {"transcribe_thread", "live_finish_thread"}:
                 self._target()
 
     mock_config.update(
@@ -292,6 +292,81 @@ def test_on_recording_stop_skips_noise_reduction_for_live_session(monkeypatch, m
     main.on_recording_stop()
 
     assert copied == ["Hallo live"]
+
+
+@pytest.mark.unit
+def test_on_recording_stop_starts_live_finish_before_vad(monkeypatch, mock_config):
+    """Live ASR finalization should overlap local audio processing after stop."""
+    order = []
+
+    class FakeSession:
+        def finish(self):
+            order.append("finish")
+            return None
+
+        def cancel(self):
+            order.append("cancel")
+
+    class ImmediateThread:
+        def __init__(self, target=None, daemon=None, **_kwargs):
+            self._target = target
+            self.daemon = daemon
+
+        def start(self):
+            if self._target is not None:
+                self._target()
+
+        def join(self, timeout=None):
+            return None
+
+        def is_alive(self):
+            return False
+
+    mock_config.update(
+        {
+            "noise_reduction_enabled": False,
+            "auto_paste_enabled": False,
+            "min_audio_energy": 0.0,
+            "live_overlay_display_duration": 0.5,
+            "language": "de",
+        }
+    )
+    config.cfg.clear()
+    config.cfg.update(mock_config)
+
+    monkeypatch.setattr(main.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(main, "refresh_tray_indicator", lambda _state: None)
+    monkeypatch.setattr(main, "refresh_menu", lambda _callbacks, _state: None)
+    monkeypatch.setattr(main, "get_callbacks", lambda: {})
+    monkeypatch.setattr(main, "notify", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "copy_to_clipboard", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "play_audio_feedback", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main,
+        "get_recording_state",
+        lambda: {"audio_data": np.ones(SAMPLE_RATE, dtype=np.float32)},
+    )
+    monkeypatch.setattr(main, "transcribe_audio", lambda *_args, **_kwargs: order.append("batch") or None)
+    monkeypatch.setattr(main, "TRANSCRIPTION_SEMAPHORE", threading.Semaphore(2))
+    monkeypatch.setattr(main, "_active_live_transcription_session", FakeSession(), raising=False)
+
+    from whisprbar import audio, ui
+    from whisprbar.ui import recording_indicator
+
+    monkeypatch.setattr(audio, "apply_noise_reduction", lambda audio_data: audio_data)
+    monkeypatch.setattr(audio, "apply_vad", lambda audio_data: order.append("vad") or audio_data)
+    monkeypatch.setattr(ui, "show_live_overlay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ui, "update_live_overlay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ui, "hide_live_overlay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(recording_indicator, "show_recording_indicator", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(recording_indicator, "hide_recording_indicator", lambda *_args, **_kwargs: None)
+
+    main.state.recording = True
+    main.state.transcribing = False
+
+    main.on_recording_stop()
+
+    assert order[:2] == ["finish", "vad"]
 
 
 @pytest.mark.unit

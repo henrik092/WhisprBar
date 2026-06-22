@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Reduced avoidable local waits by defaulting paste delay to 0 ms and stop-tail grace to 200 ms.
-- Prefer live transcription results before falling back to batch transcription, and skip expensive noise reduction when live ASR already consumed the raw audio.
+- Prefer live transcription results before falling back to batch transcription, start live finalization while local audio cleanup runs, and skip expensive noise reduction when live ASR already consumed the raw audio.
+- Force batch fallback instead of returning partial live text when realtime audio chunks are dropped under load.
 - Removed process priority lowering during transcription to keep Linux desktop responsiveness predictable.
 - Aligned transcript database retention with Flow history privacy settings, including auto-delete.
 - Moved the new-PC setup note into `docs/`, added a docs index, and documented the repository layout in the README for a cleaner GitHub landing page.
