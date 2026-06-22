@@ -11,6 +11,7 @@ the repository root.
 ## Development References
 
 - [Development artifacts](dev-artifacts/README.md)
+- [All-in improvement plan pack](superpowers/plans/2026-06-22-whisprbar-all-in-plan-index.md)
 - [Architecture notes](../CLAUDE.md)
 - [Changelog](../CHANGELOG.md)
 
