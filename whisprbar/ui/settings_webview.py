@@ -182,13 +182,14 @@ def _field(
             for key, attr_value in input_attrs.items()
         )
     unit_html = f'<span class="wb-unit">{escape(unit)}</span>' if unit else ""
+    field_value = "" if value is None else str(value)
     return f"""
       <label class="wb-row"{_visible_attr(visible_when)}>
         <span class="wb-row-label">
           <b>{escape(label)}</b>
           <span>{escape(description)}</span>
         </span>
-        <span class="wb-value-control"><input type="{escape(input_type)}" name="{escape(name)}" value="{escape(str(value or ''))}"{attrs}>{unit_html}</span>
+        <span class="wb-value-control"><input type="{escape(input_type)}" name="{escape(name)}" value="{escape(field_value)}"{attrs}>{unit_html}</span>
       </label>
     """
 
@@ -582,7 +583,7 @@ def apply_settings_payload(
     config["notifications_enabled"] = _bool_value(_setting(settings, "notifications_enabled", config.get("notifications_enabled", True)))
     config["paste_sequence"] = str(_setting(settings, "paste_sequence", config.get("paste_sequence", "auto")) or "auto")
     config["paste_delay_ms"] = _clamp_int(
-        _int_value(_setting(settings, "paste_delay_ms", config.get("paste_delay_ms", 250)), 250),
+        _int_value(_setting(settings, "paste_delay_ms", config.get("paste_delay_ms", 0)), 0),
         0,
         5000,
     )
@@ -652,7 +653,7 @@ def apply_settings_payload(
         1,
     )
     config["stop_tail_grace_ms"] = _clamp_int(
-        _int_value(_setting(settings, "stop_tail_grace_ms", config.get("stop_tail_grace_ms", 500)), 500),
+        _int_value(_setting(settings, "stop_tail_grace_ms", config.get("stop_tail_grace_ms", 200)), 200),
         0,
         2000,
     )
@@ -907,7 +908,7 @@ def generate_settings_html(
             "paste_delay_ms",
             tr("setting.paste_delay"),
             tr("setting.paste_delay_desc"),
-            config.get("paste_delay_ms", 250),
+            config.get("paste_delay_ms", 0),
             minimum=0,
             maximum=5000,
             step=50,
@@ -1293,7 +1294,7 @@ def generate_settings_html(
             "stop_tail_grace_ms",
             tr("setting.recording_tail_buffer"),
             tr("setting.recording_tail_buffer_desc"),
-            config.get("stop_tail_grace_ms", 500),
+            config.get("stop_tail_grace_ms", 200),
             minimum=0,
             maximum=2000,
             step=50,

@@ -27,13 +27,18 @@ recording_state = {
     "device_idx": None,
     "audio_data": None,
     "generation": 0,
+    "started_at_monotonic": None,
+    "first_audio_at_monotonic": None,
+    "stopped_at_monotonic": None,
 }
 
 # Callbacks for recording events
 _recording_callbacks = {
+    "on_before_start": None,
     "on_start": None,
     "on_stop": None,
     "on_audio_level": None,
+    "on_audio_chunk": None,
 }
 
 # Lazy-loaded sounddevice module (import can block/fail in headless CI)
@@ -207,6 +212,9 @@ def recording_callback(indata, frames, time_info, status):
         if queue_obj is not None:
             try:
                 queue_obj.put_nowait(data_copy)
+                with _recording_state_lock:
+                    if recording_state.get("first_audio_at_monotonic") is None:
+                        recording_state["first_audio_at_monotonic"] = time.monotonic()
             except queue.Full:
                 # Should never happen with unbounded queue, but handle defensively
                 print("[ERROR] Audio queue unexpectedly full, dropping frame", file=sys.stderr)
@@ -220,6 +228,13 @@ def recording_callback(indata, frames, time_info, status):
             _recording_callbacks["on_audio_level"](level)
         except Exception:
             pass
+
+    # Feed live transcription sessions without blocking local recording.
+    if _recording_callbacks.get("on_audio_chunk"):
+        try:
+            _recording_callbacks["on_audio_chunk"](data_copy)
+        except Exception as exc:
+            debug(f"Audio chunk callback error: {exc}")
 
     # Also feed to VAD monitor queue if it exists
     from .vad import vad_monitor_lock, VAD_MONITOR_QUEUE
@@ -280,6 +295,19 @@ def start_recording() -> None:
             dtype="float32",
             device=device_idx,
         )
+
+        # Prepare live consumers before sounddevice can emit the first frame.
+        if _recording_callbacks.get("on_before_start"):
+            try:
+                _recording_callbacks["on_before_start"]()
+            except Exception as exc:
+                debug(f"Recording before-start callback error: {exc}")
+
+        with _recording_state_lock:
+            recording_state["started_at_monotonic"] = time.monotonic()
+            recording_state["first_audio_at_monotonic"] = None
+            recording_state["stopped_at_monotonic"] = None
+
         stream.start()
         with _recording_state_lock:
             recording_state["stream"] = stream
@@ -333,6 +361,7 @@ def stop_recording() -> Optional[np.ndarray]:
         if not recording_state.get("recording"):
             return None
         recording_state["recording"] = False
+        recording_state["stopped_at_monotonic"] = time.monotonic()
         stream = recording_state.get("stream")
 
     with audio_queue_lock:
@@ -342,7 +371,7 @@ def stop_recording() -> Optional[np.ndarray]:
 
     # Calculate single unified grace period for queue draining
     # This is the time we wait after stopping the stream for buffered audio to arrive
-    grace_ms = max(100, min(2000, int(cfg.get("stop_tail_grace_ms", 500))))
+    grace_ms = max(100, min(2000, int(cfg.get("stop_tail_grace_ms", 200))))
     grace_seconds = grace_ms / 1000.0
 
     # Minimum drain timeout (configurable, default 100ms for fast response)
@@ -420,17 +449,27 @@ def stop_recording() -> Optional[np.ndarray]:
 # Callback Management
 # =============================================================================
 
-def set_recording_callbacks(on_start=None, on_stop=None, on_audio_level=None):
+def set_recording_callbacks(
+    on_start=None,
+    on_stop=None,
+    on_audio_level=None,
+    on_audio_chunk=None,
+    on_before_start=None,
+):
     """Set callbacks for recording events.
 
     Args:
+        on_before_start: Function to call immediately before the input stream starts
         on_start: Function to call when recording starts
         on_stop: Function to call when recording stops
         on_audio_level: Function(float) called per audio frame with level 0.0-1.0
+        on_audio_chunk: Function(np.ndarray) called per captured audio frame
     """
+    _recording_callbacks["on_before_start"] = on_before_start
     _recording_callbacks["on_start"] = on_start
     _recording_callbacks["on_stop"] = on_stop
     _recording_callbacks["on_audio_level"] = on_audio_level
+    _recording_callbacks["on_audio_chunk"] = on_audio_chunk
 
 
 def get_recording_state() -> dict:

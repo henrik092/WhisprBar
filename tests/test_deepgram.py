@@ -1,10 +1,16 @@
 """Unit tests for the Deepgram transcription backend."""
 
 import gc
+import asyncio
+import json
 import socket
+import sys
+from types import SimpleNamespace
+
+import numpy as np
 import pytest
 
-from whisprbar.transcription.deepgram import DeepgramTranscriber
+from whisprbar.transcription.deepgram import DeepgramRealtimeSession, DeepgramTranscriber
 
 
 class FakeResponse:
@@ -133,6 +139,111 @@ def test_deepgram_build_request_path_preserves_explicit_locale_tags():
 
     assert "language=en-US" in transcriber._build_request_path("en-US")
     assert "language=de-CH" in transcriber._build_request_path("de-CH")
+
+
+@pytest.mark.unit
+def test_deepgram_build_streaming_url_uses_raw_pcm_parameters():
+    """Deepgram live streams receive raw PCM16 with explicit audio parameters."""
+    transcriber = DeepgramTranscriber()
+
+    url = transcriber._build_streaming_url("de")
+
+    assert url.startswith("wss://api.deepgram.com/v1/listen?")
+    assert "model=nova-3" in url
+    assert "language=multi" in url
+    assert "encoding=linear16" in url
+    assert "sample_rate=16000" in url
+    assert "channels=1" in url
+    assert "interim_results=true" in url
+
+
+@pytest.mark.unit
+def test_deepgram_start_streaming_creates_live_session(monkeypatch):
+    """Deepgram should use a live WebSocket session when available."""
+    from whisprbar.transcription import deepgram as deepgram_module
+
+    created = {}
+
+    class FakeSession:
+        def __init__(self, api_key, url):
+            created["api_key"] = api_key
+            created["url"] = url
+
+    transcriber = DeepgramTranscriber()
+    transcriber.api_key = "test-key"
+    monkeypatch.setattr(transcriber, "ensure_client", lambda: True)
+    monkeypatch.setattr(deepgram_module, "DeepgramRealtimeSession", FakeSession)
+
+    session = transcriber.start_streaming("en")
+
+    assert isinstance(session, FakeSession)
+    assert created["api_key"] == "test-key"
+    assert "language=multi" in created["url"]
+
+
+@pytest.mark.unit
+def test_deepgram_realtime_session_sends_binary_audio_and_finalizes(monkeypatch):
+    """Live sessions should send PCM bytes and finalize before returning text."""
+    sent_payloads = []
+    captured = {}
+
+    class FakeWebSocket:
+        def __init__(self):
+            self._messages = asyncio.Queue()
+
+        async def send(self, payload):
+            sent_payloads.append(payload)
+            if isinstance(payload, str) and json.loads(payload).get("type") == "Finalize":
+                await self._messages.put(
+                    json.dumps(
+                        {
+                            "type": "Results",
+                            "is_final": True,
+                            "from_finalize": True,
+                            "channel": {
+                                "alternatives": [{"transcript": "hallo live"}]
+                            },
+                        }
+                    )
+                )
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            return await self._messages.get()
+
+    class FakeConnect:
+        async def __aenter__(self):
+            return FakeWebSocket()
+
+        async def __aexit__(self, _exc_type, _exc, _tb):
+            return False
+
+    def fake_connect(uri, **kwargs):
+        captured["uri"] = uri
+        captured["kwargs"] = kwargs
+        return FakeConnect()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "websockets",
+        SimpleNamespace(connect=fake_connect),
+    )
+
+    session = DeepgramRealtimeSession("test-key", "wss://api.deepgram.com/v1/listen")
+    session.push_audio(np.array([0.1, 0.2], dtype=np.float32))
+
+    assert session.finish() == "hallo live"
+    assert captured["kwargs"]["additional_headers"]["Authorization"] == "Token test-key"
+    assert any(isinstance(payload, bytes) for payload in sent_payloads)
+    control_messages = [
+        json.loads(payload)["type"]
+        for payload in sent_payloads
+        if isinstance(payload, str)
+    ]
+    assert "Finalize" in control_messages
+    assert "CloseStream" in control_messages
 
 
 @pytest.mark.unit

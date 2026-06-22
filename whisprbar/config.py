@@ -42,7 +42,7 @@ DEFAULT_CFG = {
     "auto_paste_add_newline": True,  # Add newline after each transcription
     "auto_paste_add_space": True,  # Add trailing space after pasted text
     "paste_sequence": "auto",
-    "paste_delay_ms": 250,
+    "paste_delay_ms": 0,
     "use_vad": True,  # Enabled by default for better quality
     "vad_energy_ratio": 0.05,  # Increased for better pause handling
     "vad_bridge_ms": 300,  # Increased to bridge natural speech pauses
@@ -77,7 +77,7 @@ DEFAULT_CFG = {
     "faster_whisper_device": "cpu",  # Device: cpu, cuda, rocm
     "faster_whisper_compute_type": "int8",  # Compute type: int8, float16, float32
     "streaming_model": "tiny",  # sherpa-onnx model: tiny, base, small, medium
-    "stop_tail_grace_ms": 500,
+    "stop_tail_grace_ms": 200,
     "min_drain_timeout_ms": 100,  # Minimum drain timeout (100-500ms, default: 100ms for fast response)
     "first_run_complete": False,
     "check_updates": True,

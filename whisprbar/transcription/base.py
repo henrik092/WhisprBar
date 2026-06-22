@@ -13,6 +13,22 @@ import numpy as np
 OPENAI_MODEL = os.getenv("OPENAI_STT_MODEL", "gpt-4o-transcribe")
 
 
+class StreamingTranscriptionSession:
+    """Live transcription session fed from the recording callback."""
+
+    def push_audio(self, audio: np.ndarray) -> None:
+        """Send one audio chunk to the live transcription backend."""
+        raise NotImplementedError("Subclasses must implement push_audio()")
+
+    def finish(self) -> Optional[str]:
+        """Commit the stream and return the final transcript, if available."""
+        raise NotImplementedError("Subclasses must implement finish()")
+
+    def cancel(self) -> None:
+        """Cancel the stream and release backend resources."""
+        pass
+
+
 class Transcriber:
     """Abstract base class for transcription backends."""
 
@@ -47,6 +63,17 @@ class Transcriber:
             True if streaming is supported
         """
         return False
+
+    def start_streaming(
+        self,
+        language: str = "de",
+    ) -> Optional[StreamingTranscriptionSession]:
+        """Start a live transcription session if the backend supports it.
+
+        Batch-only backends return None so callers can safely fall back to
+        transcribe().
+        """
+        return None
 
     def get_name(self) -> str:
         """Get backend name for display.

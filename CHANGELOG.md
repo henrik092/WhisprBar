@@ -8,10 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added streaming transcription sessions for Deepgram and ElevenLabs so supported backends can receive audio while recording is still active.
+- Added runtime latency metadata for audio processing, transcription, Flow processing, paste, and recording-to-first-audio timing.
 - Store successful dictations in a local SQLite transcript database with structured metadata.
 - Added a read-only Analysis tab in settings showing transcript database collection counts and sources.
 
 ### Changed
+- Reduced avoidable local waits by defaulting paste delay to 0 ms and stop-tail grace to 200 ms.
+- Prefer live transcription results before falling back to batch transcription, and skip expensive noise reduction when live ASR already consumed the raw audio.
+- Removed process priority lowering during transcription to keep Linux desktop responsiveness predictable.
 - Aligned transcript database retention with Flow history privacy settings, including auto-delete.
 - Moved the new-PC setup note into `docs/`, added a docs index, and documented the repository layout in the README for a cleaner GitHub landing page.
 - Kept local/offline transcription backends out of the default `requirements.txt` install and documented `faster-whisper` and `sherpa-onnx` as optional packaging extras.

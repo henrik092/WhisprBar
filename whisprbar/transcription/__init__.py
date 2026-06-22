@@ -9,7 +9,7 @@ All public names are re-exported here for backwards compatibility.
 """
 
 # Base class and constants
-from .base import Transcriber, OPENAI_MODEL
+from .base import StreamingTranscriptionSession, Transcriber, OPENAI_MODEL
 
 # Backend implementations
 from .openai import OpenAITranscriber
@@ -43,6 +43,7 @@ from whisprbar.audio import split_audio_into_chunks
 __all__ = [
     # Base
     "Transcriber",
+    "StreamingTranscriptionSession",
     "OPENAI_MODEL",
     # Backends
     "OpenAITranscriber",

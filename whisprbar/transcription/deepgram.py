@@ -1,16 +1,18 @@
 """Deepgram Nova-3 transcription backend for WhisprBar."""
 
+import asyncio
 import contextlib
 import json
 import os
+import queue
 import threading
 import weakref
 import wave
-from typing import Optional
+from typing import List, Optional
 
 import numpy as np
 
-from .base import Transcriber
+from .base import StreamingTranscriptionSession, Transcriber
 from whisprbar.config import load_env_file_values
 from whisprbar.utils import debug, error
 from whisprbar.audio import SAMPLE_RATE, CHANNELS
@@ -18,6 +20,176 @@ from whisprbar.audio import SAMPLE_RATE, CHANNELS
 
 class DeepgramHTTPError(RuntimeError):
     """Non-retryable HTTP response from Deepgram."""
+
+
+_QUEUE_SENTINEL = object()
+
+
+def _audio_chunk_to_pcm16_bytes(audio: np.ndarray) -> bytes:
+    pcm = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if pcm.size == 0:
+        return b""
+    pcm16 = (np.clip(pcm, -1.0, 1.0) * 32767).astype(np.int16)
+    return pcm16.tobytes()
+
+
+class DeepgramRealtimeSession(StreamingTranscriptionSession):
+    """Deepgram live WebSocket session fed from the audio callback."""
+
+    def __init__(self, api_key: str, url: str):
+        self.api_key = api_key
+        self.url = url
+        self._audio_queue: queue.Queue = queue.Queue(maxsize=512)
+        self._closed = threading.Event()
+        self._cancelled = threading.Event()
+        self._result_parts: List[str] = []
+        self._error: Optional[BaseException] = None
+        self._thread = threading.Thread(target=self._run_thread, daemon=True)
+        self._thread.start()
+
+    def push_audio(self, audio: np.ndarray) -> None:
+        if self._closed.is_set():
+            return
+
+        chunk = np.asarray(audio, dtype=np.float32).reshape(-1).copy()
+        if chunk.size == 0:
+            return
+
+        try:
+            self._audio_queue.put_nowait(chunk)
+        except queue.Full:
+            debug("Deepgram realtime queue full; dropping live chunk and relying on batch fallback")
+
+    def finish(self) -> Optional[str]:
+        self._close_queue()
+        self._thread.join(timeout=15.0)
+        if self._thread.is_alive():
+            debug("Deepgram realtime finish timed out")
+            return None
+        if self._error is not None:
+            debug(f"Deepgram realtime session failed: {self._error}")
+            return None
+        transcript = " ".join(self._result_parts).strip()
+        return transcript or None
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+        self._close_queue()
+        self._thread.join(timeout=2.0)
+
+    def _close_queue(self) -> None:
+        if self._closed.is_set():
+            return
+        self._closed.set()
+        try:
+            self._audio_queue.put(_QUEUE_SENTINEL, timeout=1.0)
+        except queue.Full:
+            with contextlib.suppress(queue.Empty):
+                self._audio_queue.get_nowait()
+            with contextlib.suppress(queue.Full):
+                self._audio_queue.put_nowait(_QUEUE_SENTINEL)
+
+    def _run_thread(self) -> None:
+        try:
+            asyncio.run(self._run_async())
+        except BaseException as exc:
+            self._error = exc
+
+    async def _run_async(self) -> None:
+        try:
+            import websockets
+        except Exception as exc:
+            self._error = exc
+            return
+
+        headers = {"Authorization": f"Token {self.api_key}"}
+        connect_kwargs = {
+            "additional_headers": headers,
+            "open_timeout": 10,
+            "ping_interval": 20,
+        }
+
+        try:
+            connection_cm = websockets.connect(self.url, **connect_kwargs)
+        except TypeError:
+            connect_kwargs.pop("additional_headers")
+            connect_kwargs["extra_headers"] = headers
+            connection_cm = websockets.connect(self.url, **connect_kwargs)
+
+        async with connection_cm as websocket:
+            finalize_received = asyncio.Event()
+            receiver_task = asyncio.create_task(
+                self._receive_results(websocket, finalize_received)
+            )
+            keepalive_task = asyncio.create_task(self._send_keepalives(websocket))
+
+            try:
+                while True:
+                    item = await asyncio.to_thread(self._audio_queue.get)
+                    if item is _QUEUE_SENTINEL:
+                        break
+                    if self._cancelled.is_set():
+                        return
+                    payload = _audio_chunk_to_pcm16_bytes(item)
+                    if payload:
+                        await websocket.send(payload)
+
+                if self._cancelled.is_set():
+                    return
+
+                await websocket.send(json.dumps({"type": "Finalize"}))
+                try:
+                    await asyncio.wait_for(finalize_received.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    debug("Deepgram realtime finalize wait timed out")
+                await websocket.send(json.dumps({"type": "CloseStream"}))
+            finally:
+                keepalive_task.cancel()
+                receiver_task.cancel()
+                await asyncio.gather(
+                    keepalive_task,
+                    receiver_task,
+                    return_exceptions=True,
+                )
+
+    async def _send_keepalives(self, websocket) -> None:
+        while not self._closed.is_set() and not self._cancelled.is_set():
+            await asyncio.sleep(3.0)
+            if self._closed.is_set() or self._cancelled.is_set():
+                return
+            await websocket.send(json.dumps({"type": "KeepAlive"}))
+
+    async def _receive_results(self, websocket, finalize_received: asyncio.Event) -> None:
+        try:
+            async for message in websocket:
+                self._handle_message(message, finalize_received)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            if not self._cancelled.is_set():
+                self._error = exc
+
+    def _handle_message(self, message, finalize_received: asyncio.Event) -> None:
+        if not isinstance(message, str):
+            return
+        try:
+            data = json.loads(message)
+        except json.JSONDecodeError:
+            return
+
+        if data.get("from_finalize") or data.get("type") == "Metadata":
+            finalize_received.set()
+
+        if data.get("type") != "Results":
+            return
+
+        try:
+            transcript = data["channel"]["alternatives"][0].get("transcript", "")
+        except (KeyError, IndexError, AttributeError):
+            return
+
+        if transcript and data.get("is_final", False):
+            self._result_parts.append(transcript.strip())
 
 
 class DeepgramTranscriber(Transcriber):
@@ -224,6 +396,16 @@ class DeepgramTranscriber(Transcriber):
             "&punctuate=true"
         )
 
+    def _build_streaming_url(self, language: str) -> str:
+        path = self._build_request_path(language)
+        return (
+            f"wss://api.deepgram.com{path}"
+            f"&encoding=linear16"
+            f"&sample_rate={SAMPLE_RATE}"
+            f"&channels={CHANNELS}"
+            "&interim_results=true"
+        )
+
     def transcribe(self, audio: np.ndarray, language: str = "de") -> Optional[str]:
         """Transcribe audio using Deepgram Nova-3 REST API.
 
@@ -304,6 +486,33 @@ class DeepgramTranscriber(Transcriber):
             "Deepgram Nova-3"
         """
         return "Deepgram Nova-3 (multilingual)"
+
+    def supports_streaming(self) -> bool:
+        """Deepgram supports live WebSocket streaming when websockets is installed."""
+        return True
+
+    def start_streaming(
+        self,
+        language: str = "de",
+    ) -> Optional[StreamingTranscriptionSession]:
+        """Start a live Deepgram WebSocket session."""
+        if not self.ensure_client():
+            return None
+
+        try:
+            import websockets  # noqa: F401
+        except Exception as exc:
+            debug(f"Deepgram realtime unavailable: {exc}")
+            return None
+
+        try:
+            return DeepgramRealtimeSession(
+                self.api_key,
+                self._build_streaming_url(language),
+            )
+        except Exception as exc:
+            debug(f"Failed to start Deepgram realtime session: {exc}")
+            return None
 
     def unload(self) -> None:
         """Unload Deepgram client and close persistent connections."""

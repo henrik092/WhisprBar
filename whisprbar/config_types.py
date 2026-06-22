@@ -35,7 +35,7 @@ class AudioConfig:
     min_audio_energy: float = 0.0008
     audio_feedback_enabled: bool = True
     audio_feedback_volume: float = 0.3
-    stop_tail_grace_ms: int = 500
+    stop_tail_grace_ms: int = 200
     min_drain_timeout_ms: int = 100
 
     def validated(self) -> "AudioConfig":
@@ -103,7 +103,7 @@ class PasteConfig:
     auto_paste_add_newline: bool = True
     auto_paste_add_space: bool = True
     paste_sequence: str = "auto"
-    paste_delay_ms: int = 250
+    paste_delay_ms: int = 0
 
     def validated(self) -> "PasteConfig":
         """Return a new PasteConfig with values clamped to safe ranges."""
@@ -295,7 +295,7 @@ class AppConfig:
             min_audio_energy=_get("min_audio_energy", 0.0008),
             audio_feedback_enabled=_get("audio_feedback_enabled", True),
             audio_feedback_volume=_get("audio_feedback_volume", 0.3),
-            stop_tail_grace_ms=_get("stop_tail_grace_ms", 500),
+            stop_tail_grace_ms=_get("stop_tail_grace_ms", 200),
             min_drain_timeout_ms=_get("min_drain_timeout_ms", 100),
         )
 
@@ -327,7 +327,7 @@ class AppConfig:
             auto_paste_add_newline=_get("auto_paste_add_newline", True),
             auto_paste_add_space=_get("auto_paste_add_space", True),
             paste_sequence=_get("paste_sequence", "auto"),
-            paste_delay_ms=_get("paste_delay_ms", 250),
+            paste_delay_ms=_get("paste_delay_ms", 0),
         )
 
         hotkeys_dict = _get("hotkeys", {
