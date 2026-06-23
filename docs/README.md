@@ -12,6 +12,7 @@ the repository root.
 
 - [Development artifacts](dev-artifacts/README.md)
 - [All-in improvement plan pack](superpowers/plans/2026-06-22-whisprbar-all-in-plan-index.md)
+- [Phase 2 feature backlog](superpowers/plans/2026-06-23-whisprbar-phase-2-feature-backlog.md)
 - [Architecture notes](../CLAUDE.md)
 - [Changelog](../CHANGELOG.md)
 

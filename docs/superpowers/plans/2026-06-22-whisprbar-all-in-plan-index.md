@@ -21,6 +21,15 @@
 - `docs/superpowers/plans/2026-06-22-track-g-audio-pipeline-cleanup.md`
 - `docs/superpowers/plans/2026-06-22-track-h-onboarding-settings.md`
 
+## Phase 2 Follow-Up Plans
+
+- `docs/superpowers/plans/2026-06-23-whisprbar-phase-2-feature-backlog.md`
+- `docs/superpowers/plans/2026-06-23-track-i-voice-edit-undo.md`
+- `docs/superpowers/plans/2026-06-23-track-j-personal-learning-memory.md`
+- `docs/superpowers/plans/2026-06-23-track-k-voice-macros-command-palette.md`
+- `docs/superpowers/plans/2026-06-23-track-l-review-popover-safety.md`
+- `docs/superpowers/plans/2026-06-23-track-m-mic-language-performance.md`
+
 ## Sequencing
 
 1. Track A first: users should see live text while speaking.
