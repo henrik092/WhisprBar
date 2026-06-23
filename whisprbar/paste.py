@@ -143,21 +143,21 @@ def _detect_auto_paste_sequence_blocking(xdotool: str) -> str:
         xdotool: Path to xdotool executable
 
     Returns:
-        Paste sequence ("ctrl_v" or "ctrl_shift_v")
+        Paste sequence ("ctrl_v", "ctrl_shift_v", or "clipboard")
     """
     # Get active window ID
     try:
         focus = _run_paste_command([xdotool, "getactivewindow"])
     except subprocess.TimeoutExpired:
         debug("xdotool getactivewindow timed out")
-        return "ctrl_v"
+        return "clipboard"
     except (subprocess.SubprocessError, OSError) as exc:
         debug(f"xdotool getactivewindow failed: {exc}")
-        return "ctrl_v"
+        return "clipboard"
 
     if focus.returncode != 0:
         debug(f"xdotool getactivewindow exited with {focus.returncode}")
-        return "ctrl_v"
+        return "clipboard"
 
     # Extract window ID
     try:
@@ -166,7 +166,8 @@ def _detect_auto_paste_sequence_blocking(xdotool: str) -> str:
         win_id = ""
 
     if not win_id or win_id.lower() in {"0x0", "0"}:
-        return "ctrl_v"
+        debug("No active X11 window detected; using clipboard-only paste")
+        return "clipboard"
 
     # Get window name
     try:

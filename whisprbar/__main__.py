@@ -1,5 +1,5 @@
 """Allow running WhisprBar with: python -m whisprbar"""
-from whisprbar.main import main
+from whisprbar.main import cli_main
 
 if __name__ == "__main__":
-    main()
+    cli_main()

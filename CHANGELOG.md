@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Prevented concurrent recording-start races from opening more than one audio stream while the first stream is still initializing.
 - Made diagnostics check the API key required by the selected transcription backend and treat local/offline backends as key-free.
 - Repaired permissions on the per-user WhisprBar temp directory and rejected unsafe temp-path collisions before writing temporary audio files.
+- Routed package and console-script entry points through the shared CLI handler so `python -m whisprbar --version` and installed `whisprbar --version` exit without starting the tray app.
+- Treated missing or undetectable X11 focus windows as clipboard-only paste targets so finished dictation text is kept in the clipboard instead of attempting blind key injection.
 
 ## [1.3.1] - 2026-04-30
 

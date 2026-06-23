@@ -59,7 +59,7 @@ Issues = "https://github.com/henrik092/whisprBar/issues"
 Changelog = "https://github.com/henrik092/whisprBar/blob/main/CHANGELOG.md"
 
 [project.scripts]
-whisprbar = "whisprbar.main:main"
+whisprbar = "whisprbar.main:cli_main"
 
 [tool.setuptools.packages.find]
 include = ["whisprbar*"]

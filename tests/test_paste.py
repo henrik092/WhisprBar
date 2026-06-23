@@ -135,6 +135,17 @@ def test_detect_auto_paste_sequence_terminal_detection(monkeypatch):
 
 
 @pytest.mark.unit
+def test_detect_auto_paste_sequence_no_active_window_returns_clipboard(monkeypatch):
+    """No active X11 window means the transcript should stay in the clipboard."""
+    monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+
+    result = MagicMock(returncode=1, stdout="", stderr="no active window")
+
+    with patch("whisprbar.paste._run_paste_command", return_value=result):
+        assert paste._detect_auto_paste_sequence_blocking("/usr/bin/xdotool") == "clipboard"
+
+
+@pytest.mark.unit
 @pytest.mark.skipif(not paste.PYNPUT_AVAILABLE, reason="pynput backend unavailable")
 def test_simulate_typing():
     """Test simulate_typing calls controller.type()."""
@@ -255,6 +266,25 @@ def test_perform_auto_paste_policy_clipboard_only(monkeypatch, mock_config):
 
     mock_run.assert_not_called()
     assert result.status == "clipboard_only"
+
+
+@pytest.mark.unit
+def test_perform_auto_paste_auto_no_active_window_keeps_clipboard(monkeypatch, mock_config):
+    """Auto mode should not attempt key injection when no focused window exists."""
+    monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    mock_config["paste_sequence"] = "auto"
+    mock_config["paste_delay_ms"] = 0
+    paste.cfg = mock_config
+
+    with patch("whisprbar.paste.copy_to_clipboard", return_value=True) as mock_copy:
+        with patch("whisprbar.paste.detect_auto_paste_sequence", return_value="clipboard"):
+            with patch("subprocess.run") as mock_run:
+                result = paste.perform_auto_paste("Test")
+
+    mock_copy.assert_called_once_with("Test ", silent=False)
+    mock_run.assert_not_called()
+    assert result.status == "clipboard_only"
+    assert result.sequence == "clipboard"
 
 
 @pytest.mark.unit

@@ -1513,9 +1513,14 @@ def main() -> None:
 # Script Entry Point
 # =============================================================================
 
-if __name__ == "__main__":
-    cli_args = parse_args(sys.argv[1:])
+def cli_main(argv: Optional[List[str]] = None) -> None:
+    """Command-line entry point that handles flags before starting the app."""
+    cli_args = parse_args(sys.argv[1:] if argv is None else argv)
     if cli_args.diagnose:
         load_config()
         sys.exit(_run_diagnostics_cli(cfg))
     main()
+
+
+if __name__ == "__main__":
+    cli_main()
