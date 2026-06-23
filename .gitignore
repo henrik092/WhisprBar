@@ -21,6 +21,22 @@ pip-wheel-metadata/
 *.tmp
 .sync_*.db*
 
+# Local/private sample and transcript-learning exports
+/sample/
+/samples/
+/sample_data/
+/sample-*/
+/sample_*/
+/*sample*.wav
+/*sample*.mp3
+/*sample*.m4a
+/*sample*.flac
+/*sample*.ogg
+/*sample*.webm
+/dictionary_candidates.json
+/dictionary_learning_report.md
+/transcripts.sqlite3*
+
 # Local planning docs (not for publication)
 AGENTS.md
 DEPLOY_PLAN.md
