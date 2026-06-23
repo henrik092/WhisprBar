@@ -1336,6 +1336,28 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         help="Run environment diagnostics and exit",
     )
     parser.add_argument(
+        "--learn-dictionary",
+        action="store_true",
+        help="Analyze transcript history and write Flow dictionary candidates, then exit",
+    )
+    parser.add_argument(
+        "--apply-safe-dictionary-candidates",
+        action="store_true",
+        help="With --learn-dictionary, merge only very safe technical-term candidates",
+    )
+    parser.add_argument(
+        "--learning-limit",
+        type=int,
+        default=1000,
+        help="Maximum recent transcript rows to analyze for dictionary learning",
+    )
+    parser.add_argument(
+        "--learning-min-count",
+        type=int,
+        default=2,
+        help="Minimum repeated raw→final replacements required for a candidate",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
@@ -1519,6 +1541,24 @@ def cli_main(argv: Optional[List[str]] = None) -> None:
     if cli_args.diagnose:
         load_config()
         sys.exit(_run_diagnostics_cli(cfg))
+    if cli_args.learn_dictionary:
+        load_config()
+        from whisprbar.flow.learning import run_dictionary_learning
+
+        result = run_dictionary_learning(
+            limit=cli_args.learning_limit,
+            min_count=cli_args.learning_min_count,
+            apply_safe=cli_args.apply_safe_dictionary_candidates,
+        )
+        print(
+            "Dictionary learning complete: "
+            f"{result['sample_count']} samples, "
+            f"{result['candidate_count']} candidates, "
+            f"{result['applied_count']} applied."
+        )
+        print(f"Candidates: {result['candidates_path']}")
+        print(f"Report: {result['report_path']}")
+        sys.exit(0)
     main()
 
 

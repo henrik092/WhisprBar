@@ -84,9 +84,22 @@ Example dictionary file:
 
 ```json
 [
-  {"phrase": "whisper bar", "replacement": "WhisprBar"},
-  {"phrase": "pull request", "replacement": "PR"}
+  {"spoken": "whisper bar", "written": "WhisprBar"},
+  {"spoken": "pull request", "written": "PR"}
 ]
+```
+
+WhisprBar can also analyze the local transcript store and write reviewable dictionary
+candidates without touching the live dictionary:
+
+```bash
+whisprbar --learn-dictionary
+```
+
+To merge only conservative short technical-term candidates automatically:
+
+```bash
+whisprbar --learn-dictionary --apply-safe-dictionary-candidates
 ```
 
 Example snippets file:

@@ -36,3 +36,22 @@ def test_console_script_uses_cli_entry_point():
     metadata = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
 
     assert metadata["project"]["scripts"]["whisprbar"] == "whisprbar.main:cli_main"
+
+
+def test_parse_args_accepts_dictionary_learning_flags():
+    """Dictionary learning should be runnable from CLI without starting the tray app."""
+    import whisprbar.main as main_module
+
+    args = main_module.parse_args([
+        "--learn-dictionary",
+        "--apply-safe-dictionary-candidates",
+        "--learning-limit",
+        "25",
+        "--learning-min-count",
+        "3",
+    ])
+
+    assert args.learn_dictionary is True
+    assert args.apply_safe_dictionary_candidates is True
+    assert args.learning_limit == 25
+    assert args.learning_min_count == 3
